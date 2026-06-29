@@ -193,20 +193,20 @@ $STORAGE_PATH/
 - Create: `server/internal/store/completion.go`
 - Create: `server/internal/store/completion_test.go`
 
-- [ ] Implement `PutCompletionIntent`, `GetCompletionIntent`, `ListCompletionIntents`, and `DeleteCompletionIntent`.
-- [ ] Include `id`, `backend_id`, `src`, `dst`, `dst_rel`, and `created_at` in each intent.
-- [ ] Ensure completion intent writes are durable before any file move.
-- [ ] Add tests for create, list, delete, missing intent, and JSON compatibility.
+- [x] Implement `PutCompletionIntent`, `GetCompletionIntent`, `ListCompletionIntents`, and `DeleteCompletionIntent`.
+- [x] Include `id`, `backend_id`, `src`, `dst`, `dst_rel`, and `created_at` in each intent.
+- [x] Ensure completion intent writes are durable before any file move.
+- [x] Add tests for create, list, delete, missing intent, and JSON compatibility.
 
 ### Task 6: Per-Upload Locking
 **Files:**
 - Create: `server/internal/api/locks.go`
 - Create: `server/internal/api/locks_test.go`
 
-- [ ] Implement a keyed lock registry for upload IDs.
-- [ ] Ensure locks are released on handler return, including error paths.
-- [ ] Use locks for same-process serialization of `PATCH /data`, `PATCH /status`, and `DELETE`.
-- [ ] Add tests that concurrent operations for the same ID serialize while different IDs proceed independently.
+- [x] Implement a keyed lock registry for upload IDs.
+- [x] Ensure locks are released on handler return, including error paths.
+- [x] Use locks for same-process serialization of `PATCH /data`, `PATCH /status`, and `DELETE`.
+- [x] Add tests that concurrent operations for the same ID serialize while different IDs proceed independently.
 
 ### Task 7: Basic Auth Middleware
 **Files:**
