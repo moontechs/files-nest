@@ -3,10 +3,12 @@ package api_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1024,6 +1026,530 @@ func TestHandleGetUpload_FullFieldsReturned(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TUS request helpers
+// ---------------------------------------------------------------------------
+
+// tusHeadRequest sends a TUS HEAD request for the given upload ID.
+func tusHeadRequest(h http.HandlerFunc, id string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest("HEAD", "/uploads/"+id+"/data", nil)
+	req.SetPathValue("id", id)
+	req.Header.Set("Tus-Resumable", "1.0.0")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// tusPatchRequest sends a TUS PATCH request with the given headers and body.
+func tusPatchRequest(h http.HandlerFunc, id string, offset int64, uploadLength string, body io.Reader) *httptest.ResponseRecorder {
+	req := httptest.NewRequest("PATCH", "/uploads/"+id+"/data", body)
+	req.SetPathValue("id", id)
+	req.Header.Set("Content-Type", "application/offset+octet-stream")
+	req.Header.Set("Tus-Resumable", "1.0.0")
+	req.Header.Set("Upload-Offset", fmt.Sprintf("%d", offset))
+	if uploadLength != "" {
+		req.Header.Set("Upload-Length", uploadLength)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// ---------------------------------------------------------------------------
+// HEAD /uploads/:id/data
+// ---------------------------------------------------------------------------
+
+func TestHandleHeadUploadData_Success(t *testing.T) {
+	h, _, _ := setupHandler(t)
+	created := createTestUpload(t, h, "HEAD-SUCCESS/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	rec := tusHeadRequest(h.HandleHeadUploadData, created.ID)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	offsetStr := rec.Header().Get("Upload-Offset")
+	if offsetStr == "" {
+		t.Fatal("expected Upload-Offset header")
+	}
+	if offsetStr != "0" {
+		t.Errorf("expected Upload-Offset 0, got %s", offsetStr)
+	}
+
+	tusVer := rec.Header().Get("Tus-Resumable")
+	if tusVer != "1.0.0" {
+		t.Errorf("expected Tus-Resumable 1.0.0, got %s", tusVer)
+	}
+}
+
+func TestHandleHeadUploadData_NotFound(t *testing.T) {
+	h, _, _ := setupHandler(t)
+
+	nonExistentID := api.SafeID("this-identifier-does-not-exist")
+
+	rec := tusHeadRequest(h.HandleHeadUploadData, nonExistentID)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleHeadUploadData_InvalidID(t *testing.T) {
+	h, _, _ := setupHandler(t)
+
+	rec := tusHeadRequest(h.HandleHeadUploadData, "invalid-short-id")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleHeadUploadData_EmptyID(t *testing.T) {
+	h, _, _ := setupHandler(t)
+
+	req := httptest.NewRequest("HEAD", "/uploads//data", nil)
+	rec := httptest.NewRecorder()
+	h.HandleHeadUploadData(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleHeadUploadData_DeletedUpload(t *testing.T) {
+	h, st, _ := setupHandler(t)
+	created := createTestUpload(t, h, "HEAD-DELETED/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Manually mark as deleted.
+	if _, err := st.UpdateStatus(created.ID, store.StatusDeleted); err != nil {
+		t.Fatalf("UpdateStatus to deleted: %v", err)
+	}
+
+	rec := tusHeadRequest(h.HandleHeadUploadData, created.ID)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for deleted upload, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleHeadUploadData_AfterOffsetChange(t *testing.T) {
+	h, _, _ := setupHandler(t)
+	created := createTestUpload(t, h, "HEAD-OFFSET/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Patch some data to advance the offset.
+	data := []byte("hello, world!")
+	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+	if patchRec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
+	}
+
+	// Now HEAD should show the new offset.
+	rec := tusHeadRequest(h.HandleHeadUploadData, created.ID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HEAD expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	offsetStr := rec.Header().Get("Upload-Offset")
+	expectedOffset := fmt.Sprintf("%d", len(data))
+	if offsetStr != expectedOffset {
+		t.Errorf("expected Upload-Offset %s, got %s", expectedOffset, offsetStr)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /uploads/:id/data
+// ---------------------------------------------------------------------------
+
+func TestHandlePatchUploadData_Success(t *testing.T) {
+	h, _, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-OK/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	data := []byte("hello, world!")
+	rec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, "", strings.NewReader(string(data)))
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	offsetStr := rec.Header().Get("Upload-Offset")
+	if offsetStr == "" {
+		t.Fatal("expected Upload-Offset header")
+	}
+	if offsetStr != fmt.Sprintf("%d", len(data)) {
+		t.Errorf("expected Upload-Offset %d, got %s", len(data), offsetStr)
+	}
+
+	tusVer := rec.Header().Get("Tus-Resumable")
+	if tusVer != "1.0.0" {
+		t.Errorf("expected Tus-Resumable 1.0.0, got %s", tusVer)
+	}
+}
+
+func TestHandlePatchUploadData_MultipleChunks(t *testing.T) {
+	h, _, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-MULTI/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// First chunk.
+	chunk1 := []byte("hello, ")
+	rec1 := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, "", strings.NewReader(string(chunk1)))
+	if rec1.Code != http.StatusNoContent {
+		t.Fatalf("first chunk expected 204, got %d: %s", rec1.Code, rec1.Body.String())
+	}
+	offset1 := rec1.Header().Get("Upload-Offset")
+	if offset1 != fmt.Sprintf("%d", len(chunk1)) {
+		t.Errorf("after first chunk: expected offset %d, got %s", len(chunk1), offset1)
+	}
+
+	// Second chunk.
+	chunk2 := []byte("world!")
+	rec2 := tusPatchRequest(h.HandlePatchUploadData, created.ID, int64(len(chunk1)), "", strings.NewReader(string(chunk2)))
+	if rec2.Code != http.StatusNoContent {
+		t.Fatalf("second chunk expected 204, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+	total := len(chunk1) + len(chunk2)
+	offset2 := rec2.Header().Get("Upload-Offset")
+	if offset2 != fmt.Sprintf("%d", total) {
+		t.Errorf("after second chunk: expected offset %d, got %s", total, offset2)
+	}
+}
+
+func TestHandlePatchUploadData_EmptyBody(t *testing.T) {
+	h, _, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-EMPTY/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	rec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, "", strings.NewReader(""))
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("expected 204 for empty body, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	offsetStr := rec.Header().Get("Upload-Offset")
+	if offsetStr != "0" {
+		t.Errorf("expected offset 0 after empty patch, got %s", offsetStr)
+	}
+}
+
+func TestHandlePatchUploadData_NotFound(t *testing.T) {
+	h, _, _ := setupHandler(t)
+
+	nonExistentID := api.SafeID("this-upload-does-not-exist")
+	rec := tusPatchRequest(h.HandlePatchUploadData, nonExistentID, 0, "", strings.NewReader("data"))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlePatchUploadData_InvalidID(t *testing.T) {
+	h, _, _ := setupHandler(t)
+
+	rec := tusPatchRequest(h.HandlePatchUploadData, "bad-id", 0, "", strings.NewReader("data"))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlePatchUploadData_WrongContentType(t *testing.T) {
+	h, _, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-CT/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Send a PATCH with JSON content type (wrong for TUS).
+	req := httptest.NewRequest("PATCH", "/uploads/"+created.ID+"/data", strings.NewReader("data"))
+	req.SetPathValue("id", created.ID)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Tus-Resumable", "1.0.0")
+	req.Header.Set("Upload-Offset", "0")
+	rec := httptest.NewRecorder()
+	h.HandlePatchUploadData(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for wrong Content-Type, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlePatchUploadData_MissingUploadOffset(t *testing.T) {
+	h, _, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-NOOFFSET/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	req := httptest.NewRequest("PATCH", "/uploads/"+created.ID+"/data", strings.NewReader("data"))
+	req.SetPathValue("id", created.ID)
+	req.Header.Set("Content-Type", "application/offset+octet-stream")
+	req.Header.Set("Tus-Resumable", "1.0.0")
+	// No Upload-Offset header.
+	rec := httptest.NewRecorder()
+	h.HandlePatchUploadData(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing Upload-Offset, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlePatchUploadData_OffsetMismatch(t *testing.T) {
+	h, _, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-MISMATCH/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Send a PATCH claiming offset 42 when the real offset is 0.
+	rec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 42, "", strings.NewReader("data"))
+	if rec.Code != http.StatusConflict {
+		t.Errorf("expected 409 for offset mismatch, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlePatchUploadData_UploadCompleted(t *testing.T) {
+	h, st, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-COMPLETED/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Manually mark as complete.
+	if _, err := st.UpdateStatus(created.ID, store.StatusComplete); err != nil {
+		t.Fatalf("UpdateStatus to complete: %v", err)
+	}
+
+	rec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, "", strings.NewReader("data"))
+	if rec.Code != http.StatusConflict {
+		t.Errorf("expected 409 for completed upload, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlePatchUploadData_UploadDeleted(t *testing.T) {
+	h, st, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-DELETED/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Manually mark as deleted.
+	if _, err := st.UpdateStatus(created.ID, store.StatusDeleted); err != nil {
+		t.Fatalf("UpdateStatus to deleted: %v", err)
+	}
+
+	rec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, "", strings.NewReader("data"))
+	if rec.Code != http.StatusConflict {
+		t.Errorf("expected 409 for deleted upload, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlePatchUploadData_InvalidUploadOffset(t *testing.T) {
+	h, _, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-INVALOFFSET/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	req := httptest.NewRequest("PATCH", "/uploads/"+created.ID+"/data", strings.NewReader("data"))
+	req.SetPathValue("id", created.ID)
+	req.Header.Set("Content-Type", "application/offset+octet-stream")
+	req.Header.Set("Tus-Resumable", "1.0.0")
+	req.Header.Set("Upload-Offset", "not-a-number")
+	rec := httptest.NewRecorder()
+	h.HandlePatchUploadData(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid Upload-Offset, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /uploads/:id/data — deferred-length finalization
+// ---------------------------------------------------------------------------
+
+func TestHandlePatchUploadData_DeferredLengthFinalization(t *testing.T) {
+	h, _, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-DEFERRED/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Upload data with Upload-Length header to declare the final size.
+	data := []byte("complete upload content")
+	rec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH with Upload-Length expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	offsetStr := rec.Header().Get("Upload-Offset")
+	if offsetStr != fmt.Sprintf("%d", len(data)) {
+		t.Errorf("expected offset %d, got %s", len(data), offsetStr)
+	}
+
+	// Verify via HEAD that the offset matches.
+	headRec := tusHeadRequest(h.HandleHeadUploadData, created.ID)
+	if headRec.Code != http.StatusOK {
+		t.Fatalf("HEAD after finalization expected 200, got %d: %s", headRec.Code, headRec.Body.String())
+	}
+	finalOffset := headRec.Header().Get("Upload-Offset")
+	if finalOffset != fmt.Sprintf("%d", len(data)) {
+		t.Errorf("HEAD offset after finalization: expected %s, got %s", fmt.Sprintf("%d", len(data)), finalOffset)
+	}
+}
+
+func TestHandlePatchUploadData_MultiChunkWithFinalization(t *testing.T) {
+	h, _, bh := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-FINALIZE/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// First chunk (no Upload-Length yet).
+	chunk1 := []byte("hello ")
+	rec1 := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, "", strings.NewReader(string(chunk1)))
+	if rec1.Code != http.StatusNoContent {
+		t.Fatalf("first chunk expected 204, got %d: %s", rec1.Code, rec1.Body.String())
+	}
+	offset1 := rec1.Header().Get("Upload-Offset")
+	if offset1 != fmt.Sprintf("%d", len(chunk1)) {
+		t.Errorf("after chunk1: expected offset %d, got %s", len(chunk1), offset1)
+	}
+
+	// Verify still deferred.
+	info, err := bh.GetInfo(created.BackendID)
+	if err != nil {
+		t.Fatalf("GetInfo: %v", err)
+	}
+	if !info.SizeIsDeferred {
+		t.Error("expected size to still be deferred after first chunk")
+	}
+
+	// Second chunk with Upload-Length to finalize.
+	chunk2 := []byte("world!!")
+	total := len(chunk1) + len(chunk2)
+	rec2 := tusPatchRequest(h.HandlePatchUploadData, created.ID, int64(len(chunk1)), fmt.Sprintf("%d", total), strings.NewReader(string(chunk2)))
+	if rec2.Code != http.StatusNoContent {
+		t.Fatalf("second chunk expected 204, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+	offset2 := rec2.Header().Get("Upload-Offset")
+	if offset2 != fmt.Sprintf("%d", total) {
+		t.Errorf("after chunk2: expected offset %d, got %s", total, offset2)
+	}
+
+	// Verify no longer deferred and offset == length.
+	info2, err := bh.GetInfo(created.BackendID)
+	if err != nil {
+		t.Fatalf("GetInfo after finalization: %v", err)
+	}
+	if info2.SizeIsDeferred {
+		t.Error("expected size to be known after finalization")
+	}
+	if info2.Offset != int64(total) {
+		t.Errorf("expected offset %d, got %d", total, info2.Offset)
+	}
+	if info2.Size != int64(total) {
+		t.Errorf("expected size %d, got %d", total, info2.Size)
+	}
+
+	// Verify IsComplete returns true.
+	complete, err := bh.IsComplete(created.BackendID)
+	if err != nil {
+		t.Fatalf("IsComplete: %v", err)
+	}
+	if !complete {
+		t.Error("expected IsComplete to return true")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /uploads/:id/data — backend_lost detection
+// ---------------------------------------------------------------------------
+
+func TestHandlePatchUploadData_BackendLost(t *testing.T) {
+	h, st, bh := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-LOST/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Manually terminate the upload in the backend to simulate backend_lost.
+	if err := bh.TerminateOrCleanup(created.BackendID); err != nil && err != uploadbackend.ErrNotFound {
+		t.Fatalf("TerminateOrCleanup: %v", err)
+	}
+
+	// Now PATCH should return 409 with backend_lost.
+	rec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, "", strings.NewReader("data"))
+	if rec.Code != http.StatusConflict {
+		t.Errorf("expected 409 for backend_lost, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var errResp map[string]string
+	decodeResponse(t, rec, &errResp)
+	if errResp["error"] != "backend_lost" {
+		t.Errorf("expected error 'backend_lost', got %q", errResp["error"])
+	}
+
+	// Verify the DB record was updated to backend_lost.
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.Status != store.StatusBackendLost {
+		t.Errorf("expected status backend_lost, got %q", upload.Status)
+	}
+}
+
+func TestHandleHeadUploadData_BackendLost(t *testing.T) {
+	h, st, bh := setupHandler(t)
+	created := createTestUpload(t, h, "HEAD-LOST/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Manually terminate the upload in the backend.
+	if err := bh.TerminateOrCleanup(created.BackendID); err != nil && err != uploadbackend.ErrNotFound {
+		t.Fatalf("TerminateOrCleanup: %v", err)
+	}
+
+	rec := tusHeadRequest(h.HandleHeadUploadData, created.ID)
+	if rec.Code != http.StatusConflict {
+		t.Errorf("expected 409 for backend_lost, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var errResp map[string]string
+	decodeResponse(t, rec, &errResp)
+	if errResp["error"] != "backend_lost" {
+		t.Errorf("expected error 'backend_lost', got %q", errResp["error"])
+	}
+
+	// Verify the DB record was updated to backend_lost.
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.Status != store.StatusBackendLost {
+		t.Errorf("expected status backend_lost, got %q", upload.Status)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Same-ID serialization: concurrent PATCH /data operations
+// ---------------------------------------------------------------------------
+
+func TestHandlePatchUploadData_SameIDSerialization(t *testing.T) {
+	h, _, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-SERIAL/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Launch two goroutines that each PATCH data simultaneously.
+	// They should not race or produce corrupt offsets.
+	errCh := make(chan error, 2)
+
+	for i := 0; i < 2; i++ {
+		go func(seq int) {
+			// Both goroutines start at offset 0, but only one should succeed.
+			// Since they both claim offset 0, one will get a conflict.
+			// Actually, the first one succeeds and advances offset.
+			// The second one will get offset mismatch (client says 0, server says len(chunk)).
+			// This is expected behavior for concurrent patches.
+			data := fmt.Sprintf("chunk-%d", seq)
+			rec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, "", strings.NewReader(data))
+			if rec.Code == http.StatusNoContent {
+				// Success — should see offset = len(data)
+				offsetStr := rec.Header().Get("Upload-Offset")
+				if offsetStr != fmt.Sprintf("%d", len(data)) {
+					errCh <- fmt.Errorf("expected offset %d, got %s", len(data), offsetStr)
+					return
+				}
+			} else if rec.Code == http.StatusConflict {
+				// Expected: second goroutine got offset mismatch.
+				// This is fine — no data corruption.
+			} else {
+				errCh <- fmt.Errorf("unexpected status %d: %s", rec.Code, rec.Body.String())
+				return
+			}
+			errCh <- nil
+		}(i)
+	}
+
+	for i := 0; i < 2; i++ {
+		if err := <-errCh; err != nil {
+			t.Errorf("goroutine %d: %v", i, err)
+		}
+	}
+
+	// Final offset should be 0 (neither succeeded) or 7 (one of the goroutines succeeded,
+	// since both "chunk-0" and "chunk-1" are 7 bytes).
+	headRec := tusHeadRequest(h.HandleHeadUploadData, created.ID)
+	if headRec.Code != http.StatusOK {
+		t.Fatalf("HEAD after concurrent patches: expected 200, got %d: %s", headRec.Code, headRec.Body.String())
+	}
+	offsetStr := headRec.Header().Get("Upload-Offset")
+	if offsetStr != "0" && offsetStr != "7" {
+		t.Errorf("final offset %s is neither 0 (no success) nor 7 (one succeeded)", offsetStr)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Untyped response types (used for decoding in tests)
 // ---------------------------------------------------------------------------
 
@@ -1032,3 +1558,463 @@ type CreateUploadResponse = api.CreateUploadResponse
 
 // ListUploadsResponse mirrors the handler's response type for test decoding.
 type ListUploadsResponse = api.ListUploadsResponse
+
+// ---------------------------------------------------------------------------
+// PATCH /status helpers
+// ---------------------------------------------------------------------------
+
+// statusPatchRequest sends a PATCH /uploads/:id/status request with the given
+// JSON body.
+func statusPatchRequest(h http.HandlerFunc, id, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest("PATCH", "/uploads/"+id+"/status", strings.NewReader(body))
+	req.SetPathValue("id", id)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// ---------------------------------------------------------------------------
+// DELETE helpers
+// ---------------------------------------------------------------------------
+
+// deleteUploadRequest sends a DELETE /uploads/:id request.
+func deleteUploadRequest(h http.HandlerFunc, id string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest("DELETE", "/uploads/"+id, nil)
+	req.SetPathValue("id", id)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /uploads/:id/status
+// ---------------------------------------------------------------------------
+
+func TestHandlePatchUploadStatus_Success(t *testing.T) {
+	h, st, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-STATUS-OK/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Upload all data with Upload-Length header to finalize the deferred-length
+	// upload. This makes IsComplete return true.
+	data := []byte("complete upload content for status test")
+	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
+		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+	if patchRec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
+	}
+
+	// Mark complete.
+	rec := statusPatchRequest(h.HandlePatchUploadStatus, created.ID, `{"status": "complete"}`)
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("PATCH status expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify DB record is now complete.
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.Status != store.StatusComplete {
+		t.Errorf("expected status complete, got %q", upload.Status)
+	}
+	if upload.OrganizedPath == "" {
+		t.Error("expected non-empty organized_path")
+	}
+}
+
+func TestHandlePatchUploadStatus_UploadIncomplete(t *testing.T) {
+	h, _, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-STATUS-INCOMPLETE/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Upload some data WITHOUT Upload-Length header — the upload stays deferred
+	// so IsComplete returns false.
+	data := []byte("partial data")
+	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, "", strings.NewReader(string(data)))
+	if patchRec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
+	}
+
+	// Try to mark complete — should fail because upload is not finalized.
+	rec := statusPatchRequest(h.HandlePatchUploadStatus, created.ID, `{"status": "complete"}`)
+	if rec.Code != http.StatusConflict {
+		t.Errorf("expected 409 for incomplete upload, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var errResp map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if errResp["error"] != "upload_incomplete" {
+		t.Errorf("expected error 'upload_incomplete', got %q", errResp["error"])
+	}
+}
+
+func TestHandlePatchUploadStatus_InvalidStatus(t *testing.T) {
+	h, _, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-STATUS-BAD/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Send status=deleted (not accepted).
+	rec := statusPatchRequest(h.HandlePatchUploadStatus, created.ID, `{"status": "deleted"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid status, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var errResp map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if errResp["error"] == "" || !strings.Contains(errResp["error"], "must be 'complete'") {
+		t.Errorf("expected error about 'complete', got %q", errResp["error"])
+	}
+}
+
+func TestHandlePatchUploadStatus_InvalidJSON(t *testing.T) {
+	h, _, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-STATUS-INVALJSON/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	rec := statusPatchRequest(h.HandlePatchUploadStatus, created.ID, `{invalid json}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid JSON, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlePatchUploadStatus_NotFound(t *testing.T) {
+	h, _, _ := setupHandler(t)
+
+	nonExistentID := api.SafeID("this-upload-does-not-exist-for-status")
+	rec := statusPatchRequest(h.HandlePatchUploadStatus, nonExistentID, `{"status": "complete"}`)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlePatchUploadStatus_AlreadyComplete(t *testing.T) {
+	h, st, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-STATUS-ALRDY/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Manually mark as complete.
+	if _, err := st.UpdateStatus(created.ID, store.StatusComplete); err != nil {
+		t.Fatalf("UpdateStatus to complete: %v", err)
+	}
+
+	rec := statusPatchRequest(h.HandlePatchUploadStatus, created.ID, `{"status": "complete"}`)
+	if rec.Code != http.StatusConflict {
+		t.Errorf("expected 409 for already complete, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var errResp map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if errResp["error"] != "upload already completed" {
+		t.Errorf("expected error 'upload already completed', got %q", errResp["error"])
+	}
+}
+
+func TestHandlePatchUploadStatus_Deleted(t *testing.T) {
+	h, st, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-STATUS-DEL/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Manually mark as deleted.
+	if _, err := st.UpdateStatus(created.ID, store.StatusDeleted); err != nil {
+		t.Fatalf("UpdateStatus to deleted: %v", err)
+	}
+
+	rec := statusPatchRequest(h.HandlePatchUploadStatus, created.ID, `{"status": "complete"}`)
+	if rec.Code != http.StatusConflict {
+		t.Errorf("expected 409 for deleted, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var errResp map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if errResp["error"] != "upload already deleted" {
+		t.Errorf("expected error 'upload already deleted', got %q", errResp["error"])
+	}
+}
+
+func TestHandlePatchUploadStatus_BackendLost(t *testing.T) {
+	h, st, bh := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-STATUS-LOST/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Manually terminate the backend upload.
+	if err := bh.TerminateOrCleanup(created.BackendID); err != nil && err != uploadbackend.ErrNotFound {
+		t.Fatalf("TerminateOrCleanup: %v", err)
+	}
+
+	rec := statusPatchRequest(h.HandlePatchUploadStatus, created.ID, `{"status": "complete"}`)
+	if rec.Code != http.StatusConflict {
+		t.Errorf("expected 409 for backend_lost, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var errResp map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if errResp["error"] != "backend_lost" {
+		t.Errorf("expected error 'backend_lost', got %q", errResp["error"])
+	}
+
+	// Verify DB record was updated to backend_lost.
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.Status != store.StatusBackendLost {
+		t.Errorf("expected status backend_lost, got %q", upload.Status)
+	}
+}
+
+func TestHandlePatchUploadStatus_EmptyID(t *testing.T) {
+	h, _, _ := setupHandler(t)
+
+	req := httptest.NewRequest("PATCH", "/uploads//status", strings.NewReader(`{"status": "complete"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.HandlePatchUploadStatus(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty ID, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlePatchUploadStatus_InvalidID(t *testing.T) {
+	h, _, _ := setupHandler(t)
+
+	rec := statusPatchRequest(h.HandlePatchUploadStatus, "bad", `{"status": "complete"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid ID, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /uploads/:id
+// ---------------------------------------------------------------------------
+
+func TestHandleDeleteUpload_Success(t *testing.T) {
+	h, st, _ := setupHandler(t)
+	created := createTestUpload(t, h, "DELETE-OK/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	rec := deleteUploadRequest(h.HandleDeleteUpload, created.ID)
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify DB record is now deleted.
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.Status != store.StatusDeleted {
+		t.Errorf("expected status deleted, got %q", upload.Status)
+	}
+}
+
+func TestHandleDeleteUpload_NotFound(t *testing.T) {
+	h, _, _ := setupHandler(t)
+
+	nonExistentID := api.SafeID("this-upload-does-not-exist-for-delete")
+	rec := deleteUploadRequest(h.HandleDeleteUpload, nonExistentID)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleDeleteUpload_AlreadyDeleted(t *testing.T) {
+	h, st, _ := setupHandler(t)
+	created := createTestUpload(t, h, "DELETE-AGAIN/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// First delete.
+	rec1 := deleteUploadRequest(h.HandleDeleteUpload, created.ID)
+	if rec1.Code != http.StatusNoContent {
+		t.Fatalf("first delete expected 204, got %d: %s", rec1.Code, rec1.Body.String())
+	}
+
+	// Second delete — should still return 204 (idempotent).
+	rec2 := deleteUploadRequest(h.HandleDeleteUpload, created.ID)
+	if rec2.Code != http.StatusNoContent {
+		t.Errorf("second delete expected 204, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+
+	// Verify still deleted.
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.Status != store.StatusDeleted {
+		t.Errorf("expected status deleted, got %q", upload.Status)
+	}
+}
+
+func TestHandleDeleteUpload_BackendGone(t *testing.T) {
+	h, st, bh := setupHandler(t)
+	created := createTestUpload(t, h, "DELETE-GONE/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Manually terminate the backend.
+	if err := bh.TerminateOrCleanup(created.BackendID); err != nil && err != uploadbackend.ErrNotFound {
+		t.Fatalf("TerminateOrCleanup: %v", err)
+	}
+
+	// Delete should still succeed — ErrNotFound from backend is ignored.
+	rec := deleteUploadRequest(h.HandleDeleteUpload, created.ID)
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("expected 204 when backend already gone, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify DB record is deleted.
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.Status != store.StatusDeleted {
+		t.Errorf("expected status deleted, got %q", upload.Status)
+	}
+}
+
+func TestHandleDeleteUpload_CompleteUpload(t *testing.T) {
+	h, st, _ := setupHandler(t)
+	created := createTestUpload(t, h, "DELETE-COMPLETE/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Manually mark as complete.
+	if _, err := st.UpdateStatus(created.ID, store.StatusComplete); err != nil {
+		t.Fatalf("UpdateStatus to complete: %v", err)
+	}
+
+	// Delete should succeed.
+	rec := deleteUploadRequest(h.HandleDeleteUpload, created.ID)
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("expected 204 for completed upload, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.Status != store.StatusDeleted {
+		t.Errorf("expected status deleted, got %q", upload.Status)
+	}
+}
+
+func TestHandleDeleteUpload_EmptyID(t *testing.T) {
+	h, _, _ := setupHandler(t)
+
+	req := httptest.NewRequest("DELETE", "/uploads/", nil)
+	rec := httptest.NewRecorder()
+	h.HandleDeleteUpload(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty ID, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleDeleteUpload_InvalidID(t *testing.T) {
+	h, _, _ := setupHandler(t)
+
+	rec := deleteUploadRequest(h.HandleDeleteUpload, "bad")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid ID, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /uploads/:id/status — verify file moved and tusd cleaned up
+// ---------------------------------------------------------------------------
+
+func TestHandlePatchUploadStatus_FileMoved(t *testing.T) {
+	h, st, bh := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-STATUS-MOVED/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Upload all data.
+	data := []byte("file content for move verification")
+	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
+		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+	if patchRec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
+	}
+
+	// Mark complete.
+	rec := statusPatchRequest(h.HandlePatchUploadStatus, created.ID, `{"status": "complete"}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH status expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify file exists in organized directory.
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.OrganizedPath == "" {
+		t.Fatal("expected non-empty organized_path")
+	}
+
+	// The storage path for the handler is tusDir (from setupHandler).
+	// We don't have direct access to tusDir here, but we can check that
+	// the organized path is reasonable and the file exists by using the
+	// storage path from the handler's perspective.
+	if !strings.HasPrefix(upload.OrganizedPath, "organized/") {
+		t.Errorf("organized_path should start with 'organized/', got %q", upload.OrganizedPath)
+	}
+
+	// Verify the tusd backend was cleaned up.
+	_, err = bh.GetInfo(created.BackendID)
+	if !errors.Is(err, uploadbackend.ErrNotFound) {
+		t.Errorf("expected backend to be cleaned up after completion, got %v", err)
+	}
+}
+
+func TestHandlePatchUploadStatus_FileContentPreserved(t *testing.T) {
+	h, st, bh := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-STATUS-CONTENT/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Upload known content.
+	data := []byte("test content that should be preserved after move")
+	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
+		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+	if patchRec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
+	}
+
+	// Get the initial file path.
+	srcPath, err := bh.FilePath(created.BackendID)
+	if err != nil {
+		t.Fatalf("FilePath before completion: %v", err)
+	}
+
+	// Read content from source.
+	originalContent, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("ReadFile source: %v", err)
+	}
+	if string(originalContent) != string(data) {
+		t.Fatalf("source content mismatch: got %q, want %q", string(originalContent), string(data))
+	}
+
+	// Mark complete.
+	rec := statusPatchRequest(h.HandlePatchUploadStatus, created.ID, `{"status": "complete"}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH status expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// The source file should no longer exist in the incoming directory.
+	if _, err := os.Stat(srcPath); err == nil {
+		t.Error("source file should not exist after completion (should be moved)")
+	} else if !os.IsNotExist(err) {
+		t.Errorf("unexpected error checking source file: %v", err)
+	}
+
+	// Verify the organized path file content matches.
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload after completion: %v", err)
+	}
+	organizedAbsPath := filepath.Join(h.StoragePath(), upload.OrganizedPath)
+	movedContent, err := os.ReadFile(organizedAbsPath)
+	if err != nil {
+		t.Fatalf("ReadFile organized: %v", err)
+	}
+	if string(movedContent) != string(data) {
+		t.Errorf("moved content mismatch: got %q, want %q", string(movedContent), string(data))
+	}
+}

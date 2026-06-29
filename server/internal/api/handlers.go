@@ -6,8 +6,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -229,6 +232,12 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, uploadToResponse(upload))
 }
 
+// StoragePath returns the storage root path used by the handler for
+// organizing completed files. Exported for test access.
+func (h *Handler) StoragePath() string {
+	return h.storagePath
+}
+
 // uploadToResponse converts a store.Upload to a CreateUploadResponse for
 // the POST /uploads endpoint.
 func uploadToResponse(u *store.Upload) CreateUploadResponse {
@@ -374,6 +383,432 @@ func (h *Handler) HandleGetUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, upload)
+}
+
+// ---------------------------------------------------------------------------
+// HEAD /uploads/:id/data
+// ---------------------------------------------------------------------------
+
+// HandleHeadUploadData handles HEAD /uploads/:id/data. It looks up the upload
+// record by its safe ID, fetches the current upload offset from the tusd
+// backend, and returns TUS protocol headers (Upload-Offset, Tus-Resumable).
+//
+// If the backend reports the upload as not found (ErrNotFound), the upload
+// record is updated to backend_lost and a 409 Conflict is returned.
+func (h *Handler) HandleHeadUploadData(w http.ResponseWriter, r *http.Request) {
+	id := extractID(r)
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing upload id")
+		return
+	}
+
+	if err := ValidateSafeID(id); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid upload id: "+err.Error())
+		return
+	}
+
+	upload, err := h.store.GetUpload(id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "upload not found")
+			return
+		}
+		log.Printf("GetUpload failed for %s: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "failed to get upload")
+		return
+	}
+
+	// Treat deleted records as not found.
+	if upload.Status == store.StatusDeleted {
+		writeError(w, http.StatusNotFound, "upload not found")
+		return
+	}
+
+	offset, err := h.backend.GetOffset(upload.BackendID)
+	if err != nil {
+		if errors.Is(err, uploadbackend.ErrNotFound) {
+			h.handleBackendLost(w, r, upload)
+			return
+		}
+		log.Printf("GetOffset failed for backend %s: %v", upload.BackendID, err)
+		writeError(w, http.StatusInternalServerError, "failed to get upload offset")
+		return
+	}
+
+	w.Header().Set("Upload-Offset", strconv.FormatInt(offset, 10))
+	w.Header().Set("Tus-Resumable", "1.0.0")
+	w.WriteHeader(http.StatusOK)
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /uploads/:id/data
+// ---------------------------------------------------------------------------
+
+// HandlePatchUploadData handles PATCH /uploads/:id/data. It forwards the
+// request body and standard TUS headers (Upload-Offset, Upload-Length,
+// Content-Type) to the embedded tusd backend for data transfer.
+//
+// The per-upload lock is acquired to prevent concurrent PATCH /data,
+// PATCH /status, and DELETE operations on the same upload.
+//
+// If the upload record shows a completed or deleted status, a 409 Conflict
+// is returned. If the backend reports the upload as not found, the record
+// is updated to backend_lost and a 409 Conflict is returned.
+func (h *Handler) HandlePatchUploadData(w http.ResponseWriter, r *http.Request) {
+	id := extractID(r)
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing upload id")
+		return
+	}
+
+	if err := ValidateSafeID(id); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid upload id: "+err.Error())
+		return
+	}
+
+	h.locks.Lock(id)
+	defer h.locks.Unlock(id)
+
+	upload, err := h.store.GetUpload(id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "upload not found")
+			return
+		}
+		log.Printf("GetUpload failed for %s: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "failed to get upload")
+		return
+	}
+
+	// Reject operations on non-uploading records.
+	switch upload.Status {
+	case store.StatusUploading:
+		// OK — proceed.
+	case store.StatusComplete, store.StatusDeleted:
+		writeError(w, http.StatusConflict, "upload already completed or deleted")
+		return
+	default:
+		writeError(w, http.StatusConflict, "upload not in uploading state")
+		return
+	}
+
+	// Validate Content-Type per the TUS protocol.
+	if r.Header.Get("Content-Type") != "application/offset+octet-stream" {
+		writeError(w, http.StatusBadRequest, "Content-Type must be application/offset+octet-stream")
+		return
+	}
+
+	// Parse the Upload-Offset header from the request.
+	offsetStr := r.Header.Get("Upload-Offset")
+	if offsetStr == "" {
+		writeError(w, http.StatusBadRequest, "Upload-Offset header is required")
+		return
+	}
+	requestOffset, err := strconv.ParseInt(offsetStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid Upload-Offset: "+err.Error())
+		return
+	}
+
+	// Get the current offset from the backend to verify it matches.
+	currentOffset, err := h.backend.GetOffset(upload.BackendID)
+	if err != nil {
+		if errors.Is(err, uploadbackend.ErrNotFound) {
+			h.handleBackendLost(w, r, upload)
+			return
+		}
+		log.Printf("GetOffset failed for backend %s: %v", upload.BackendID, err)
+		writeError(w, http.StatusInternalServerError, "failed to get upload offset")
+		return
+	}
+
+	if requestOffset != currentOffset {
+		writeError(w, http.StatusConflict,
+			fmt.Sprintf("offset mismatch: client=%d, server=%d", requestOffset, currentOffset))
+		return
+	}
+
+	// Forward Upload-Length if present (declares final size for deferred-length uploads).
+	uploadLength := r.Header.Get("Upload-Length")
+
+	// Forward the PATCH to the embedded tusd backend.
+	newOffset, err := h.backend.ForwardPatch(upload.BackendID, r.Body, currentOffset, uploadLength)
+	if err != nil {
+		if errors.Is(err, uploadbackend.ErrNotFound) {
+			h.handleBackendLost(w, r, upload)
+			return
+		}
+		if errors.Is(err, uploadbackend.ErrInvalidOffset) {
+			writeError(w, http.StatusConflict, "offset mismatch")
+			return
+		}
+		log.Printf("ForwardPatch failed for backend %s: %v", upload.BackendID, err)
+		writeError(w, http.StatusInternalServerError, "failed to write upload data")
+		return
+	}
+
+	w.Header().Set("Upload-Offset", strconv.FormatInt(newOffset, 10))
+	w.Header().Set("Tus-Resumable", "1.0.0")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /uploads/:id/status
+// ---------------------------------------------------------------------------
+
+// HandlePatchUploadStatus handles PATCH /uploads/:id/status. It only accepts
+// {"status": "complete"} to mark an upload as complete. Before marking
+// complete, it verifies the tusd backend reports the upload as fully uploaded
+// (known length, offset == length), then moves the file from the incoming
+// directory to the organized tree, updates the DB record, and cleans up
+// the tusd sidecar.
+func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request) {
+	id := extractID(r)
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing upload id")
+		return
+	}
+
+	if err := ValidateSafeID(id); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid upload id: "+err.Error())
+		return
+	}
+
+	h.locks.Lock(id)
+	defer h.locks.Unlock(id)
+
+	upload, err := h.store.GetUpload(id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "upload not found")
+			return
+		}
+		log.Printf("GetUpload failed for %s: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "failed to get upload")
+		return
+	}
+
+	// Only allow completion from the uploading state.
+	if upload.Status != store.StatusUploading {
+		switch upload.Status {
+		case store.StatusComplete:
+			writeError(w, http.StatusConflict, "upload already completed")
+		case store.StatusDeleted:
+			writeError(w, http.StatusConflict, "upload already deleted")
+		case store.StatusBackendLost:
+			writeError(w, http.StatusConflict, "backend_lost")
+		default:
+			writeError(w, http.StatusConflict, "upload not in uploading state")
+		}
+		return
+	}
+
+	// Parse the request body: only {"status": "complete"} is accepted.
+	var req struct {
+		Status string `json:"status"`
+	}
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Status != "complete" {
+		writeError(w, http.StatusBadRequest, "status must be 'complete'")
+		return
+	}
+
+	// Verify the tusd backend reports the upload as fully uploaded.
+	complete, err := h.backend.IsComplete(upload.BackendID)
+	if err != nil {
+		if errors.Is(err, uploadbackend.ErrNotFound) {
+			h.handleBackendLost(w, r, upload)
+			return
+		}
+		log.Printf("IsComplete failed for backend %s: %v", upload.BackendID, err)
+		writeError(w, http.StatusInternalServerError, "failed to check upload completion")
+		return
+	}
+	if !complete {
+		writeError(w, http.StatusConflict, "upload_incomplete")
+		return
+	}
+
+	// Get the source file path from the tusd backend.
+	srcPath, err := h.backend.FilePath(upload.BackendID)
+	if err != nil {
+		if errors.Is(err, uploadbackend.ErrNotFound) {
+			h.handleBackendLost(w, r, upload)
+			return
+		}
+		log.Printf("FilePath failed for backend %s: %v", upload.BackendID, err)
+		writeError(w, http.StatusInternalServerError, "failed to get file path")
+		return
+	}
+
+	// Compose the destination organized path.
+	// Use creation_date, falling back to created_at if empty.
+	creationDate := upload.CreationDate
+	if creationDate == "" {
+		creationDate = upload.CreatedAt
+	}
+	relPath, dstPath := organizedPath(h.storagePath, creationDate, upload.Filename)
+
+	// If the destination already exists, insert the backend_id before the
+	// extension to create a unique path (e.g. IMG_0001_<backend_id>.jpg).
+	if _, err := os.Stat(dstPath); err == nil {
+		ext := filepath.Ext(dstPath)
+		base := strings.TrimSuffix(dstPath, ext)
+		dstPath = base + "_" + upload.BackendID + ext
+	}
+
+	// Save a completion intent for crash recovery. If the server crashes
+	// between the file move and the DB update, the intent is recovered on
+	// the next startup.
+	intent := &store.CompletionIntent{
+		ID:        upload.ID,
+		BackendID: upload.BackendID,
+		Src:       srcPath,
+		Dst:       dstPath,
+		DstRel:    relPath,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	if err := h.store.SaveCompletionIntent(intent); err != nil {
+		log.Printf("failed to save completion intent for %s: %v", upload.ID, err)
+		writeError(w, http.StatusInternalServerError, "failed to prepare completion")
+		return
+	}
+
+	// Ensure the destination directory exists.
+	if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+		log.Printf("failed to create directory %s: %v", filepath.Dir(dstPath), err)
+		writeError(w, http.StatusInternalServerError, "failed to create destination directory")
+		return
+	}
+
+	// Move the completed file from incoming to organized.
+	if err := os.Rename(srcPath, dstPath); err != nil {
+		log.Printf("failed to move file %s -> %s: %v", srcPath, dstPath, err)
+		writeError(w, http.StatusInternalServerError, "failed to move file")
+		return
+	}
+
+	// Update the DB record to complete with the organized path.
+	if _, err := h.store.UpdateComplete(upload.ID, relPath); err != nil {
+		log.Printf("failed to update status to complete for %s: %v", upload.ID, err)
+		writeError(w, http.StatusInternalServerError, "failed to complete upload")
+		return
+	}
+
+	// Delete the completion intent now that the DB is consistent.
+	if delErr := h.store.DeleteCompletionIntent(upload.ID); delErr != nil {
+		log.Printf("failed to delete completion intent for %s: %v", upload.ID, delErr)
+	}
+
+	// Best-effort cleanup of the tusd sidecar (.info file).
+	if termErr := h.backend.TerminateOrCleanup(upload.BackendID); termErr != nil && !errors.Is(termErr, uploadbackend.ErrNotFound) {
+		log.Printf("failed to terminate tusd upload %s after completion: %v", upload.BackendID, termErr)
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /uploads/:id
+// ---------------------------------------------------------------------------
+
+// HandleDeleteUpload handles DELETE /uploads/:id. It terminates the upload
+// in the tusd backend (ignoring ErrNotFound since the backend may already
+// be gone), then updates the record status to deleted.
+func (h *Handler) HandleDeleteUpload(w http.ResponseWriter, r *http.Request) {
+	id := extractID(r)
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing upload id")
+		return
+	}
+
+	if err := ValidateSafeID(id); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid upload id: "+err.Error())
+		return
+	}
+
+	h.locks.Lock(id)
+	defer h.locks.Unlock(id)
+
+	upload, err := h.store.GetUpload(id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "upload not found")
+			return
+		}
+		log.Printf("GetUpload failed for %s: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "failed to get upload")
+		return
+	}
+
+	// If already deleted, return success immediately.
+	if upload.Status == store.StatusDeleted {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Terminate the tusd backend upload. Ignore ErrNotFound — the backend
+	// may already be gone (e.g. after a completed upload was moved or a
+	// previous partial cleanup).
+	if termErr := h.backend.TerminateOrCleanup(upload.BackendID); termErr != nil && !errors.Is(termErr, uploadbackend.ErrNotFound) {
+		log.Printf("failed to terminate tusd upload %s during delete: %v", upload.BackendID, termErr)
+	}
+
+	// Update the DB record status to deleted.
+	if _, err := h.store.UpdateStatus(upload.ID, store.StatusDeleted); err != nil {
+		log.Printf("failed to update status to deleted for %s: %v", upload.ID, err)
+		writeError(w, http.StatusInternalServerError, "failed to delete upload")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// handleBackendLost updates the upload record status to backend_lost and
+// writes a 409 Conflict response. It is called when the tusd backend
+// reports that an upload no longer exists (ErrNotFound).
+func (h *Handler) handleBackendLost(w http.ResponseWriter, _ *http.Request, upload *store.Upload) {
+	if _, err := h.store.UpdateStatus(upload.ID, store.StatusBackendLost); err != nil {
+		log.Printf("failed to set backend_lost for %s: %v", upload.ID, err)
+	}
+	writeError(w, http.StatusConflict, "backend_lost")
+}
+
+// organizedPath computes the relative and absolute organized file paths
+// from the storage root, creation date, and filename.
+//
+// The relative path uses the form: organized/YYYY/MM/DD/<filename>.
+func organizedPath(storagePath, creationDate, filename string) (rel, abs string) {
+	// Parse the creation date to extract year, month, day.
+	var year, month, day string
+	if t, err := time.Parse(time.RFC3339, creationDate); err == nil {
+		year = t.Format("2006")
+		month = t.Format("01")
+		day = t.Format("02")
+	} else if t, err := time.Parse("2006-01-02", creationDate); err == nil {
+		year = t.Format("2006")
+		month = t.Format("01")
+		day = t.Format("02")
+	} else {
+		// Fallback: use the raw date string as a single segment.
+		year = creationDate
+		month = "unknown"
+		day = "unknown"
+	}
+
+	rel = filepath.Join("organized", year, month, day, filename)
+	abs = filepath.Join(storagePath, rel)
+	return
 }
 
 // ---------------------------------------------------------------------------

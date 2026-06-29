@@ -240,14 +240,14 @@ The `PATCH /status complete` handler composes `dst` as `organized/YYYY/MM/DD/<fi
 - Create: `server/internal/uploadbackend/tushandler.go`
 - Create: `server/internal/uploadbackend/tushandler_test.go`
 
-- [ ] implement `uploadbackend.TUSHandler`: a struct wrapping `*handler.UnroutedHandler` + `*filestore.FileStore`, constructed with `New(storagePath string) (*TUSHandler, error)` — points the filestore at `filepath.Join(storagePath, "incoming")` and wires the handler config
-- [ ] implement `TUSHandler.CreateUpload(metadata string) (backendID string, err error)` — builds an in-process `http.Request` with `Upload-Defer-Length: 1` and the `Upload-Metadata` header, invokes tusd's `PostFile` against an `httptest.ResponseRecorder`, parses the tusd upload ID from the response `Location` header (or body, per tusd v2 — verify)
-- [ ] implement `POST /uploads` handler: parse `{ localIdentifier, metadata, creationDate, filename, bundleId }`, call `TUSHandler.CreateUpload`, store record in BadgerDB (status: uploading), return `{ id, status, upload_url: "/uploads/<id>/data" }`
-- [ ] handle conflict: if record already exists, return the existing record's current status to the client regardless of what that status is — let the client decide: `uploading` → resume; `complete` → skip; `deleted` → skip (only re-upload if user explicitly re-syncs); `backend_lost` → treat as new upload (call DELETE /uploads/:id first, then POST again)
-- [ ] implement `GET /uploads` handler: parse `from`, `to` (RFC3339), `status`, `limit`, `cursor`; call `ListUploadsByDateRange`; return JSON array + `next_cursor` field; empty result returns `{ "items": [], "next_cursor": "" }`
-- [ ] implement `GET /uploads/:id` handler: return single record or 404
-- [ ] write httptest tests for all three handlers; `TUSHandler` tests use a real handler against a temp `incoming/` dir
-- [ ] run tests — must pass before task 5
+- [x] implement `uploadbackend.TUSHandler`: a struct wrapping `*handler.UnroutedHandler` + `*filestore.FileStore`, constructed with `New(storagePath string) (*TUSHandler, error)` — points the filestore at `filepath.Join(storagePath, "incoming")` and wires the handler config
+- [x] implement `TUSHandler.CreateUpload(metadata string) (backendID string, err error)` — builds an in-process `http.Request` with `Upload-Defer-Length: 1` and the `Upload-Metadata` header, invokes tusd's `PostFile` against an `httptest.ResponseRecorder`, parses the tusd upload ID from the response `Location` header (or body, per tusd v2 — verify)
+- [x] implement `POST /uploads` handler: parse `{ localIdentifier, metadata, creationDate, filename, bundleId }`, call `TUSHandler.CreateUpload`, store record in BadgerDB (status: uploading), return `{ id, status, upload_url: "/uploads/<id>/data" }`
+- [x] handle conflict: if record already exists, return the existing record's current status to the client regardless of what that status is — let the client decide: `uploading` → resume; `complete` → skip; `deleted` → skip (only re-upload if user explicitly re-syncs); `backend_lost` → treat as new upload (call DELETE /uploads/:id first, then POST again)
+- [x] implement `GET /uploads` handler: parse `from`, `to` (RFC3339), `status`, `limit`, `cursor`; call `ListUploadsByDateRange`; return JSON array + `next_cursor` field; empty result returns `{ "items": [], "next_cursor": "" }`
+- [x] implement `GET /uploads/:id` handler: return single record or 404
+- [x] write httptest tests for all three handlers; `TUSHandler` tests use a real handler against a temp `incoming/` dir
+- [x] run tests — must pass before task 5
 
 ---
 
@@ -259,12 +259,12 @@ The `PATCH /status complete` handler composes `dst` as `organized/YYYY/MM/DD/<fi
 - Modify: `server/internal/uploadbackend/tushandler.go`
 - Modify: `server/internal/uploadbackend/tushandler_test.go`
 
-- [ ] ⚠️ first verify tusd v2 `UnroutedHandler` method names + `StoreComposer` defer-length support against `github.com/tus/tusd/v2` docs/source
-- [ ] add `TUSHandler` methods: `GetOffset(backendID string) (int64, error)`, `ForwardPatch(backendID string, w http.ResponseWriter, r *http.Request) error`, `Terminate(backendID string) error` — each invokes the corresponding tusd method in-process
-- [ ] implement `HEAD /uploads/:id/data`: look up backend_id from BadgerDB, call `GetOffset`; on `errors.Is(err, handler.ErrNotFound)` call `UpdateStatus(id, "backend_lost")` and return `409 Conflict` with body `{"error":"backend_lost"}` — never surface the tusd error raw; on non-`ErrNotFound` error return 500 (must not be misclassified as `backend_lost`)
-- [ ] implement `PATCH /uploads/:id/data`: call `ForwardPatch` to stream the body + TUS headers to tusd in-process; same `backend_lost` transition on `ErrNotFound`; same 500 on other errors
-- [ ] write httptest tests: correct offset returned; chunk forwarded with correct headers; 404 on unknown record id; tusd `ErrNotFound` transitions to `backend_lost` and returns 409; a non-`ErrNotFound` I/O error returns 500 (assert the typed-error branch, not status-code matching)
-- [ ] run tests — must pass before task 6
+- [x] ⚠️ first verify tusd v2 `UnroutedHandler` method names + `StoreComposer` defer-length support against `github.com/tus/tusd/v2` docs/source
+- [x] add `TUSHandler` methods: `GetOffset(backendID string) (int64, error)`, `ForwardPatch(backendID string, body io.Reader, offset int64, uploadLength string) (newOffset int64, err error)`, `TerminateOrCleanup(backendID string) error` — each invokes the corresponding tusd method in-process
+- [x] implement `HEAD /uploads/:id/data`: look up backend_id from BadgerDB, call `GetOffset`; on `errors.Is(err, uploadbackend.ErrNotFound)` call `UpdateStatus(id, "backend_lost")` and return `409 Conflict` with body `{"error":"backend_lost"}` — never surface the tusd error raw; on non-`ErrNotFound` error return 500 (must not be misclassified as `backend_lost`)
+- [x] implement `PATCH /uploads/:id/data`: call `ForwardPatch` to stream the body + TUS headers to tusd in-process; same `backend_lost` transition on `ErrNotFound`; same 500 on other errors
+- [x] write httptest tests: correct offset returned; chunk forwarded with correct headers; 404 on unknown record id; tusd `ErrNotFound` transitions to `backend_lost` and returns 409; a non-`ErrNotFound` I/O error returns 500 (assert the typed-error branch, not status-code matching)
+- [x] run tests — must pass before task 6
 
 ---
 
