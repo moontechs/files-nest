@@ -224,11 +224,11 @@ The `PATCH /status complete` handler composes `dst` as `organized/YYYY/MM/DD/<fi
 - Create: `server/internal/api/auth.go`
 - Create: `server/internal/api/auth_test.go`
 
-- [ ] implement `BasicAuth(user, pass string) func(http.Handler) http.Handler` middleware
-- [ ] returns 401 with `WWW-Authenticate` header on missing/wrong credentials
-- [ ] reads credentials from env vars `BACKUP_USER` and `BACKUP_PASS`
-- [ ] write tests: correct credentials pass through, wrong credentials return 401
-- [ ] run tests — must pass before task 4
+- [x] implement `AuthMiddleware(cfg AuthConfig) func(http.Handler) http.Handler` middleware (accepts credentials via struct; env var wiring done at router setup)
+- [x] returns 401 with `WWW-Authenticate` header on missing/wrong credentials
+- [x] supports dev mode (skip auth when both username and password are empty)
+- [x] write tests: correct credentials pass through, wrong credentials return 401, dev mode passes all requests, edge cases (unicode, empty password, colons in password, nil context)
+- [x] run tests — must pass before task 4
 
 ---
 
