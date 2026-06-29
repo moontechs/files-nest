@@ -235,12 +235,12 @@ $STORAGE_PATH/
 - Create: `server/internal/api/handlers.go`
 - Create: `server/internal/api/handlers_test.go`
 
-- [ ] Implement `POST /uploads`: parse request, sanitize filename, derive safe `id`, create tusd upload, and store `uploading` record.
-- [ ] Make `POST /uploads` race-safe: if DB insert fails due to an existing local identifier, terminate the newly-created tusd upload and return the existing record.
-- [ ] If DB write fails after tusd creation for any other reason, terminate the newly-created tusd upload before returning 500.
-- [ ] Implement `GET /uploads` with `from`, `to`, `status`, `limit`, and `cursor`.
-- [ ] Implement `GET /uploads/:id`.
-- [ ] Add httptest coverage for create, duplicate create, unsafe ID handling, DB-failure cleanup, list pagination, status filter, get success, and get 404.
+- [x] Implement `POST /uploads`: parse request, sanitize filename, derive safe `id`, create tusd upload, and store `uploading` record.
+- [x] Make `POST /uploads` race-safe: if DB insert fails due to an existing local identifier, terminate the newly-created tusd upload and return the existing record.
+- [x] If DB write fails after tusd creation for any other reason, terminate the newly-created tusd upload before returning 500.
+- [x] Implement `GET /uploads` with `from`, `to`, `status`, `limit`, and `cursor`.
+- [x] Implement `GET /uploads/:id`.
+- [x] Add httptest coverage for create, duplicate create, unsafe ID handling, DB-failure cleanup, list pagination, status filter, get success, and get 404.
 
 ### Task 10: TUS Data API
 **Files:**
