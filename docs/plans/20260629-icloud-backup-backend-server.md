@@ -11,13 +11,14 @@ Build the backend-only iCloud Photos backup server from the current plans. The s
 - This revised plan treats tusd internals as untrusted until compile-time and integration tests prove exact APIs, file paths, completion semantics, and cleanup behavior.
 
 ## Success Criteria
-- [ ] Backend lives under `server/` and builds as a Go module.
-- [ ] `go test ./...` passes from `server/`.
+- [x] Backend lives under `server/` and builds as a Go module.
+- [x] `go test ./...` passes from `server/`.
 - [ ] All API endpoints are implemented behind HTTP Basic Auth.
 - [ ] tusd is embedded behind `internal/uploadbackend`; no API handler imports tusd packages directly.
 - [ ] There is no `UPLOAD_BACKEND_URL` and no separate upload-backend service.
-- [ ] BadgerDB stores upload records and maintains date/status/local/backend indexes without ghost keys.
-- [ ] Client-facing IDs are path-safe even when PhotoKit `localIdentifier` contains `/`, spaces, Unicode, or URL-reserved characters.
+- [x] BadgerDB stores upload records and maintains date/status/local/backend indexes without ghost keys.
+- [x] Client-facing IDs are path-safe even when PhotoKit `localIdentifier` contains `/`, spaces, Unicode, or URL-reserved characters.
+- [x] Duplicate `POST /uploads` calls are idempotent and do not leak newly-created tusd uploads.
 - [ ] Duplicate `POST /uploads` calls are idempotent and do not leak newly-created tusd uploads.
 - [ ] `PATCH /uploads/:id/status` verifies tusd reports known length and `offset == length` before any file move.
 - [ ] Completion is crash-recoverable using persisted completion intents.
@@ -181,11 +182,11 @@ $STORAGE_PATH/
 - Modify: `server/internal/store/uploads.go`
 - Modify: `server/internal/store/uploads_test.go`
 
-- [ ] Implement `PutUploadIfAbsent`, `GetUpload`, `GetUploadByLocalIdentifier`, `GetUploadByBackendID`, `UpdateStatus`, `UpdateComplete`, `DeleteUpload`, and `ListUploadsByDateRange`.
-- [ ] Implement cursor pagination as base64url of `<YYYY-MM-DD>/<id>`.
-- [ ] Ensure upload record and all indexes update atomically.
-- [ ] Return an existing record on duplicate local identifier without modifying it.
-- [ ] Add tests for CRUD, duplicate create, idempotency lookup, date pagination, status filtering, not-found behavior, and no status-index ghost keys.
+- [x] Implement `PutUploadIfAbsent`, `GetUpload`, `GetUploadByLocalIdentifier`, `GetUploadByBackendID`, `UpdateStatus`, `UpdateComplete`, `DeleteUpload`, and `ListUploadsByDateRange`.
+- [x] Implement cursor pagination as base64url of `<YYYY-MM-DD>/<id>`.
+- [x] Ensure upload record and all indexes update atomically.
+- [x] Return an existing record on duplicate local identifier without modifying it.
+- [x] Add tests for CRUD, duplicate create, idempotency lookup, date pagination, status filtering, not-found behavior, and no status-index ghost keys.
 
 ### Task 5: Completion Intent Store
 **Files:**

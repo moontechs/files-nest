@@ -188,6 +188,87 @@ func (s *Store) UploadByBackendID(backendID string) (*Upload, error) {
 }
 
 // ---------------------------------------------------------------------------
+// PutUploadIfAbsent
+// ---------------------------------------------------------------------------
+
+// PutUploadIfAbsent atomically creates an upload record if no record exists
+// for the given localIdentifier. It returns the upload (either newly created
+// or the existing record) and a boolean indicating whether a new record was
+// created (true) or an existing record was returned (false).
+//
+// This is the core idempotency primitive: the caller does not need to handle
+// ErrConflict — instead it checks the created bool to decide next steps (e.g.
+// whether to keep or clean up a newly-created tusd upload).
+func (s *Store) PutUploadIfAbsent(upload *Upload) (*Upload, bool, error) {
+	var existing *Upload
+	var created bool
+
+	err := s.db.Update(func(txn *badger.Txn) error {
+		key := localIndexKey(upload.LocalIdentifier)
+		item, err := txn.Get(key)
+		if err == nil {
+			// Record exists for this localIdentifier — return the existing record.
+			if err := item.Value(func(val []byte) error {
+				if len(val) > 0 {
+					id := string(val)
+					recordItem, err := txn.Get(recordKey(id))
+					if err != nil {
+						if err == badger.ErrKeyNotFound {
+							// Index inconsistent: local index points to missing record.
+							// Fall through to create-new path.
+							return nil
+						}
+						return fmt.Errorf("get existing record for local index: %w", err)
+					}
+					var rec Upload
+					if err := recordItem.Value(func(val2 []byte) error {
+						return json.Unmarshal(val2, &rec)
+					}); err != nil {
+						return fmt.Errorf("unmarshal existing record: %w", err)
+					}
+					existing = &rec
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+			if existing != nil {
+				return nil // return existing, created=false
+			}
+			// Index was inconsistent — fall through to create.
+		} else if err != badger.ErrKeyNotFound {
+			return fmt.Errorf("check local index: %w", err)
+		}
+
+		// No existing record — create a new one.
+		recordVal, err := json.Marshal(upload)
+		if err != nil {
+			return fmt.Errorf("marshal upload: %w", err)
+		}
+		if err := txn.Set(recordKey(upload.ID), recordVal); err != nil {
+			return fmt.Errorf("set record: %w", err)
+		}
+
+		reg := newIndexRegistry()
+		for _, entry := range reg.writeEntries(upload) {
+			if err := txn.Set(entry.Key, entry.Value); err != nil {
+				return fmt.Errorf("set index %s: %w", string(entry.Key), err)
+			}
+		}
+
+		created = true
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if created {
+		return upload, true, nil
+	}
+	return existing, false, nil
+}
+
+// ---------------------------------------------------------------------------
 // UpdateStatus
 // ---------------------------------------------------------------------------
 
@@ -247,6 +328,75 @@ func (s *Store) UpdateStatus(id string, newStatus Status) (*Upload, error) {
 		}
 
 		updated = &old
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+// ---------------------------------------------------------------------------
+// UpdateComplete
+// ---------------------------------------------------------------------------
+
+// UpdateComplete atomically transitions an upload from any status to
+// StatusComplete and sets the organized_path in a single transaction.
+// Returns ErrNotFound if the record does not exist.
+//
+// Unlike UpdateStatus, this function also persists the organized_path field
+// in the same atomic write, ensuring the record is self-consistent for crash
+// recovery: if the record shows status=complete, the organized_path is always
+// set. The completion intent (written before the file move) provides the
+// recovery anchor; this function is called after the file has been safely moved.
+func (s *Store) UpdateComplete(id string, organizedPath string) (*Upload, error) {
+	var updated *Upload
+
+	err := s.db.Update(func(txn *badger.Txn) error {
+		item, err := txn.Get(recordKey(id))
+		if err != nil {
+			if err == badger.ErrKeyNotFound {
+				return ErrNotFound
+			}
+			return fmt.Errorf("get record for complete: %w", err)
+		}
+
+		var upload Upload
+		if err := item.Value(func(val []byte) error {
+			return json.Unmarshal(val, &upload)
+		}); err != nil {
+			return fmt.Errorf("unmarshal record for complete: %w", err)
+		}
+
+		// Delete old status index entry (critical: prevents ghost keys)
+		reg := newIndexRegistry()
+		for _, entry := range reg.deleteEntries(&upload) {
+			if err := txn.Delete(entry.Key); err != nil {
+				return fmt.Errorf("delete old index %s: %w", string(entry.Key), err)
+			}
+		}
+
+		// Update record
+		upload.Status = StatusComplete
+		upload.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		upload.OrganizedPath = organizedPath
+
+		newVal, err := json.Marshal(&upload)
+		if err != nil {
+			return fmt.Errorf("marshal completed record: %w", err)
+		}
+		if err := txn.Set(recordKey(id), newVal); err != nil {
+			return fmt.Errorf("set completed record: %w", err)
+		}
+
+		// Write new status index entry
+		for _, entry := range reg.writeEntries(&upload) {
+			if err := txn.Set(entry.Key, entry.Value); err != nil {
+				return fmt.Errorf("set new index %s: %w", string(entry.Key), err)
+			}
+		}
+
+		updated = &upload
 		return nil
 	})
 	if err != nil {

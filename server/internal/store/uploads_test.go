@@ -199,6 +199,189 @@ func TestCreateUpload_WithMetadata(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// PutUploadIfAbsent / Idempotency
+// ---------------------------------------------------------------------------
+
+func TestPutUploadIfAbsent_CreatesNew(t *testing.T) {
+	s := openTestStore(t)
+	u := testUpload("asset-putifabsent-new", nil)
+
+	got, created, err := s.PutUploadIfAbsent(u)
+	if err != nil {
+		t.Fatalf("PutUploadIfAbsent failed: %v", err)
+	}
+	if !created {
+		t.Fatal("expected created=true for new upload")
+	}
+	if got == nil {
+		t.Fatal("expected non-nil upload")
+	}
+	assertUploadEqual(t, got, u)
+
+	// Verify it was actually persisted
+	fromDB, err := s.GetUpload(u.ID)
+	if err != nil {
+		t.Fatalf("GetUpload failed after PutUploadIfAbsent: %v", err)
+	}
+	assertUploadEqual(t, fromDB, u)
+}
+
+func TestPutUploadIfAbsent_ReturnsExistingOnDuplicate(t *testing.T) {
+	s := openTestStore(t)
+	u := testUpload("asset-putifabsent-dup", nil)
+
+	// First create
+	got1, created, err := s.PutUploadIfAbsent(u)
+	if err != nil {
+		t.Fatalf("first PutUploadIfAbsent failed: %v", err)
+	}
+	if !created {
+		t.Fatal("expected created=true on first put")
+	}
+	if got1 == nil {
+		t.Fatal("expected non-nil upload on first put")
+	}
+	assertUploadEqual(t, got1, u)
+
+	// Second create with same localIdentifier should return existing
+	u2 := testUpload("asset-putifabsent-dup", nil)
+	u2.BackendID = "different-backend-id"
+	u2.Filename = "different.jpg"
+
+	got2, created, err := s.PutUploadIfAbsent(u2)
+	if err != nil {
+		t.Fatalf("second PutUploadIfAbsent failed: %v", err)
+	}
+	if created {
+		t.Fatal("expected created=false for duplicate localIdentifier")
+	}
+	if got2 == nil {
+		t.Fatal("expected non-nil upload on duplicate")
+	}
+
+	// Should return the original record, not the proposed new one
+	if got2.BackendID != u.BackendID {
+		t.Errorf("BackendID: got %q, want original %q", got2.BackendID, u.BackendID)
+	}
+	if got2.Filename != u.Filename {
+		t.Errorf("Filename: got %q, want original %q", got2.Filename, u.Filename)
+	}
+	if got2.Status != u.Status {
+		t.Errorf("Status: got %q, want original %q", got2.Status, u.Status)
+	}
+}
+
+func TestPutUploadIfAbsent_ReturnsExistingRecordWithAllFields(t *testing.T) {
+	s := openTestStore(t)
+	u := testUpload("asset-putifabsent-full", map[string]string{
+		"creationDate": "2024-06-15T08:30:00Z",
+		"filename":     "IMG_9999.jpg",
+		"status":       string(store.StatusCompleting),
+	})
+	u.BundleID = "BUNDLE-123/L0/000"
+	u.OrganizedPath = "organized/2024/06/15/IMG_9999.jpg"
+
+	// Create
+	_, created, err := s.PutUploadIfAbsent(u)
+	if err != nil {
+		t.Fatalf("first PutUploadIfAbsent failed: %v", err)
+	}
+	if !created {
+		t.Fatal("expected created=true")
+	}
+
+	// Update the record in the DB
+	updated, err := s.UpdateStatus(u.ID, store.StatusComplete)
+	if err != nil {
+		t.Fatalf("UpdateStatus failed: %v", err)
+	}
+
+	// Fetch via PutUploadIfAbsent again (simulates POST /uploads on existing record)
+	u2 := testUpload("asset-putifabsent-full", nil)
+	got2, created, err := s.PutUploadIfAbsent(u2)
+	if err != nil {
+		t.Fatalf("second PutUploadIfAbsent failed: %v", err)
+	}
+	if created {
+		t.Fatal("expected created=false for existing record")
+	}
+	if got2 == nil {
+		t.Fatal("expected non-nil upload")
+	}
+
+	// Must return the updated record (status=complete), not the original
+	if got2.Status != store.StatusComplete {
+		t.Errorf("Status: got %q, want %q", got2.Status, store.StatusComplete)
+	}
+	if got2.UpdatedAt != updated.UpdatedAt {
+		t.Errorf("UpdatedAt mismatch: got %q, want %q", got2.UpdatedAt, updated.UpdatedAt)
+	}
+}
+
+func TestPutUploadIfAbsent_IdempotentAcrossMultipleCalls(t *testing.T) {
+	s := openTestStore(t)
+	u := testUpload("asset-putifabsent-multi", nil)
+
+	// Call three times — only first should create
+	for i := 0; i < 3; i++ {
+		got, created, err := s.PutUploadIfAbsent(u)
+		if err != nil {
+			t.Fatalf("PutUploadIfAbsent call %d failed: %v", i, err)
+		}
+		if i == 0 && !created {
+			t.Fatal("first call should create")
+		}
+		if i > 0 && created {
+			t.Fatal("subsequent calls should not create")
+		}
+		if got == nil {
+			t.Fatal("expected non-nil upload")
+		}
+		if got.ID != u.ID {
+			t.Errorf("call %d: ID = %q, want %q", i, got.ID, u.ID)
+		}
+	}
+}
+
+func TestPutUploadIfAbsent_IndexesWrittenOnCreate(t *testing.T) {
+	s := openTestStore(t)
+	u := testUpload("asset-putifabsent-idx", nil)
+
+	_, created, err := s.PutUploadIfAbsent(u)
+	if err != nil {
+		t.Fatalf("PutUploadIfAbsent failed: %v", err)
+	}
+	if !created {
+		t.Fatal("expected created=true")
+	}
+
+	// Verify all indexes exist
+	got, err := s.UploadByLocalIdentifier(u.LocalIdentifier)
+	if err != nil {
+		t.Fatalf("UploadByLocalIdentifier: %v", err)
+	}
+	if got == nil {
+		t.Fatal("upload not found by local identifier after PutUploadIfAbsent")
+	}
+
+	got2, err := s.UploadByBackendID(u.BackendID)
+	if err != nil {
+		t.Fatalf("UploadByBackendID: %v", err)
+	}
+	if got2 == nil {
+		t.Fatal("upload not found by backend ID after PutUploadIfAbsent")
+	}
+
+	uploads, err := s.ListByStatus(store.StatusUploading)
+	if err != nil {
+		t.Fatalf("ListByStatus: %v", err)
+	}
+	if len(uploads) != 1 {
+		t.Errorf("expected 1 uploading, got %d", len(uploads))
+	}
+}
+
+// ---------------------------------------------------------------------------
 // GetUpload
 // ---------------------------------------------------------------------------
 
@@ -483,6 +666,180 @@ func TestUpdateStatus_MultipleRecordsSameStatus(t *testing.T) {
 	}
 	if len(afterComplete) != 2 {
 		t.Errorf("expected 2 complete, got %d", len(afterComplete))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// UpdateComplete
+// ---------------------------------------------------------------------------
+
+func TestUpdateComplete_Success(t *testing.T) {
+	s := openTestStore(t)
+	u := testUpload("asset-complete-1", nil)
+
+	if err := s.CreateUpload(u); err != nil {
+		t.Fatalf("CreateUpload failed: %v", err)
+	}
+
+	organizedPath := "organized/2024/03/15/IMG_1234.jpg"
+	updated, err := s.UpdateComplete(u.ID, organizedPath)
+	if err != nil {
+		t.Fatalf("UpdateComplete failed: %v", err)
+	}
+	if updated == nil {
+		t.Fatal("UpdateComplete returned nil")
+	}
+	if updated.Status != store.StatusComplete {
+		t.Errorf("status: got %q, want %q", updated.Status, store.StatusComplete)
+	}
+	if updated.OrganizedPath != organizedPath {
+		t.Errorf("OrganizedPath: got %q, want %q", updated.OrganizedPath, organizedPath)
+	}
+
+	// Verify the store reflects the change
+	got, err := s.GetUpload(u.ID)
+	if err != nil {
+		t.Fatalf("GetUpload failed: %v", err)
+	}
+	if got.Status != store.StatusComplete {
+		t.Errorf("stored status: got %q, want %q", got.Status, store.StatusComplete)
+	}
+	if got.OrganizedPath != organizedPath {
+		t.Errorf("stored OrganizedPath: got %q, want %q", got.OrganizedPath, organizedPath)
+	}
+}
+
+func TestUpdateComplete_NotFound(t *testing.T) {
+	s := openTestStore(t)
+
+	_, err := s.UpdateComplete("nonexistent-id", "organized/path.jpg")
+	if err != store.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got: %v", err)
+	}
+}
+
+func TestUpdateComplete_GhostKeyPrevention(t *testing.T) {
+	s := openTestStore(t)
+	u := testUpload("asset-complete-ghost", nil)
+
+	if err := s.CreateUpload(u); err != nil {
+		t.Fatalf("CreateUpload failed: %v", err)
+	}
+
+	// Verify it shows up in uploading list
+	before, err := s.ListByStatus(store.StatusUploading)
+	if err != nil {
+		t.Fatalf("ListByStatus(uploading) before: %v", err)
+	}
+	if len(before) != 1 {
+		t.Fatalf("expected 1 uploading, got %d", len(before))
+	}
+
+	// Complete it
+	if _, err := s.UpdateComplete(u.ID, "organized/2024/path.jpg"); err != nil {
+		t.Fatalf("UpdateComplete failed: %v", err)
+	}
+
+	// Verify it no longer shows up in uploading
+	afterUploading, err := s.ListByStatus(store.StatusUploading)
+	if err != nil {
+		t.Fatalf("ListByStatus(uploading) after: %v", err)
+	}
+	if len(afterUploading) != 0 {
+		t.Errorf("expected 0 uploading after Complete, got %d (ghost!)", len(afterUploading))
+	}
+
+	// Verify it shows up in complete
+	afterComplete, err := s.ListByStatus(store.StatusComplete)
+	if err != nil {
+		t.Fatalf("ListByStatus(complete): %v", err)
+	}
+	if len(afterComplete) != 1 {
+		t.Errorf("expected 1 complete, got %d", len(afterComplete))
+	}
+	if afterComplete[0].OrganizedPath != "organized/2024/path.jpg" {
+		t.Errorf("OrganizedPath in complete list: got %q, want %q",
+			afterComplete[0].OrganizedPath, "organized/2024/path.jpg")
+	}
+}
+
+func TestUpdateComplete_OrganizedPathPersisted(t *testing.T) {
+	s := openTestStore(t)
+	u := testUpload("asset-complete-path", nil)
+
+	if err := s.CreateUpload(u); err != nil {
+		t.Fatalf("CreateUpload failed: %v", err)
+	}
+
+	paths := []string{
+		"organized/2024/01/01/IMG_0001.jpg",
+		"organized/2024/12/31/IMG_9999_abc123.jpg",
+		"organized/some/deep/nested/path/file.txt",
+	}
+
+	// Test three records with different paths
+	for i, path := range paths {
+		localID := fmt.Sprintf("asset-complete-path-%d", i)
+		u := testUpload(localID, nil)
+		if err := s.CreateUpload(u); err != nil {
+			t.Fatalf("CreateUpload %d failed: %v", i, err)
+		}
+
+		updated, err := s.UpdateComplete(u.ID, path)
+		if err != nil {
+			t.Fatalf("UpdateComplete %d failed: %v", i, err)
+		}
+		if updated.OrganizedPath != path {
+			t.Errorf("returned OrganizedPath %d: got %q, want %q", i, updated.OrganizedPath, path)
+		}
+
+		got, err := s.GetUpload(u.ID)
+		if err != nil {
+			t.Fatalf("GetUpload %d failed: %v", i, err)
+		}
+		if got.OrganizedPath != path {
+			t.Errorf("stored OrganizedPath %d: got %q, want %q", i, got.OrganizedPath, path)
+		}
+	}
+}
+
+func TestUpdateComplete_WithStatusIndexConsistency(t *testing.T) {
+	s := openTestStore(t)
+
+	// Create two uploading records
+	u1 := testUpload("asset-complete-consist-1", nil)
+	u2 := testUpload("asset-complete-consist-2", nil)
+
+	if err := s.CreateUpload(u1); err != nil {
+		t.Fatalf("CreateUpload u1 failed: %v", err)
+	}
+	if err := s.CreateUpload(u2); err != nil {
+		t.Fatalf("CreateUpload u2 failed: %v", err)
+	}
+
+	// Complete one
+	if _, err := s.UpdateComplete(u1.ID, "organized/path1.jpg"); err != nil {
+		t.Fatalf("UpdateComplete u1 failed: %v", err)
+	}
+
+	// Verify status lists
+	uploading, err := s.ListByStatus(store.StatusUploading)
+	if err != nil {
+		t.Fatalf("ListByStatus uploading: %v", err)
+	}
+	if len(uploading) != 1 {
+		t.Errorf("expected 1 uploading, got %d", len(uploading))
+	}
+	if len(uploading) > 0 && uploading[0].ID != u2.ID {
+		t.Errorf("remaining uploading should be u2 (%q), got %q", u2.ID, uploading[0].ID)
+	}
+
+	complete, err := s.ListByStatus(store.StatusComplete)
+	if err != nil {
+		t.Fatalf("ListByStatus complete: %v", err)
+	}
+	if len(complete) != 1 {
+		t.Errorf("expected 1 complete, got %d", len(complete))
 	}
 }
 
