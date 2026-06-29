@@ -199,16 +199,20 @@ The `PATCH /status complete` handler composes `dst` as `organized/YYYY/MM/DD/<fi
 - Create: `server/internal/store/uploads.go`
 - Create: `server/internal/store/uploads_test.go`
 
-- [ ] implement `IndexEntry`, `Index` interface, `IndexRegistry` with `Register` + internal write/delete helpers
-- [ ] implement `DateIndex` (key: `idx/date/YYYY-MM-DD/<id>`, value: RFC3339 date)
-- [ ] implement `StatusIndex` (key: `idx/status/<status>/<id>`, value: backend_id)
-- [ ] implement `PutUpload(r *UploadRecord)` — writes main record + all index entries in one transaction
-- [ ] implement `GetUpload(id string) (*UploadRecord, error)`
-- [ ] implement `ListUploadsByDateRange(from, to time.Time, status string, limit int, cursor string) ([]*UploadRecord, string, error)` — scans date index, loads main records; cursor is base64(`<YYYY-MM-DD>/<id>`), used to seek to the exact key `idx/date/YYYY-MM-DD/<id>` before iterating; returns next cursor or empty string
-- [ ] implement `UpdateStatus(id, status string)` — in a single transaction: load existing record (return ErrNotFound if missing), delete old `idx/status/<old_status>/<id>` key, write updated record, write new `idx/status/<new_status>/<id>` key; never skip the delete step or ghost entries accumulate
-- [ ] implement `DeleteUpload(id string)` — calls `UpdateStatus(id, "deleted")`
-- [ ] write table-driven tests for each function (success + not-found + pagination cases); include a test that calls `UpdateStatus` twice with different statuses and asserts only the new status key exists in the index (no ghost)
-- [ ] run tests — must pass before task 3
+- [x] implement `IndexEntry`, `Index` interface, `IndexRegistry` with `Register` + internal write/delete helpers
+- [x] implement `DateIndex` (key: `idx/date/YYYY-MM-DD/<id>`, value: RFC3339 date)
+- [x] implement `StatusIndex` (key: `idx/status/<status>/<id>`, value: backend_id)
+- [x] implement `CreateUpload` — writes main record + all index entries in one transaction
+- [x] implement `GetUpload(id string) (*Upload, error)`
+- [x] implement `UploadByLocalIdentifier` / `UploadByBackendID` for reverse lookups
+- [x] implement `ListByStatus(status)` — scans status index prefix
+- [x] implement `ListByDateRange(from, to, status, limit, cursor)` — scans date index, loads main records; cursor is base64(`<YYYY-MM-DD>/<id>`); returns next cursor or empty string
+- [x] implement `UpdateStatus(id, status)` — in a single transaction: load existing record (return ErrNotFound if missing), delete old `idx/status/<old_status>/<id>` key, write updated record, write new `idx/status/<new_status>/<id>` key; never skip the delete step or ghost entries accumulate
+- [x] implement `DeleteUpload(id)` — removes record + all index entries
+- [x] implement `CompletionIntent` save/get/delete/list for crash recovery
+- [x] implement `SafeID`, `ValidateSafeID`, `LocalIdentifierIndexKey` in `api/ids.go`
+- [x] write comprehensive tests for each function (success + not-found + pagination + ghost-key + concurrent access)
+- [x] run tests — must pass before task 3
 
 > Embedding tusd touches nothing here. This task is verbatim from the original plan.
 

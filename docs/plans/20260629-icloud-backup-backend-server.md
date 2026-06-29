@@ -170,11 +170,11 @@ $STORAGE_PATH/
 - Create: `server/internal/api/ids.go`
 - Create: `server/internal/api/ids_test.go`
 
-- [ ] Define `UploadRecord`, `CompletionIntent`, status constants, `ErrNotFound`, and JSON serialization.
-- [ ] Implement deterministic safe ID derivation from `localIdentifier`.
-- [ ] Implement filename sanitization: strip directories, reject empty names, reject traversal, preserve safe extensions.
-- [ ] Implement `IndexRegistry`, `DateIndex`, `StatusIndex`, `LocalIdentifierIndex`, and `BackendIndex`.
-- [ ] Add tests for IDs and filenames containing `/`, spaces, Unicode, URL-reserved characters, and traversal attempts.
+- [x] Define `UploadRecord`, `CompletionIntent`, status constants, `ErrNotFound`, and JSON serialization.
+- [x] Implement deterministic safe ID derivation from `localIdentifier`.
+- [x] Implement filename sanitization: strip directories, reject empty names, reject traversal, preserve safe extensions.
+- [x] Implement `IndexRegistry`, `DateIndex`, `StatusIndex`, `LocalIdentifierIndex`, and `BackendIndex`.
+- [x] Add tests for IDs and filenames containing `/`, spaces, Unicode, URL-reserved characters, and traversal attempts.
 
 ### Task 4: BadgerDB CRUD And Idempotency Primitives
 **Files:**
