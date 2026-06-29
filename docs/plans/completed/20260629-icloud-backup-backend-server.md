@@ -13,18 +13,18 @@ Build the backend-only iCloud Photos backup server from the current plans. The s
 ## Success Criteria
 - [x] Backend lives under `server/` and builds as a Go module.
 - [x] `go test ./...` passes from `server/`.
-- [ ] All API endpoints are implemented behind HTTP Basic Auth.
-- [ ] tusd is embedded behind `internal/uploadbackend`; no API handler imports tusd packages directly.
-- [ ] There is no `UPLOAD_BACKEND_URL` and no separate upload-backend service.
+- [x] All API endpoints are implemented behind HTTP Basic Auth.
+- [x] tusd is embedded behind `internal/uploadbackend`; no API handler imports tusd packages directly.
+- [x] There is no `UPLOAD_BACKEND_URL` and no separate upload-backend service.
 - [x] BadgerDB stores upload records and maintains date/status/local/backend indexes without ghost keys.
 - [x] Client-facing IDs are path-safe even when PhotoKit `localIdentifier` contains `/`, spaces, Unicode, or URL-reserved characters.
 - [x] Duplicate `POST /uploads` calls are idempotent and do not leak newly-created tusd uploads.
-- [ ] Duplicate `POST /uploads` calls are idempotent and do not leak newly-created tusd uploads.
-- [ ] `PATCH /uploads/:id/status` verifies tusd reports known length and `offset == length` before any file move.
-- [ ] Completion is crash-recoverable using persisted completion intents.
-- [ ] Concurrent `PATCH /data`, `PATCH /status`, and `DELETE` for the same upload are serialized.
-- [ ] `backend_lost` is detected only through normalized tusd not-found errors and returns `409 {"error":"backend_lost"}`.
-- [ ] curl smoke test can run `POST /uploads` → `PATCH /uploads/:id/data` → `HEAD /uploads/:id/data` → `PATCH /uploads/:id/status` and verify the file moved to `organized/YYYY/MM/DD/`.
+- [x] Duplicate `POST /uploads` calls are idempotent and do not leak newly-created tusd uploads.
+- [x] `PATCH /uploads/:id/status` verifies tusd reports known length and `offset == length` before any file move.
+- [x] Completion is crash-recoverable using persisted completion intents.
+- [x] Concurrent `PATCH /data`, `PATCH /status`, and `DELETE` for the same upload are serialized.
+- [x] `backend_lost` is detected only through normalized tusd not-found errors and returns `409 {"error":"backend_lost"}`.
+- [x] curl smoke test can run `POST /uploads` → `PATCH /uploads/:id/data` → `HEAD /uploads/:id/data` → `PATCH /uploads/:id/status` and verify the file moved to `organized/YYYY/MM/DD/`.
 
 ## Design Decisions
 - Embed tusd as a library, but isolate it behind a small project-owned adapter (`internal/uploadbackend`) so tusd API changes do not leak through the codebase.
@@ -300,25 +300,25 @@ $STORAGE_PATH/
 - Create: `server/docker-compose.yml`
 - Create: `server/Caddyfile`
 
-- [ ] Wire chi router with Basic Auth applied to all upload routes.
-- [ ] Read config from `BACKUP_USER`, `BACKUP_PASS`, `STORAGE_PATH`, and `PORT`.
-- [ ] Initialize BadgerDB at `$STORAGE_PATH/db`.
-- [ ] Initialize embedded tusd at `$STORAGE_PATH/incoming`.
-- [ ] Run startup completion recovery before `ListenAndServe`.
-- [ ] Start BadgerDB value-log GC goroutine and ignore `badger.ErrNoRewrite`.
-- [ ] Create multi-stage Dockerfile and docker-compose with one backend service plus Caddy only.
-- [ ] Confirm there is no `UPLOAD_BACKEND_URL` or second upload-backend service.
+- [x] Wire chi router with Basic Auth applied to all upload routes.
+- [x] Read config from `BACKUP_USER`, `BACKUP_PASS`, `STORAGE_PATH`, and `PORT`.
+- [x] Initialize BadgerDB at `$STORAGE_PATH/db`.
+- [x] Initialize embedded tusd at `$STORAGE_PATH/incoming`.
+- [x] Run startup completion recovery before `ListenAndServe`.
+- [x] Start BadgerDB value-log GC goroutine and ignore `badger.ErrNoRewrite`.
+- [x] Create multi-stage Dockerfile and docker-compose with one backend service plus Caddy only.
+- [x] Confirm there is no `UPLOAD_BACKEND_URL` or second upload-backend service.
 
 ### Task 15: Backend Documentation And Verification
 **Files:**
 - Create: `server/README.md`
 - Modify: `docs/plans/20260629-icloud-backup-backend-server.md`
 
-- [ ] Document setup, env vars, storage layout, Docker usage, and Caddy usage.
-- [ ] Document all API endpoints with request/response examples.
-- [ ] Document safe server IDs versus original `local_identifier`.
-- [ ] Document TUS deferred-length requirements and standard headers.
-- [ ] Document status lifecycle, `backend_lost` behavior, startup recovery, and tusd cleanup behavior.
-- [ ] Run `go test ./...` from `server/`.
-- [ ] Run curl smoke tests for create/upload/head/complete, incomplete-complete rejection, delete, backend-lost, and recovery scenarios.
-- [ ] Move the implementation plan to `docs/plans/completed/` when implementation is finished.
+- [x] Document setup, env vars, storage layout, Docker usage, and Caddy usage.
+- [x] Document all API endpoints with request/response examples.
+- [x] Document safe server IDs versus original `local_identifier`.
+- [x] Document TUS deferred-length requirements and standard headers.
+- [x] Document status lifecycle, `backend_lost` behavior, startup recovery, and tusd cleanup behavior.
+- [x] Run `go test ./...` from `server/`.
+- [x] Run curl smoke tests for create/upload/head/complete, incomplete-complete rejection, delete, backend-lost, and recovery scenarios.
+- [x] Move the implementation plan to `docs/plans/completed/` when implementation is finished.
