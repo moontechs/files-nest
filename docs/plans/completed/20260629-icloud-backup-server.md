@@ -320,12 +320,12 @@ The `PATCH /status complete` handler composes `dst` as `organized/YYYY/MM/DD/<fi
 - Create: `server/README.md`
 - Modify: this plan (move to `docs/plans/completed/`)
 
-- [ ] `go test ./...` — all server tests pass
-- [ ] curl smoke test of the full flow: `POST /uploads` → `PATCH /uploads/:id/data` (chunk) → `HEAD /uploads/:id/data` (offset) → `PATCH /uploads/:id/status` complete → verify file appears under `organized/YYYY/MM/DD/`
-- [ ] curl smoke test: `DELETE /uploads/:id` → record status `deleted`, tusd `.info` gone
-- [ ] curl smoke test: simulate `backend_lost` (e.g. remove incoming file out-of-band, then `HEAD`) → 409 `{"error":"backend_lost"}`
-- [ ] server README: setup, env vars (`BACKUP_USER`, `BACKUP_PASS`, `STORAGE_PATH`, `DOMAIN`, `PORT`), docker-compose usage, API reference (all endpoints + request/response shapes + status flow)
-- [ ] move this plan to `docs/plans/completed/`
+- [x] `go test ./...` — all server tests pass
+- [x] curl smoke test of the full flow: `POST /uploads` → `PATCH /uploads/:id/data` (chunk) → `HEAD /uploads/:id/data` (offset) → `PATCH /uploads/:id/status` complete → verify file appears under `organized/YYYY/MM/DD/`
+- [x] curl smoke test: `DELETE /uploads/:id` → record status `deleted`, tusd `.info` gone
+- [x] curl smoke test: simulate `backend_lost` (e.g. remove incoming file out-of-band, then `HEAD`) → 409 `{"error":"backend_lost"}`
+- [x] server README: setup, env vars (`BACKUP_USER`, `BACKUP_PASS`, `STORAGE_PATH`, `DOMAIN`, `PORT`), docker-compose usage, API reference (all endpoints + request/response shapes + status flow)
+- [x] move this plan to `docs/plans/completed/`
 
 ---
 
