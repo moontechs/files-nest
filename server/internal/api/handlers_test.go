@@ -1621,6 +1621,15 @@ func TestHandlePatchUploadStatus_Success(t *testing.T) {
 	if upload.OrganizedPath == "" {
 		t.Error("expected non-empty organized_path")
 	}
+
+	// Verify the completion intent was deleted after successful completion.
+	intent, err := st.GetCompletionIntent(created.ID)
+	if err != nil {
+		t.Fatalf("GetCompletionIntent: %v", err)
+	}
+	if intent != nil {
+		t.Errorf("completion intent should be deleted after success, got %+v", intent)
+	}
 }
 
 func TestHandlePatchUploadStatus_UploadIncomplete(t *testing.T) {
@@ -1961,6 +1970,67 @@ func TestHandlePatchUploadStatus_FileMoved(t *testing.T) {
 	_, err = bh.GetInfo(created.BackendID)
 	if !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Errorf("expected backend to be cleaned up after completion, got %v", err)
+	}
+}
+
+func TestHandlePatchUploadStatus_MoveFailurePreservesUploading(t *testing.T) {
+	h, st, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-STATUS-MOVEFAIL/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Upload all data to make IsComplete return true.
+	data := []byte("content for move failure test")
+	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
+		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+	if patchRec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
+	}
+
+	// Create a file at the organized root to prevent MkdirAll from creating
+	// subdirectories. The computed dstPath will be like:
+	// $storagePath/organized/2024/03/15/IMG_0001.jpg
+	// If we create a file at $storagePath/organized, MkdirAll will fail
+	// trying to create organized/2024/03/15.
+	organizedRoot := filepath.Join(h.StoragePath(), "organized")
+	if err := os.MkdirAll(filepath.Dir(organizedRoot), 0755); err != nil {
+		t.Fatalf("MkdirAll for organized root: %v", err)
+	}
+	// Write a file in place of the organized directory to force MkdirAll to fail.
+	if err := os.WriteFile(organizedRoot, []byte("not-a-directory"), 0644); err != nil {
+		t.Fatalf("WriteFile to block organized dir: %v", err)
+	}
+
+	// Attempt to mark complete — should fail because MkdirAll cannot create
+	// the destination directory tree.
+	rec := statusPatchRequest(h.HandlePatchUploadStatus, created.ID, `{"status": "complete"}`)
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for move failure, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify the DB record is still uploading (not complete).
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.Status != store.StatusUploading {
+		t.Errorf("expected status uploading after move failure, got %q", upload.Status)
+	}
+
+	// Verify a completion intent was persisted for crash recovery.
+	intent, err := st.GetCompletionIntent(created.ID)
+	if err != nil {
+		t.Fatalf("GetCompletionIntent: %v", err)
+	}
+	if intent == nil {
+		t.Fatal("expected completion intent to exist after move failure")
+	}
+	if intent.ID != created.ID {
+		t.Errorf("completion intent ID = %q, want %q", intent.ID, created.ID)
+	}
+	if intent.BackendID != created.BackendID {
+		t.Errorf("completion intent BackendID = %q, want %q", intent.BackendID, created.BackendID)
+	}
+	if intent.DstRel == "" {
+		t.Error("expected non-empty DstRel in completion intent")
 	}
 }
 

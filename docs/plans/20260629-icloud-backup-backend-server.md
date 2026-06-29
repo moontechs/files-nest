@@ -270,14 +270,14 @@ $STORAGE_PATH/
 - Modify: `server/internal/api/handlers.go`
 - Modify: `server/internal/api/handlers_test.go`
 
-- [ ] Implement `PATCH /uploads/:id/status` accepting only `{ "status": "complete" }`.
-- [ ] Acquire the per-upload lock before checking tusd state, writing intent, moving files, or updating status.
-- [ ] Before moving, call `TUSHandler.IsComplete`; return `409 {"error":"upload_incomplete"}` if length is deferred or offset does not equal length.
-- [ ] Write `completion/<id>` intent before moving the file.
-- [ ] On complete: move file idempotently, update record to `complete` with `organized_path`, delete completion intent, then run verified tusd cleanup.
-- [ ] If cleanup-after-complete fails with non-not-found, keep status `complete` and log cleanup failure; do not roll back completion.
-- [ ] Implement `DELETE /uploads/:id`: acquire the per-upload lock, terminate tusd state, ignore not-found, update status to `deleted`.
-- [ ] Add tests for complete success, incomplete rejection, invalid status, move failure preserving `uploading`, completion intent behavior, cleanup-after-complete, delete success, and delete ignoring not-found.
+- [x] Implement `PATCH /uploads/:id/status` accepting only `{ "status": "complete" }`.
+- [x] Acquire the per-upload lock before checking tusd state, writing intent, moving files, or updating status.
+- [x] Before moving, call `TUSHandler.IsComplete`; return `409 {"error":"upload_incomplete"}` if length is deferred or offset does not equal length.
+- [x] Write `completion/<id>` intent before moving the file.
+- [x] On complete: move file idempotently, update record to `complete` with `organized_path`, delete completion intent, then run verified tusd cleanup.
+- [x] If cleanup-after-complete fails with non-not-found, keep status `complete` and log cleanup failure; do not roll back completion.
+- [x] Implement `DELETE /uploads/:id`: acquire the per-upload lock, terminate tusd state, ignore not-found, update status to `deleted`.
+- [x] Add tests for complete success, incomplete rejection, invalid status, move failure preserving `uploading`, completion intent behavior, cleanup-after-complete, delete success, and delete ignoring not-found.
 
 ### Task 13: Startup Recovery
 **Files:**
