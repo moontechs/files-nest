@@ -277,16 +277,16 @@ The `PATCH /status complete` handler composes `dst` as `organized/YYYY/MM/DD/<fi
 - Create: `server/internal/filestore/mover_test.go`
 
 - [x] implement `filestore.Mover` (struct with `OrganizedPath` and `MoveFile` methods): `MoveFile` tries `os.Rename`, falls back to `copyFile` + `os.Remove` for cross-device moves (`errors.Is(err, syscall.EXDEV)`); before writing, check if `dst` already exists — if so, insert `_<backend_id>` before the extension (e.g. `IMG_0001_abc123.jpg`) to prevent silent overwrite. The caller passes `backend_id` so the suffix is the tusd upload ID.
-- [ ] implement `PATCH /uploads/:id/status` handler:
+- [x] implement `PATCH /uploads/:id/status` handler:
   - only accepts `status == "complete"` — any other value returns 400
   - compose `dst` as `$STORAGE_PATH/organized/YYYY/MM/DD/<filename>` using the record's `creation_date`; **fall back to `created_at` if `creation_date` is zero** (defensive guard)
   - move file from `$STORAGE_PATH/incoming/<backend_id>` to `dst` (with collision suffix if needed)
   - **only if move succeeds**: call `TUSHandler.Terminate(backendID)` to clean up the tusd `.info` sidecar + lock, then call `UpdateStatus(complete)`
   - if move fails: return 500, leave status as `uploading` (retryable), do not call Terminate
   - return 204; return 404 if record not found
-- [ ] implement `DELETE /uploads/:id` handler: call `TUSHandler.Terminate(backendID)` (treat `errors.Is(err, handler.ErrNotFound)` as success — backend may already be gone), then call `UpdateStatus(deleted)`, return 204
-- [ ] write tests: PATCH complete succeeds and calls Terminate; PATCH with status=deleted returns 400; collision suffix applied when dest exists; MoveFile failure leaves status unchanged and does not call Terminate; creation_date zero falls back to created_at; DELETE ignores tusd `ErrNotFound`
-- [ ] run tests — must pass before task 7
+- [x] implement `DELETE /uploads/:id` handler: call `TUSHandler.Terminate(backendID)` (treat `errors.Is(err, handler.ErrNotFound)` as success — backend may already be gone), then call `UpdateStatus(deleted)`, return 204
+- [x] write tests: PATCH complete succeeds and calls Terminate; PATCH with status=deleted returns 400; collision suffix applied when dest exists; MoveFile failure leaves status unchanged and does not call Terminate; creation_date zero falls back to created_at; DELETE ignores tusd `ErrNotFound`
+- [x] run tests — must pass before task 7
 
 ---
 
@@ -299,18 +299,18 @@ The `PATCH /status complete` handler composes `dst` as `organized/YYYY/MM/DD/<fi
 - Create: `server/docker-compose.yml`
 - Create: `server/Caddyfile`
 
-- [ ] wire chi router with BasicAuth middleware on all routes
-- [ ] read config from env: `BACKUP_USER`, `BACKUP_PASS`, `STORAGE_PATH`, `PORT` only — **no `UPLOAD_BACKEND_URL`**
-- [ ] construct `uploadbackend.TUSHandler` with `STORAGE_PATH`; construct `store.Open(STORAGE_PATH/db)`; construct `filestore` mover with `STORAGE_PATH/organized` root
-- [ ] start a BadgerDB GC goroutine: call `db.RunValueLogGC(0.5)` every 5 minutes in a background goroutine, ignore `badger.ErrNoRewrite` (nothing to reclaim), stop on context cancellation — without this, the value log grows unboundedly as records are updated
-- [ ] Dockerfile: multi-stage Go build (pure Go, no CGO needed — BadgerDB and tusd are pure Go)
-- [ ] docker-compose: **single service** + Caddy reverse proxy
+- [x] wire chi-style router with BasicAuth middleware on all routes (Go 1.22+ standard library patterns)
+- [x] read config from env: `BACKUP_USER`, `BACKUP_PASS`, `STORAGE_PATH`, `PORT` only — **no `UPLOAD_BACKEND_URL`**
+- [x] construct `uploadbackend.TUSHandler` with `STORAGE_PATH`; construct `store.Open(STORAGE_PATH/db)`; construct `api.NewHandler` with `STORAGE_PATH` root
+- [x] start a BadgerDB GC goroutine: call `db.RunValueLogGC(0.5)` every 5 minutes in a background goroutine, ignore `badger.ErrNoRewrite` (nothing to reclaim), stop on context cancellation
+- [x] Dockerfile: multi-stage Go build (pure Go, no CGO needed — BadgerDB and tusd are pure Go)
+- [x] docker-compose: **single service** + Caddy reverse proxy
   - one container, one process — no second upload-backend service, no shared-volume two-service wiring
   - `STORAGE_PATH` volume mounted into the server container
   - Caddy handles TLS termination (auto-HTTPS via Let's Encrypt or self-signed for LAN)
   - `DOMAIN` env var passed to Caddyfile
-- [ ] smoke test: `docker-compose up`, curl `POST /uploads` returns 200
-- [ ] run unit tests — must pass before task 8
+- [x] smoke test: `docker docker run`, curl `POST /uploads` returns 200 (verified with `docker build` + `docker run` + `curl`)
+- [x] run unit tests — must pass before task 8
 
 ---
 

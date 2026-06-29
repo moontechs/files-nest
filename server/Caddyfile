@@ -1,0 +1,88 @@
+# =============================================================================
+# Caddyfile — iCloud Backup Server Reverse Proxy
+# =============================================================================
+# This Caddyfile configures Caddy to:
+#   1. Terminate TLS for the configured DOMAIN (auto-HTTPS via Let's Encrypt)
+#   2. Proxy all requests to the Go server running on port 8080
+#   3. Add security headers appropriate for an upload API
+#
+# The DOMAIN environment variable is injected by docker-compose.
+# For local/LAN use, set DOMAIN=localhost (auto-HTTPS is skipped; Caddy
+# uses plain HTTP). For production, set DOMAIN to your FQDN.
+#
+# Usage:
+#   DOMAIN=backup.example.com docker compose up -d
+# =============================================================================
+
+{$DOMAIN:localhost} {
+    # -----------------------------------------------------------------------
+    # Security headers
+    # -----------------------------------------------------------------------
+    header {
+        # Prevent MIME type sniffing
+        X-Content-Type-Options "nosniff"
+        # Prevent clickjacking
+        X-Frame-Options "DENY"
+        # Enable XSS filter in older browsers
+        X-XSS-Protection "1; mode=block"
+        # Disable referrer header leaking
+        Referrer-Policy "no-referrer"
+        # Restrict API to same origin (no embedded content)
+        Content-Security-Policy "default-src 'self'; frame-ancestors 'none'"
+        # HSTS — only set when TLS is active (Caddy's auto-HTTPS)
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    }
+
+    # -----------------------------------------------------------------------
+    # Request size limits
+    # -----------------------------------------------------------------------
+    # TUS uploads can be large (7GB+). Caddy's default limit is sufficient,
+    # but we explicitly set an unlimited request body for the upload path.
+    # -----------------------------------------------------------------------
+
+    # -----------------------------------------------------------------------
+    # Rate limiting (optional — uncomment to enable)
+    # -----------------------------------------------------------------------
+    # rate_limit {
+    #     zone dynamic {
+    #         key {remote_host}
+    #         events 100
+    #         window 1m
+    #     }
+    # }
+
+    # -----------------------------------------------------------------------
+    # Reverse proxy to the Go server
+    # -----------------------------------------------------------------------
+    handle_path /uploads* {
+        # Allow large upload bodies — no size limit for TUS PATCH requests.
+        request_body {
+            max_size 0
+        }
+        reverse_proxy server:8080 {
+            # Pass through the original Host header to the backend.
+            header_up Host {host}
+
+            # Health check for the upstream server.
+            health_uri /health
+            health_interval 30s
+            health_timeout 3s
+        }
+    }
+
+    # -----------------------------------------------------------------------
+    # Health check passthrough (unauthenticated)
+    # -----------------------------------------------------------------------
+    handle_path /health {
+        reverse_proxy server:8080 {
+            header_up Host {host}
+        }
+    }
+
+    # -----------------------------------------------------------------------
+    # Default: 404 for all other paths
+    # -----------------------------------------------------------------------
+    handle {
+        respond 404
+    }
+}

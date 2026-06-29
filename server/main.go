@@ -49,13 +49,16 @@ func main() {
 		log.Printf("startup recovery completed with errors: %v", err)
 	}
 
-	// TODO: Wire chi router + BasicAuth + handlers (Task 7)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
-	})
+	// Create the API handler with per-upload locks and storage path.
+	handler := api.NewHandler(st, tusdHandler, storagePath)
+
+	// Wire the chi-style router with BasicAuth middleware on all routes.
+	// The auth config is read from BACKUP_USER / BACKUP_PASS env vars.
+	authCfg := api.AuthConfig{
+		Username: getEnv("BACKUP_USER", ""),
+		Password: getEnv("BACKUP_PASS", ""),
+	}
+	mux := api.NewRouter(handler, authCfg)
 
 	server := &http.Server{
 		Addr:         ":" + port,
