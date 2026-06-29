@@ -213,22 +213,22 @@ $STORAGE_PATH/
 - Create: `server/internal/api/auth.go`
 - Create: `server/internal/api/auth_test.go`
 
-- [ ] Implement `BasicAuth(user, pass string) func(http.Handler) http.Handler`.
-- [ ] Return `401` and `WWW-Authenticate` on missing or wrong credentials.
-- [ ] Use constant-time credential comparison.
-- [ ] Add tests for allowed, missing, and invalid credentials.
-- [ ] Run `go test ./...`.
+- [x] Implement `BasicAuth(user, pass string) func(http.Handler) http.Handler`.
+- [x] Return `401` and `WWW-Authenticate` on missing or wrong credentials.
+- [x] Use constant-time credential comparison.
+- [x] Add tests for allowed, missing, and invalid credentials.
+- [x] Run `go test ./...`.
 
 ### Task 8: Embedded tusd Wrapper
 **Files:**
 - Create: `server/internal/uploadbackend/tushandler.go`
 - Create: `server/internal/uploadbackend/tushandler_test.go`
 
-- [ ] Implement `TUSHandler` using only APIs verified in Task 2.
-- [ ] Implement `CreateUpload(metadata string) (backendID string, err error)` using an in-process tusd request with `Upload-Defer-Length: 1`.
-- [ ] Implement `GetOffset`, `ForwardPatch`, `GetInfo`, `IsComplete`, `FilePath`, and `TerminateOrCleanup`.
-- [ ] Normalize tusd not-found into `uploadbackend.ErrNotFound` while preserving non-not-found errors.
-- [ ] Add tests using temp storage that create an upload, patch bytes with standard TUS headers, resolve deferred length, read offset/info, verify completion, and cleanup.
+- [x] Implement `TUSHandler` using only APIs verified in Task 2.
+- [x] Implement `CreateUpload(metadata string) (backendID string, err error)` using an in-process tusd request with `Upload-Defer-Length: 1`.
+- [x] Implement `GetOffset`, `ForwardPatch`, `GetInfo`, `IsComplete`, `FilePath`, and `TerminateOrCleanup`.
+- [x] Normalize tusd not-found into `uploadbackend.ErrNotFound` while preserving non-not-found errors.
+- [x] Add tests using temp storage that create an upload, patch bytes with standard TUS headers, resolve deferred length, read offset/info, verify completion, and cleanup.
 
 ### Task 9: Upload Registration And Listing API
 **Files:**
