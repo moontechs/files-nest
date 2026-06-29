@@ -10,7 +10,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/moontechs/files-nest/server/internal/api"
 	"github.com/moontechs/files-nest/server/internal/store"
+	"github.com/moontechs/files-nest/server/internal/uploadbackend"
 )
 
 func main() {
@@ -32,6 +34,20 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go runBadgerGC(ctx, st.DB())
+
+	// Create the embedded tusd upload backend (incoming/ directory).
+	tusdHandler, err := uploadbackend.New(storagePath)
+	if err != nil {
+		log.Fatalf("failed to create upload backend: %v", err)
+	}
+
+	// Run startup crash recovery before serving traffic.
+	// This ensures that any pending completion intents from a previous crash
+	// are resolved, and any uploading records with lost backends are marked.
+	recoverer := api.NewRecoverer(st, tusdHandler, storagePath)
+	if err := recoverer.Recover(); err != nil {
+		log.Printf("startup recovery completed with errors: %v", err)
+	}
 
 	// TODO: Wire chi router + BasicAuth + handlers (Task 7)
 	mux := http.NewServeMux()

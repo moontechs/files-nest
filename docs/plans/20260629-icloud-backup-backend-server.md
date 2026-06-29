@@ -285,12 +285,12 @@ $STORAGE_PATH/
 - Create: `server/internal/api/recovery_test.go`
 - Modify: `server/main.go`
 
-- [ ] On startup, scan `completion/<id>` records before serving requests.
-- [ ] For each intent, acquire the per-upload lock before recovery.
-- [ ] If record is already `complete`, delete stale intent and retry verified tusd cleanup.
-- [ ] If record is still `uploading` or `completing`, rerun idempotent move, update status to `complete`, delete intent, and attempt tusd cleanup.
-- [ ] If source and destination are both missing, leave the record unchanged, keep the intent, log enough detail for manual repair, and do not delete data.
-- [ ] Add tests simulating crash before move, after move before DB update, after DB update before intent cleanup, and after completion before tusd cleanup.
+- [x] On startup, scan `completion/<id>` records before serving requests.
+- [x] For each intent, acquire the per-upload lock before recovery.
+- [x] If record is already `complete`, delete stale intent and retry verified tusd cleanup.
+- [x] If record is still `uploading` or `completing`, rerun idempotent move, update status to `complete`, delete intent, and attempt tusd cleanup.
+- [x] If source and destination are both missing, leave the record unchanged, keep the intent, log enough detail for manual repair, and do not delete data.
+- [x] Add tests simulating crash before move, after move before DB update, after DB update before intent cleanup, and after completion before tusd cleanup.
 
 ### Task 14: Router, Runtime Wiring, And Docker
 **Files:**
