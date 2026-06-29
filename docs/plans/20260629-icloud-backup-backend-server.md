@@ -144,23 +144,23 @@ $STORAGE_PATH/
 - Create: `server/internal/store/store.go`
 - Create: `server/internal/store/store_test.go`
 
-- [ ] Initialize Go module under `server/`.
-- [ ] Add dependencies: `github.com/dgraph-io/badger/v4`, `github.com/go-chi/chi/v5`, and `github.com/tus/tusd/v2`.
-- [ ] Implement `store.Open(path string) (*Store, error)` and close support.
-- [ ] Add tests that open BadgerDB in a temp dir and verify the DB directory is created.
-- [ ] Run `go test ./...` from `server/`.
+- [x] Initialize Go module under `server/`.
+- [x] Add dependencies: `github.com/dgraph-io/badger/v4`, `github.com/go-chi/chi/v5`, and `github.com/tus/tusd/v2`.
+- [x] Implement `store.Open(path string) (*Store, error)` and close support.
+- [x] Add tests that open BadgerDB in a temp dir and verify the DB directory is created.
+- [x] Run `go test ./...` from `server/`.
 
 ### Task 2: tusd Adapter Verification Spike
 **Files:**
 - Create: `server/internal/uploadbackend/tusd_api_test.go`
 - Create: `server/internal/uploadbackend/errors.go`
 
-- [ ] Verify tusd handler/config/store APIs against the installed module source with compiling tests.
-- [ ] Verify deferred-length upload creation works with the embedded filestore.
-- [ ] Verify how to obtain upload ID, upload offset, known/deferred length, and upload file path.
-- [ ] Verify how tusd surfaces not-found and normalize it to `uploadbackend.ErrNotFound`.
-- [ ] Verify terminate behavior before and after the data file is moved; document whether sidecar cleanup requires a custom safe cleanup path.
-- [ ] Do not implement API handlers until this task passes.
+- [x] Verify tusd handler/config/store APIs against the installed module source with compiling tests.
+- [x] Verify deferred-length upload creation works with the embedded filestore.
+- [x] Verify how to obtain upload ID, upload offset, known/deferred length, and upload file path.
+- [x] Verify how tusd surfaces not-found and normalize it to `uploadbackend.ErrNotFound`.
+- [x] Verify terminate behavior before and after the data file is moved; document whether sidecar cleanup requires a custom safe cleanup path.
+- [x] Do not implement API handlers until this task passes.
 
 ### Task 3: Safe IDs, Models, And Indexes
 **Files:**
