@@ -276,7 +276,7 @@ The `PATCH /status complete` handler composes `dst` as `organized/YYYY/MM/DD/<fi
 - Create: `server/internal/filestore/mover.go`
 - Create: `server/internal/filestore/mover_test.go`
 
-- [ ] implement `filestore.MoveFile(src, dst string) error`: tries `os.Rename`, falls back to `copyFile` + `os.Remove` for cross-device moves (`errors.Is(err, syscall.EXDEV)`); before writing, check if `dst` already exists — if so, insert `_<backend_id>` before the extension (e.g. `IMG_0001_abc123.jpg`) to prevent silent overwrite. The caller passes `backend_id` so the suffix is the tusd upload ID.
+- [x] implement `filestore.Mover` (struct with `OrganizedPath` and `MoveFile` methods): `MoveFile` tries `os.Rename`, falls back to `copyFile` + `os.Remove` for cross-device moves (`errors.Is(err, syscall.EXDEV)`); before writing, check if `dst` already exists — if so, insert `_<backend_id>` before the extension (e.g. `IMG_0001_abc123.jpg`) to prevent silent overwrite. The caller passes `backend_id` so the suffix is the tusd upload ID.
 - [ ] implement `PATCH /uploads/:id/status` handler:
   - only accepts `status == "complete"` — any other value returns 400
   - compose `dst` as `$STORAGE_PATH/organized/YYYY/MM/DD/<filename>` using the record's `creation_date`; **fall back to `created_at` if `creation_date` is zero** (defensive guard)

@@ -247,23 +247,23 @@ $STORAGE_PATH/
 - Modify: `server/internal/api/handlers.go`
 - Modify: `server/internal/api/handlers_test.go`
 
-- [ ] Implement `HEAD /uploads/:id/data` by looking up `backend_id` and returning tusd `Upload-Offset`.
-- [ ] Implement `PATCH /uploads/:id/data` by forwarding request body and standard TUS headers to embedded tusd.
-- [ ] Wrap same-ID `PATCH /data` operations with the per-upload lock.
-- [ ] On `uploadbackend.ErrNotFound`, update status to `backend_lost` and return `409 {"error":"backend_lost"}`.
-- [ ] On non-not-found tusd errors, return `500` without changing status to `backend_lost`.
-- [ ] Add tests for offset, patch upload, deferred-length finalization, missing upload record, typed `backend_lost`, non-not-found error handling, and same-ID serialization.
+- [x] Implement `HEAD /uploads/:id/data` by looking up `backend_id` and returning tusd `Upload-Offset`.
+- [x] Implement `PATCH /uploads/:id/data` by forwarding request body and standard TUS headers to embedded tusd.
+- [x] Wrap same-ID `PATCH /data` operations with the per-upload lock.
+- [x] On `uploadbackend.ErrNotFound`, update status to `backend_lost` and return `409 {"error":"backend_lost"}`.
+- [x] On non-not-found tusd errors, return `500` without changing status to `backend_lost`.
+- [x] Add tests for offset, patch upload, deferred-length finalization, missing upload record, typed `backend_lost`, non-not-found error handling, and same-ID serialization.
 
 ### Task 11: File Move Planning And Moving
 **Files:**
 - Create: `server/internal/filestore/mover.go`
 - Create: `server/internal/filestore/mover_test.go`
 
-- [ ] Implement `PlanDestination(root, creationDate, createdAt, filename, backendID)` returning deterministic final path and relative organized path.
-- [ ] Implement collision handling by inserting `_<backend_id>` before the file extension.
-- [ ] Implement `MoveFile(src, dst string) error` with `os.Rename` first and copy-delete fallback on `EXDEV`.
-- [ ] Make move idempotent for recovery: if `src` is missing but intended `dst` exists, treat as already moved.
-- [ ] Add tests for normal move, collision suffix, nested directories, creation-date fallback, missing-source/already-moved recovery, and copy fallback where practical.
+- [x] Implement `PlanDestination(root, creationDate, createdAt, filename, backendID)` returning deterministic final path and relative organized path.
+- [x] Implement collision handling by inserting `_<backend_id>` before the file extension.
+- [x] Implement `MoveFile(src, dst string) error` with `os.Rename` first and copy-delete fallback on `EXDEV`.
+- [x] Make move idempotent for recovery: if `src` is missing but intended `dst` exists, treat as already moved.
+- [x] Add tests for normal move, collision suffix, nested directories, creation-date fallback, missing-source/already-moved recovery, and copy fallback where practical.
 
 ### Task 12: Complete And Delete API
 **Files:**
