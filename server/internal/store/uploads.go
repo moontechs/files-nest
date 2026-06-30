@@ -42,8 +42,9 @@ type Upload struct {
 
 // Sentinel errors returned by store operations.
 var (
-	ErrNotFound = fmt.Errorf("upload not found")
-	ErrConflict = fmt.Errorf("upload already exists")
+	ErrNotFound     = fmt.Errorf("upload not found")
+	ErrConflict     = fmt.Errorf("upload already exists")
+	ErrInvalidCursor = fmt.Errorf("invalid cursor")
 )
 
 // ---------------------------------------------------------------------------
@@ -393,6 +394,78 @@ func (s *Store) UpdateComplete(id string, organizedPath string) (*Upload, error)
 }
 
 // ---------------------------------------------------------------------------
+// ReRegister
+// ---------------------------------------------------------------------------
+
+// ReRegister atomically replaces an existing upload's backend_id and resets
+// its status to StatusUploading. It is used when a client re-registers an
+// upload whose previous backend was lost (status=backend_lost) or that was
+// previously deleted (status=deleted) — in both cases the client needs a
+// fresh tusd upload rather than the stale record.
+//
+// The old index entries (including the backend index pointing at the lost
+// backend) are removed and the new ones are written in the same transaction,
+// so no ghost keys are left behind. Returns ErrNotFound if the record does
+// not exist.
+func (s *Store) ReRegister(id string, newBackendID string) (*Upload, error) {
+	var updated *Upload
+
+	err := s.db.Update(func(txn *badger.Txn) error {
+		item, err := txn.Get(recordKey(id))
+		if err != nil {
+			if err == badger.ErrKeyNotFound {
+				return ErrNotFound
+			}
+			return fmt.Errorf("get record for re-register: %w", err)
+		}
+
+		var upload Upload
+		if err := item.Value(func(val []byte) error {
+			return json.Unmarshal(val, &upload)
+		}); err != nil {
+			return fmt.Errorf("unmarshal record for re-register: %w", err)
+		}
+
+		reg := newIndexRegistry()
+
+		// Delete old index entries (backend and status indexes change).
+		for _, entry := range reg.deleteEntries(&upload) {
+			if err := txn.Delete(entry.Key); err != nil {
+				return fmt.Errorf("delete old index %s: %w", string(entry.Key), err)
+			}
+		}
+
+		// Reset to a fresh uploading state with the new backend.
+		upload.BackendID = newBackendID
+		upload.Status = StatusUploading
+		upload.OrganizedPath = "" // clear any stale organized path
+		upload.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+
+		newVal, err := json.Marshal(&upload)
+		if err != nil {
+			return fmt.Errorf("marshal re-registered record: %w", err)
+		}
+		if err := txn.Set(recordKey(id), newVal); err != nil {
+			return fmt.Errorf("set re-registered record: %w", err)
+		}
+
+		// Write new index entries for the updated record.
+		for _, entry := range reg.writeEntries(&upload) {
+			if err := txn.Set(entry.Key, entry.Value); err != nil {
+				return fmt.Errorf("set new index %s: %w", string(entry.Key), err)
+			}
+		}
+
+		updated = &upload
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+// ---------------------------------------------------------------------------
 // DeleteUpload
 // ---------------------------------------------------------------------------
 
@@ -499,20 +572,23 @@ func (s *Store) ListByDateRange(from, to time.Time, statusFilter Status, limit i
 	fromStr := from.Format("2006-01-02")
 	toStr := to.Format("2006-01-02")
 
-	// Determine seek key
+	// Determine seek key. When a cursor is provided we seek to the last
+	// entry already returned and skip it ONLY if it still exists. If the
+	// cursor entry was deleted between pages, the iterator lands on the
+	// next valid entry, which must not be skipped — otherwise pagination
+	// silently drops one record.
 	var seekKey string
-	var skipFirst bool // true when we need to skip the cursor entry itself
+	var cursorKey string // exact key to skip on the first iteration (empty = skip nothing)
 
 	if cursor != "" {
 		cursorBytes, err := base64.RawURLEncoding.DecodeString(cursor)
 		if err != nil {
-			return nil, "", fmt.Errorf("invalid cursor: %w", err)
+			return nil, "", fmt.Errorf("%w: %v", ErrInvalidCursor, err)
 		}
 		seekKey = "idx/date/" + string(cursorBytes)
-		skipFirst = true
+		cursorKey = seekKey
 	} else {
 		seekKey = "idx/date/" + fromStr
-		skipFirst = false
 	}
 
 	var uploads []*Upload
@@ -525,13 +601,17 @@ func (s *Store) ListByDateRange(from, to time.Time, statusFilter Status, limit i
 		prefix := dateIndexPrefix()
 
 		for it.Seek([]byte(seekKey)); it.ValidForPrefix(prefix); it.Next() {
-			// Skip the cursor entry (already returned in previous page)
-			if skipFirst {
-				skipFirst = false
+			key := string(it.Item().Key())
+
+			// Skip the cursor entry itself (already returned in the previous
+			// page) — but only when it still exists. If it was deleted, the
+			// iterator is now positioned on the next valid entry, which we
+			// must return rather than skip.
+			if cursorKey != "" && key == cursorKey {
+				cursorKey = "" // consume; don't skip subsequent entries
 				continue
 			}
 
-			key := string(it.Item().Key())
 			// key format: "idx/date/<YYYY-MM-DD>/<id>"
 			parts := strings.SplitN(key, "/", 4)
 			if len(parts) < 4 {

@@ -28,8 +28,8 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      - BACKUP_USER=${BACKUP_USER:-admin}
-      - BACKUP_PASS=${BACKUP_PASS:-changeme}
+      - BACKUP_USER=${BACKUP_USER}
+      - BACKUP_PASS=${BACKUP_PASS}
       - STORAGE_PATH=/data
       - PORT=8080
     volumes:

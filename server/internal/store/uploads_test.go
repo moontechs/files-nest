@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -1146,6 +1147,80 @@ func TestListByDateRange_Pagination(t *testing.T) {
 	}
 }
 
+// TestListByDateRange_PaginationCursorDeleted verifies that pagination does
+// not silently drop a record when the cursor's upload was deleted between
+// pages. The cursor entry no longer exists in the date index, so the iterator
+// lands on the next valid entry — which must be returned, not skipped.
+func TestListByDateRange_PaginationCursorDeleted(t *testing.T) {
+	s := openTestStore(t)
+
+	// Create 4 uploads on the same date with ascending IDs.
+	ids := make([]string, 4)
+	for i := 0; i < 4; i++ {
+		u := testUpload(fmt.Sprintf("asset-cursor-del-%d", i), map[string]string{
+			"creationDate": "2024-03-15T10:00:00Z",
+		})
+		if err := s.CreateUpload(u); err != nil {
+			t.Fatalf("CreateUpload %d failed: %v", i, err)
+		}
+		ids[i] = u.ID
+	}
+
+	from := time.Date(2024, 3, 15, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2024, 3, 15, 23, 59, 59, 0, time.UTC)
+
+	// Page 1: limit 2 → returns ids[0], ids[1]; cursor points at ids[1].
+	page1, cursor, err := s.ListByDateRange(from, to, "", 2, "")
+	if err != nil {
+		t.Fatalf("page 1 failed: %v", err)
+	}
+	if len(page1) != 2 || cursor == "" {
+		t.Fatalf("page 1: expected 2 uploads and a cursor, got %d and %q", len(page1), cursor)
+	}
+
+	// Delete the record the cursor points at (ids[1]) between pages.
+	if err := s.DeleteUpload(page1[1].ID); err != nil {
+		t.Fatalf("DeleteUpload cursor record failed: %v", err)
+	}
+
+	// Page 2 must return the remaining two records (ids[2], ids[3]), not skip
+	// ids[2] as the old skipFirst logic would have.
+	page2, nextCursor, err := s.ListByDateRange(from, to, "", 2, cursor)
+	if err != nil {
+		t.Fatalf("page 2 failed: %v", err)
+	}
+	if len(page2) != 2 {
+		t.Fatalf("page 2: expected 2 uploads (cursor record deleted, next must not be skipped), got %d", len(page2))
+	}
+
+	seen := map[string]bool{page1[0].ID: true}
+	for _, u := range page2 {
+		if seen[u.ID] {
+			t.Errorf("unexpected duplicate ID %q on page 2", u.ID)
+		}
+		seen[u.ID] = true
+	}
+	if len(seen) != 3 {
+		t.Errorf("expected 3 unique IDs across pages (1 deleted), got %d", len(seen))
+	}
+	// A trailing cursor is expected when the page fills the limit exactly;
+	// the following page must be empty with no cursor, confirming no record
+	// was skipped.
+	if nextCursor == "" {
+		t.Fatalf("page 2: expected a trailing cursor after a full page")
+	}
+	page3, finalCursor, err := s.ListByDateRange(from, to, "", 2, nextCursor)
+	if err != nil {
+		t.Fatalf("page 3 failed: %v", err)
+	}
+	if len(page3) != 0 {
+		t.Errorf("page 3: expected 0 uploads (all returned), got %d", len(page3))
+	}
+	if finalCursor != "" {
+		t.Errorf("page 3: expected empty cursor, got %q", finalCursor)
+	}
+}
+
 func TestListByDateRange_StatusFilter(t *testing.T) {
 	s := openTestStore(t)
 
@@ -1593,5 +1668,101 @@ func TestUpload_BundleID(t *testing.T) {
 	}
 	if got.BundleID != bundleID {
 		t.Errorf("BundleID: got %q, want %q", got.BundleID, bundleID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ReRegister
+// ---------------------------------------------------------------------------
+
+// TestReRegister_ResetsBackendAndStatus verifies that ReRegister swaps the
+// backend_id, resets status to uploading, and clears a stale organized_path.
+func TestReRegister_ResetsBackendAndStatus(t *testing.T) {
+	s := openTestStore(t)
+	u := testUpload("asset-rereg-1", nil)
+	if err := s.CreateUpload(u); err != nil {
+		t.Fatalf("CreateUpload: %v", err)
+	}
+
+	// Move the record into a complete-like state with a stale organized path
+	// and a lost backend, to confirm ReRegister clears everything.
+	if _, err := s.UpdateComplete(u.ID, "organized/2024/03/15/IMG_1234.jpg"); err != nil {
+		t.Fatalf("UpdateComplete: %v", err)
+	}
+	if _, err := s.UpdateStatus(u.ID, store.StatusBackendLost); err != nil {
+		t.Fatalf("UpdateStatus backend_lost: %v", err)
+	}
+
+	const newBackend = "tusd-fresh-backend-id"
+	got, err := s.ReRegister(u.ID, newBackend)
+	if err != nil {
+		t.Fatalf("ReRegister: %v", err)
+	}
+	if got.BackendID != newBackend {
+		t.Errorf("BackendID: got %q want %q", got.BackendID, newBackend)
+	}
+	if got.Status != store.StatusUploading {
+		t.Errorf("Status: got %q want uploading", got.Status)
+	}
+	if got.OrganizedPath != "" {
+		t.Errorf("OrganizedPath should be cleared: got %q", got.OrganizedPath)
+	}
+
+	// The old backend index entry must be gone; the new one must resolve back.
+	byOld, err := s.UploadByBackendID(u.BackendID)
+	if err != nil {
+		t.Fatalf("UploadByBackendID old: %v", err)
+	}
+	if byOld != nil {
+		t.Errorf("old backend index should be removed, still resolved to %v", byOld.ID)
+	}
+	byNew, err := s.UploadByBackendID(newBackend)
+	if err != nil {
+		t.Fatalf("UploadByBackendID new: %v", err)
+	}
+	if byNew == nil || byNew.ID != u.ID {
+		t.Errorf("new backend index should resolve to %q, got %v", u.ID, byNew)
+	}
+}
+
+// TestReRegister_NoGhostStatusKeys verifies that ReRegister does not leave the
+// old status index entry behind (no ghost keys after re-registration).
+func TestReRegister_NoGhostStatusKeys(t *testing.T) {
+	s := openTestStore(t)
+	u := testUpload("asset-rereg-ghost", nil)
+	if err := s.CreateUpload(u); err != nil {
+		t.Fatalf("CreateUpload: %v", err)
+	}
+	if _, err := s.UpdateStatus(u.ID, store.StatusDeleted); err != nil {
+		t.Fatalf("UpdateStatus deleted: %v", err)
+	}
+
+	if _, err := s.ReRegister(u.ID, "tusd-new-backend"); err != nil {
+		t.Fatalf("ReRegister: %v", err)
+	}
+
+	deleted, err := s.ListByStatus(store.StatusDeleted)
+	if err != nil {
+		t.Fatalf("ListByStatus deleted: %v", err)
+	}
+	if len(deleted) != 0 {
+		t.Errorf("expected 0 deleted index entries after re-register, got %d", len(deleted))
+	}
+	uploading, err := s.ListByStatus(store.StatusUploading)
+	if err != nil {
+		t.Fatalf("ListByStatus uploading: %v", err)
+	}
+	if len(uploading) != 1 || uploading[0].ID != u.ID {
+		t.Errorf("expected exactly 1 uploading entry for %s, got %d", u.ID, len(uploading))
+	}
+}
+
+// TestReRegister_NotFound verifies that ReRegister returns ErrNotFound for a
+// missing record.
+func TestReRegister_NotFound(t *testing.T) {
+	s := openTestStore(t)
+	_, err := s.ReRegister("nonexistent-id", "tusd-x")
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }

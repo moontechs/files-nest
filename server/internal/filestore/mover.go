@@ -10,14 +10,26 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
 
 // Mover organizes completed upload files from the tusd incoming directory
 // into the date-based organized tree under the storage root path.
+//
+// moveMu serializes the plan-then-move sequence for the organized tree.
+// PlanDestination detects collisions with os.Stat and MoveFile renames
+// atomically; without a lock spanning both, two concurrent completions
+// for different uploads that share a creation date + filename could each
+// see no file at the computed path, compute identical destinations, and
+// the second rename would silently overwrite the first upload's data.
+// The mutex closes that TOCTOU window. Moves are fast (in-process rename),
+// so global serialization of the move step has no practical throughput
+// impact on the upload (PATCH /data) path, which is only same-id locked.
 type Mover struct {
 	storagePath string
+	moveMu      sync.Mutex
 }
 
 // New creates a new Mover with the given storage root path.
@@ -52,7 +64,12 @@ func (m *Mover) OrganizedPath(creationDate, filename string) (rel, abs string) {
 		month = t.Format("01")
 		day = t.Format("02")
 	} else {
-		year = creationDate
+		// Fallback: sanitize the raw date string as a single path segment.
+		// SafePathSegment rejects traversal characters ('/', '\\', '..') so an
+		// unparseable date can never escape the organized root. An empty result
+		// (empty or unsafe input) is left empty so filepath.Join collapses it,
+		// preserving the organized/unknown/unknown/<file> layout for empty dates.
+		year = SafePathSegment(creationDate)
 		month = "unknown"
 		day = "unknown"
 	}
@@ -111,7 +128,7 @@ func (m *Mover) PlanDestination(creationDate, createdAt, filename, backendID str
 			month = t2.Format("01")
 			day = t2.Format("02")
 		} else {
-			year = dateToUse
+			year = SafePathSegment(dateToUse)
 			if year == "" {
 				year = "unknown"
 			}
@@ -164,6 +181,8 @@ type MoveResult struct {
 // should use DstRel (not the computed rel) for persisting in the DB,
 // because deduplication may have changed the filename.
 func (m *Mover) MoveFile(srcPath, creationDate, filename, backendID string) (*MoveResult, error) {
+	m.moveMu.Lock()
+	defer m.moveMu.Unlock()
 	plan := m.PlanDestination(creationDate, "", filename, backendID)
 
 	// Determine if deduplication occurred by comparing the final path
@@ -181,6 +200,47 @@ func (m *Mover) MoveFile(srcPath, creationDate, filename, backendID string) (*Mo
 		DstRel:       plan.Rel,
 		Deduplicated: deduped,
 	}, nil
+}
+
+// PlanAndMove plans the destination for a completed upload and moves the
+// file there, both under the organized-tree mutex so the collision check
+// in PlanDestination and the rename in MoveFile are atomic with respect
+// to other concurrent completions. beforeMove (if non-nil) is called
+// after planning and before the rename, still holding the mutex; callers
+// use it to persist a completion intent for crash recovery so a crash
+// between the intent write and the rename remains recoverable.
+//
+// If beforeMove returns an error, no move is performed and that error is
+// returned to the caller.
+func (m *Mover) PlanAndMove(src, creationDate, createdAt, filename, backendID string, beforeMove func(PlanDestResult) error) (PlanDestResult, error) {
+	m.moveMu.Lock()
+	defer m.moveMu.Unlock()
+	plan := m.PlanDestination(creationDate, createdAt, filename, backendID)
+	if beforeMove != nil {
+		if err := beforeMove(plan); err != nil {
+			return plan, err
+		}
+	}
+	if err := MoveFile(src, plan.Abs); err != nil {
+		return plan, err
+	}
+	return plan, nil
+}
+
+// MoveToPlaned moves src to a pre-determined destination (for example, one
+// recovered from an existing completion intent on a retry) under the
+// organized-tree mutex. beforeMove (if non-nil) is called after acquiring
+// the mutex and before the rename, so callers can refresh a completion
+// intent with the same atomicity guarantees as PlanAndMove.
+func (m *Mover) MoveToPlaned(src string, plan PlanDestResult, beforeMove func(PlanDestResult) error) error {
+	m.moveMu.Lock()
+	defer m.moveMu.Unlock()
+	if beforeMove != nil {
+		if err := beforeMove(plan); err != nil {
+			return err
+		}
+	}
+	return MoveFile(src, plan.Abs)
 }
 
 // MoveFile moves a file from src to dst atomically using os.Rename.
@@ -221,6 +281,15 @@ func MoveFile(src, dst string) error {
 
 // copyFile copies a file from src to dst, preserving the file mode.
 // The destination directory must already exist.
+//
+// This is the cross-device (EXDEV) fallback for MoveFile. Because the caller
+// removes the source immediately after a successful copy, the destination
+// must be durably on disk before we return — otherwise a crash after io.Copy
+// completes but before the kernel flushes the destination's data would leave
+// a partial/empty destination with the source already gone (data loss on
+// recovery). We therefore Sync the destination and check the Close error
+// (which can surface a deferred write error from the kernel) before
+// reporting success.
 func copyFile(src, dst string) error {
 	srcFile, err := os.Open(src)
 	if err != nil {
@@ -232,10 +301,20 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("create destination: %w", err)
 	}
-	defer dstFile.Close()
 
+	// Copy data, flush it to disk, then close while surfacing any deferred
+	// write error. A bare `defer dstFile.Close()` would swallow Close errors
+	// that indicate the data did not reach stable storage.
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		dstFile.Close()
 		return fmt.Errorf("copy data: %w", err)
+	}
+	if err := dstFile.Sync(); err != nil {
+		dstFile.Close()
+		return fmt.Errorf("sync destination: %w", err)
+	}
+	if err := dstFile.Close(); err != nil {
+		return fmt.Errorf("close destination: %w", err)
 	}
 
 	// Preserve the file mode from the source.
@@ -263,4 +342,49 @@ func isParseableDate(s string) bool {
 		return true
 	}
 	return false
+}
+
+// SafePathSegment converts an arbitrary string into a single path-safe path
+// segment. It is used when a creation date cannot be parsed as RFC3339 or
+// YYYY-MM-DD and the raw string would otherwise be used directly as a
+// directory name under organized/. Without this, a malformed or adversarial
+// creation_date containing '/', '\', '..', or control characters could escape
+// the intended organized tree (path traversal / injection).
+//
+// The function:
+//   - replaces '/' and '\' with '_',
+//   - removes control characters (< 0x20) and NULL,
+//   - rejects "." and ".." (collapses to empty),
+//   - trims leading/trailing dots and spaces (filesystem-irritating),
+//   - truncates to 200 bytes (well under common FS name limits).
+//
+// It returns empty string if the result is empty or unsafe.
+func SafePathSegment(s string) string {
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '/', '\\':
+			b.WriteRune('_')
+		case '.', ' ':
+			// keep; handled by trimming below
+			b.WriteRune(r)
+		default:
+			if r < 32 || r == 0 {
+				continue
+			}
+			b.WriteRune(r)
+		}
+	}
+	out := strings.Trim(b.String(), ". _")
+	if out == "" || out == "." || out == ".." {
+		return ""
+	}
+	if len(out) > 200 {
+		out = out[:200]
+		out = strings.TrimRight(out, ". _")
+	}
+	return out
 }

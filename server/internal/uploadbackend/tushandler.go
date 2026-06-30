@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -276,8 +277,7 @@ func (h *TUSHandler) TerminateOrCleanup(backendID string) error {
 			if os.IsNotExist(err) {
 				return ErrNotFound
 			}
-			// Log but don't fail — the .info is a sidecar.
-			return ErrNotFound
+			log.Printf("tusd: failed to remove info sidecar %s: %v", infoPath, err)
 		}
 		return ErrNotFound
 	default:

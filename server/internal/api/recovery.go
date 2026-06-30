@@ -52,7 +52,7 @@ func (r *Recoverer) Recover() error {
 
 	// Phase 1: Recover any pending completion intents from crashed completions.
 	if err := r.recoverCompletionIntents(); err != nil {
-		log.Printf("recovery: completion intent recovery error: %v", err)
+		return fmt.Errorf("completion intent recovery failed: %w", err)
 	}
 
 	// Phase 2: Check for uploading records whose tusd backend has gone missing.

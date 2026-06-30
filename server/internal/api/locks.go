@@ -14,7 +14,7 @@ import "sync"
 // upload and Unlock when done, typically via defer:
 //
 //	func (h *Handler) handleSomething(w http.ResponseWriter, r *http.Request) {
-//	    id := chi.URLParam(r, "id")
+//	    id := r.PathValue("id") // Go 1.22+ ServeMux pattern {id}
 //	    h.locks.Lock(id)
 //	    defer h.locks.Unlock(id)
 //	    // ... critical section

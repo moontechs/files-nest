@@ -9,12 +9,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/moontechs/files-nest/server/internal/filestore"
 	"github.com/moontechs/files-nest/server/internal/store"
 	"github.com/moontechs/files-nest/server/internal/uploadbackend"
 )
@@ -31,6 +30,7 @@ type Handler struct {
 	backend     *uploadbackend.TUSHandler
 	locks       *UploadLocker
 	storagePath string
+	mover       *filestore.Mover
 }
 
 // NewHandler creates a Handler wired to the given store, backend, and
@@ -42,6 +42,7 @@ func NewHandler(st *store.Store, bk *uploadbackend.TUSHandler, storagePath strin
 		backend:     bk,
 		locks:       &UploadLocker{},
 		storagePath: storagePath,
+		mover:       filestore.New(storagePath),
 	}
 }
 
@@ -148,6 +149,11 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 		return
 	}
@@ -167,6 +173,17 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "creation_date is required")
 		return
 	}
+	// Validate the creation_date format. This is the primary defense against
+	// path traversal via the organized-tree path builder: an untrusted client
+	// could otherwise submit a crafted date (e.g. "../../tmp") that lands the
+	// completed file outside the storage root. Only RFC3339 / RFC3339Nano /
+	// YYYY-MM-DD values are accepted; everything else is rejected with 400.
+	// SafePathSegment in filestore is kept as defense-in-depth for any record
+	// that reaches the path builder through a non-API path.
+	if _, err := parseRFC3339(req.CreationDate); err != nil {
+		writeError(w, http.StatusBadRequest, "creation_date must be an RFC3339 timestamp (e.g. 2024-03-15T10:30:00Z)")
+		return
+	}
 
 	// Sanitize the filename.
 	safeFilename := SanitizeFilename(req.Filename)
@@ -178,8 +195,14 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	// Derive the deterministic safe server ID.
 	id := SafeID(req.LocalIdentifier)
 
+	// Serialize concurrent create/re-register attempts for the same upload.
+	// Without this, two concurrent POST /uploads for the same localIdentifier
+	// could both create tusd uploads and race on the re-register path below.
+	h.locks.Lock(id)
+	defer h.locks.Unlock(id)
+
 	// Build the Upload-Metadata header value for tusd.
-	tusdMeta := "filename " + base64.RawURLEncoding.EncodeToString([]byte(safeFilename))
+	tusdMeta := "filename " + base64.StdEncoding.EncodeToString([]byte(safeFilename))
 
 	// Create the tusd upload.
 	backendID, err := h.backend.CreateUpload(tusdMeta)
@@ -205,8 +228,7 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Attempt to persist the record. If an existing record already exists
-	// for this localIdentifier, terminate the tusd upload and return the
-	// existing record.
+	// for this localIdentifier, branch on its status.
 	existing, created, err := h.store.PutUploadIfAbsent(upload)
 	if err != nil {
 		// Unknown DB error — terminate the tusd upload before returning.
@@ -218,14 +240,33 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If a record already existed, terminate the newly-created tusd upload
-	// and return the existing record.
 	if !created {
-		if termErr := h.backend.TerminateOrCleanup(backendID); termErr != nil {
-			log.Printf("failed to terminate redundant tusd upload %s: %v", backendID, termErr)
+		// A record already exists for this localIdentifier. If its backend
+		// is gone (backend_lost) or it was deleted, the client needs a fresh
+		// upload: re-register the newly-created tusd backend on the existing
+		// record and reset its status to uploading. Otherwise the upload is
+		// still in progress (or already complete) — return the existing record
+		// idempotently and clean up the redundant tusd upload.
+		switch existing.Status {
+		case store.StatusBackendLost, store.StatusDeleted:
+			reReg, err := h.store.ReRegister(existing.ID, backendID)
+			if err != nil {
+				log.Printf("ReRegister failed for %s: %v", existing.ID, err)
+				if termErr := h.backend.TerminateOrCleanup(backendID); termErr != nil {
+					log.Printf("failed to terminate tusd upload %s after re-register failure: %v", backendID, termErr)
+				}
+				writeError(w, http.StatusInternalServerError, "failed to re-register upload")
+				return
+			}
+			writeJSON(w, http.StatusCreated, uploadToResponse(reReg))
+			return
+		default:
+			if termErr := h.backend.TerminateOrCleanup(backendID); termErr != nil {
+				log.Printf("failed to terminate redundant tusd upload %s: %v", backendID, termErr)
+			}
+			writeJSON(w, http.StatusOK, existingToResponse(existing))
+			return
 		}
-		writeJSON(w, http.StatusOK, existingToResponse(existing))
-		return
 	}
 
 	// Return the newly-created record.
@@ -287,6 +328,10 @@ func (h *Handler) HandleListUploads(w http.ResponseWriter, r *http.Request) {
 
 	uploads, nextCursor, err := h.store.ListByDateRange(from, to, status, limit, cursor)
 	if err != nil {
+		if errors.Is(err, store.ErrInvalidCursor) {
+			writeError(w, http.StatusBadRequest, "invalid cursor")
+			return
+		}
 		log.Printf("ListByDateRange failed: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to list uploads")
 		return
@@ -407,6 +452,14 @@ func (h *Handler) HandleHeadUploadData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Acquire the per-upload lock so HEAD cannot race with a concurrent
+	// PATCH /status (completion) or DELETE. Without this, a completion that
+	// terminates the tusd backend between HEAD's status read and HEAD's
+	// GetOffset call would cause HEAD to observe ErrNotFound and flip an
+	// already-complete record to backend_lost.
+	h.locks.Lock(id)
+	defer h.locks.Unlock(id)
+
 	upload, err := h.store.GetUpload(id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -418,9 +471,26 @@ func (h *Handler) HandleHeadUploadData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Treat deleted records as not found.
-	if upload.Status == store.StatusDeleted {
+	// Guard against non-uploading records before touching the tusd backend.
+	// A completed upload has already had its tusd backend terminated, so a
+	// GetOffset call here would return ErrNotFound and incorrectly flip the
+	// record to backend_lost (corrupting a successful completion). A deleted
+	// record is treated as not found. backend_lost / completing records are
+	// not valid HEAD targets either.
+	switch upload.Status {
+	case store.StatusUploading:
+		// OK — proceed to fetch the offset.
+	case store.StatusDeleted:
 		writeError(w, http.StatusNotFound, "upload not found")
+		return
+	case store.StatusComplete:
+		writeError(w, http.StatusConflict, "upload already completed")
+		return
+	case store.StatusBackendLost:
+		writeError(w, http.StatusConflict, "backend_lost")
+		return
+	default:
+		writeError(w, http.StatusConflict, "upload not in uploading state")
 		return
 	}
 
@@ -647,52 +717,67 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Compose the destination organized path.
-	// Use creation_date, falling back to created_at if empty.
-	creationDate := upload.CreationDate
-	if creationDate == "" {
-		creationDate = upload.CreatedAt
+	// Compose the destination organized path and move the file.
+	//
+	// The collision check inside PlanDestination (os.Stat) and the rename
+	// inside MoveFile must be atomic with respect to other concurrent
+	// completions for a different upload that shares the same creation date
+	// and filename (e.g. two libraries both exporting IMG_1234.jpg on the
+	// same day). Without serialization each completion could see no file at
+	// the computed path, compute identical destinations, and the second
+	// rename would silently overwrite the first upload's data. The Mover's
+	// organized-tree mutex (held across plan + intent + rename) closes that
+	// TOCTOU window.
+	//
+	// Retry safety: if a previous completion attempt for this upload already
+	// persisted a completion intent, reuse its destination paths verbatim. A
+	// prior attempt may have succeeded in moving the file but failed before
+	// the DB update; recomputing the destination now would see the already-
+	// moved file as a collision and suffix it with the backend_id, producing
+	// a NEW path that does not match where the file actually lives — orphaning
+	// the data and breaking recovery. Reusing the intent's paths keeps retries
+	// consistent with the original attempt and lets MoveFile's idempotency
+	// (src missing + dst present → success) take effect.
+	//
+	// The completion intent is persisted (via saveIntent) BEFORE the rename,
+	// still under the mutex, so a crash between the intent write and the move
+	// remains recoverable on the next startup.
+	saveIntent := func(plan filestore.PlanDestResult) error {
+		intent := &store.CompletionIntent{
+			ID:        upload.ID,
+			BackendID: upload.BackendID,
+			Src:       srcPath,
+			Dst:       plan.Abs,
+			DstRel:    plan.Rel,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		}
+		return h.store.SaveCompletionIntent(intent)
 	}
-	relPath, dstPath := organizedPath(h.storagePath, creationDate, upload.Filename)
 
-	// If the destination already exists, insert the backend_id before the
-	// extension to create a unique path (e.g. IMG_0001_<backend_id>.jpg).
-	if _, err := os.Stat(dstPath); err == nil {
-		ext := filepath.Ext(dstPath)
-		base := strings.TrimSuffix(dstPath, ext)
-		dstPath = base + "_" + upload.BackendID + ext
-	}
-
-	// Save a completion intent for crash recovery. If the server crashes
-	// between the file move and the DB update, the intent is recovered on
-	// the next startup.
-	intent := &store.CompletionIntent{
-		ID:        upload.ID,
-		BackendID: upload.BackendID,
-		Src:       srcPath,
-		Dst:       dstPath,
-		DstRel:    relPath,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	}
-	if err := h.store.SaveCompletionIntent(intent); err != nil {
-		log.Printf("failed to save completion intent for %s: %v", upload.ID, err)
+	var plan filestore.PlanDestResult
+	if existing, err := h.store.GetCompletionIntent(upload.ID); err != nil {
+		log.Printf("failed to read existing completion intent for %s: %v", upload.ID, err)
 		writeError(w, http.StatusInternalServerError, "failed to prepare completion")
 		return
+	} else if existing != nil {
+		existingPlan := filestore.PlanDestResult{Abs: existing.Dst, Rel: existing.DstRel}
+		if err := h.mover.MoveToPlaned(srcPath, existingPlan, saveIntent); err != nil {
+			log.Printf("completion move failed for %s: %v", upload.ID, err)
+			writeError(w, http.StatusInternalServerError, "failed to move file")
+			return
+		}
+		plan = existingPlan
+	} else {
+		p, err := h.mover.PlanAndMove(srcPath, upload.CreationDate, upload.CreatedAt, upload.Filename, upload.BackendID, saveIntent)
+		if err != nil {
+			log.Printf("completion move failed for %s: %v", upload.ID, err)
+			writeError(w, http.StatusInternalServerError, "failed to move file")
+			return
+		}
+		plan = p
 	}
 
-	// Ensure the destination directory exists.
-	if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
-		log.Printf("failed to create directory %s: %v", filepath.Dir(dstPath), err)
-		writeError(w, http.StatusInternalServerError, "failed to create destination directory")
-		return
-	}
-
-	// Move the completed file from incoming to organized.
-	if err := os.Rename(srcPath, dstPath); err != nil {
-		log.Printf("failed to move file %s -> %s: %v", srcPath, dstPath, err)
-		writeError(w, http.StatusInternalServerError, "failed to move file")
-		return
-	}
+	relPath := plan.Rel
 
 	// Update the DB record to complete with the organized path.
 	if _, err := h.store.UpdateComplete(upload.ID, relPath); err != nil {
@@ -777,38 +862,32 @@ func (h *Handler) HandleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 // handleBackendLost updates the upload record status to backend_lost and
 // writes a 409 Conflict response. It is called when the tusd backend
 // reports that an upload no longer exists (ErrNotFound).
+//
+// It only transitions the record to backend_lost from a non-terminal state
+// (uploading or completing). Terminal states (complete, deleted, or already
+// backend_lost) are left untouched: HEAD /data does not acquire the per-upload
+// lock and does not reject terminal statuses before contacting the backend,
+// so without this guard a late HEAD on an upload that has since been completed
+// (and whose tusd backend was cleaned up) would clobber the complete status
+// and corrupt the record. Re-reading the current record avoids acting on the
+// potentially stale snapshot held by the caller.
 func (h *Handler) handleBackendLost(w http.ResponseWriter, _ *http.Request, upload *store.Upload) {
-	if _, err := h.store.UpdateStatus(upload.ID, store.StatusBackendLost); err != nil {
-		log.Printf("failed to set backend_lost for %s: %v", upload.ID, err)
+	current, err := h.store.GetUpload(upload.ID)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			log.Printf("failed to re-read upload %s before backend_lost: %v", upload.ID, err)
+		}
+	} else {
+		switch current.Status {
+		case store.StatusUploading, store.StatusCompleting:
+			if _, err := h.store.UpdateStatus(upload.ID, store.StatusBackendLost); err != nil {
+				log.Printf("failed to set backend_lost for %s: %v", upload.ID, err)
+			}
+		default:
+			// complete, deleted, or already backend_lost — preserve terminal state.
+		}
 	}
 	writeError(w, http.StatusConflict, "backend_lost")
-}
-
-// organizedPath computes the relative and absolute organized file paths
-// from the storage root, creation date, and filename.
-//
-// The relative path uses the form: organized/YYYY/MM/DD/<filename>.
-func organizedPath(storagePath, creationDate, filename string) (rel, abs string) {
-	// Parse the creation date to extract year, month, day.
-	var year, month, day string
-	if t, err := time.Parse(time.RFC3339, creationDate); err == nil {
-		year = t.Format("2006")
-		month = t.Format("01")
-		day = t.Format("02")
-	} else if t, err := time.Parse("2006-01-02", creationDate); err == nil {
-		year = t.Format("2006")
-		month = t.Format("01")
-		day = t.Format("02")
-	} else {
-		// Fallback: use the raw date string as a single segment.
-		year = creationDate
-		month = "unknown"
-		day = "unknown"
-	}
-
-	rel = filepath.Join("organized", year, month, day, filename)
-	abs = filepath.Join(storagePath, rel)
-	return
 }
 
 // ---------------------------------------------------------------------------

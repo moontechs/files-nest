@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/moontechs/files-nest/server/internal/api"
@@ -247,6 +248,33 @@ func TestHandleCreateUpload_MissingCreationDate(t *testing.T) {
 	decodeResponse(t, rec, &errResp)
 	if errResp["error"] == "" || !strings.Contains(errResp["error"], "creation_date") {
 		t.Errorf("expected error about creation_date, got %q", errResp["error"])
+	}
+}
+
+// TestHandleCreateUpload_MalformedCreationDateRejected ensures a crafted
+// creation_date that could traverse the organized tree (e.g. "../../tmp")
+// is rejected at the API boundary with 400 rather than being persisted and
+// later used to place the completed file outside the storage root.
+func TestHandleCreateUpload_MalformedCreationDateRejected(t *testing.T) {
+	h, _, _ := setupHandler(t)
+
+	cases := []string{
+		"../../tmp",
+		"../../../etc/passwd",
+		"not-a-date",
+		"2024/03/15",
+	}
+	for _, d := range cases {
+		body := fmt.Sprintf(`{"local_identifier":"TRAV-001","filename":"IMG_1234.jpg","creation_date":%q}`, d)
+		rec := executeRequest(h.HandleCreateUpload, "POST", "/uploads", strings.NewReader(body))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("creation_date=%q: expected 400, got %d: %s", d, rec.Code, rec.Body.String())
+		}
+		var errResp map[string]string
+		decodeResponse(t, rec, &errResp)
+		if !strings.Contains(errResp["error"], "creation_date") {
+			t.Fatalf("creation_date=%q: expected error mentioning creation_date, got %q", d, errResp["error"])
+		}
 	}
 }
 
@@ -767,8 +795,8 @@ func TestHandleCreateUpload_BodyTooLarge(t *testing.T) {
 	}`, largeField)
 
 	rec := executeRequest(h.HandleCreateUpload, "POST", "/uploads", strings.NewReader(body))
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 for body too large, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413 for body too large, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -1492,6 +1520,52 @@ func TestHandleHeadUploadData_BackendLost(t *testing.T) {
 	}
 }
 
+// TestHandleHeadUploadData_AfterCompleteDoesNotClobber verifies that a late
+// HEAD /data on an upload that has already been completed (and whose tusd
+// backend was cleaned up during completion) does NOT downgrade the record
+// from complete to backend_lost. HEAD does not acquire the per-upload lock,
+// so handleBackendLost must guard against clobbering terminal statuses.
+func TestHandleHeadUploadData_AfterCompleteDoesNotClobber(t *testing.T) {
+	h, st, _ := setupHandler(t)
+	created := createTestUpload(t, h, "HEAD-AFTER-COMPLETE/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Upload all data and finalize the deferred-length upload.
+	data := []byte("content for head-after-complete test")
+	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
+		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+	if patchRec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
+	}
+
+	// Complete the upload (this moves the file and cleans up the tusd backend).
+	rec := statusPatchRequest(h.HandlePatchUploadStatus, created.ID, `{"status": "complete"}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH status expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.Status != store.StatusComplete {
+		t.Fatalf("expected status complete before HEAD, got %q", upload.Status)
+	}
+
+	// A late HEAD on the now-cleaned-up backend must not revert complete -> backend_lost.
+	headRec := tusHeadRequest(h.HandleHeadUploadData, created.ID)
+	if headRec.Code != http.StatusConflict {
+		t.Errorf("expected 409 from HEAD on cleaned-up backend, got %d", headRec.Code)
+	}
+
+	upload, err = st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload after HEAD: %v", err)
+	}
+	if upload.Status != store.StatusComplete {
+		t.Errorf("HEAD clobbered terminal status: expected complete, got %q", upload.Status)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Same-ID serialization: concurrent PATCH /data operations
 // ---------------------------------------------------------------------------
@@ -2086,5 +2160,107 @@ func TestHandlePatchUploadStatus_FileContentPreserved(t *testing.T) {
 	}
 	if string(movedContent) != string(data) {
 		t.Errorf("moved content mismatch: got %q, want %q", string(movedContent), string(data))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Concurrent completion collision safety
+// ---------------------------------------------------------------------------
+
+// TestHandlePatchUploadStatus_ConcurrentCompletionNoDataLoss verifies that two
+// concurrent completions for different uploads that share the same creation
+// date and filename do not overwrite each other's data. The collision check in
+// PlanDestination (os.Stat) and the rename in MoveFile must be serialized by
+// the Mover's organized-tree mutex; without it, both completions could compute
+// the same destination path and the second rename would silently overwrite the
+// first upload's file.
+func TestHandlePatchUploadStatus_ConcurrentCompletionNoDataLoss(t *testing.T) {
+	h, st, _ := setupHandler(t)
+
+	const filename = "IMG_DUPLICATE.jpg"
+	const creationDate = "2024-03-15T10:30:00Z"
+
+	// Two distinct uploads (different localIdentifiers → different safe IDs)
+	// that share the same filename and creation date.
+	c1 := createTestUpload(t, h, "CONCURRENT-A/L0/000", filename, creationDate)
+	c2 := createTestUpload(t, h, "CONCURRENT-B/L0/000", filename, creationDate)
+	if c1.ID == c2.ID {
+		t.Fatalf("expected distinct IDs, got %q for both", c1.ID)
+	}
+
+	data1 := []byte("content-A: the quick brown fox")
+	data2 := []byte("content-B: jumps over the lazy dog")
+
+	// Fully upload both files (Upload-Length finalizes the deferred-length).
+	for _, c := range []struct {
+		id string
+		d  []byte
+	}{
+		{c1.ID, data1},
+		{c2.ID, data2},
+	} {
+		rec := tusPatchRequest(h.HandlePatchUploadData, c.id, 0,
+			fmt.Sprintf("%d", len(c.d)), strings.NewReader(string(c.d)))
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("PATCH data for %s: expected 204, got %d: %s", c.id, rec.Code, rec.Body.String())
+		}
+	}
+
+	// Complete both uploads concurrently. The per-upload lock only serializes
+	// same-ID operations, so without the organized-tree mutex these two would
+	// race on the shared destination path.
+	var wg sync.WaitGroup
+	var rec1, rec2 *httptest.ResponseRecorder
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		rec1 = statusPatchRequest(h.HandlePatchUploadStatus, c1.ID, `{"status": "complete"}`)
+	}()
+	go func() {
+		defer wg.Done()
+		rec2 = statusPatchRequest(h.HandlePatchUploadStatus, c2.ID, `{"status": "complete"}`)
+	}()
+	wg.Wait()
+
+	if rec1.Code != http.StatusNoContent {
+		t.Fatalf("completion 1: expected 204, got %d: %s", rec1.Code, rec1.Body.String())
+	}
+	if rec2.Code != http.StatusNoContent {
+		t.Fatalf("completion 2: expected 204, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+
+	// Both records must be complete with distinct organized paths, and each
+	// organized file must contain that upload's own content (no overwrite).
+	u1, err := st.GetUpload(c1.ID)
+	if err != nil {
+		t.Fatalf("GetUpload 1: %v", err)
+	}
+	u2, err := st.GetUpload(c2.ID)
+	if err != nil {
+		t.Fatalf("GetUpload 2: %v", err)
+	}
+	if u1.Status != store.StatusComplete || u2.Status != store.StatusComplete {
+		t.Fatalf("expected both complete, got %q and %q", u1.Status, u2.Status)
+	}
+	if u1.OrganizedPath == "" || u2.OrganizedPath == "" {
+		t.Fatalf("expected non-empty organized paths, got %q and %q", u1.OrganizedPath, u2.OrganizedPath)
+	}
+	if u1.OrganizedPath == u2.OrganizedPath {
+		t.Fatalf("expected distinct organized paths, both %q", u1.OrganizedPath)
+	}
+
+	got1, err := os.ReadFile(filepath.Join(h.StoragePath(), u1.OrganizedPath))
+	if err != nil {
+		t.Fatalf("read organized 1: %v", err)
+	}
+	got2, err := os.ReadFile(filepath.Join(h.StoragePath(), u2.OrganizedPath))
+	if err != nil {
+		t.Fatalf("read organized 2: %v", err)
+	}
+	if string(got1) != string(data1) {
+		t.Errorf("organized 1 content mismatch: got %q, want %q (data loss/overwrite detected)", got1, data1)
+	}
+	if string(got2) != string(data2) {
+		t.Errorf("organized 2 content mismatch: got %q, want %q (data loss/overwrite detected)", got2, data2)
 	}
 }

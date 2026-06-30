@@ -1,8 +1,9 @@
 # =============================================================================
 # iCloud Backup Server — Multi-stage Docker build
 # =============================================================================
-# Pure Go binary — no CGO dependencies. BadgerDB, tusd, and chi are all
-# pure Go, so CGO can remain disabled for smaller, statically-linked builds.
+# Pure Go binary — no CGO dependencies. BadgerDB and tusd are pure Go, and
+# routing uses the Go 1.22+ standard-library ServeMux, so CGO can remain
+# disabled for smaller, statically-linked builds.
 #
 # Usage:
 #   docker build -t files-nest-server .

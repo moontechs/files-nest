@@ -54,7 +54,11 @@
     # -----------------------------------------------------------------------
     # Reverse proxy to the Go server
     # -----------------------------------------------------------------------
-    handle_path /uploads* {
+    # NOTE: use `handle` (not `handle_path`) so the matched prefix is NOT
+    # stripped before proxying. The Go server routes on the full path
+    # (/uploads, /uploads/{id}, /uploads/{id}/data, ...). handle_path would
+    # rewrite /uploads/{id}/data to /{id}/data and break every route.
+    handle /uploads* {
         # Allow large upload bodies — no size limit for TUS PATCH requests.
         request_body {
             max_size 0
@@ -73,7 +77,7 @@
     # -----------------------------------------------------------------------
     # Health check passthrough (unauthenticated)
     # -----------------------------------------------------------------------
-    handle_path /health {
+    handle /health {
         reverse_proxy server:8080 {
             header_up Host {host}
         }

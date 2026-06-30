@@ -53,8 +53,9 @@ streams photo/video data directly from iCloud to this server.
 
 - **Server is the single source of truth.** The macOS app is stateless — no
   local database. All sync state lives on the server.
-- **No CGO.** All dependencies (BadgerDB, tusd, chi) are pure Go, enabling
-  fully static builds for Docker deployment.
+- **No CGO.** All dependencies (BadgerDB, tusd) are pure Go and routing uses
+  the Go 1.22+ standard-library ServeMux, enabling fully static builds for
+  Docker deployment.
 - **Embedded tusd.** The TUS upload handler runs in-process (not as a separate
   service). A narrow adapter in `internal/uploadbackend` isolates the rest of
   the codebase from tusd API changes.
@@ -121,7 +122,9 @@ The server is configured exclusively through environment variables.
 
 \* When both `BACKUP_USER` and `BACKUP_PASS` are empty, authentication is
 disabled. This is useful for local development but **must not** be used in
-production.
+production. If only one of the two is set, the server refuses to start
+(partial credentials are a misconfiguration that would otherwise accept an
+empty username or password as a valid match).
 
 ### Storage Layout
 
@@ -186,9 +189,16 @@ Create a new upload record and allocate a TUS upload on the backend.
 Creates a TUS upload with `Upload-Defer-Length: 1` (file size not yet known).
 Returns a deterministic server ID derived from `local_identifier`.
 
-If a record already exists for the same `local_identifier`, the existing
-record is returned with status 200 (idempotent). Any newly-created tusd
-upload is terminated.
+If a record already exists for the same `local_identifier`, the response
+depends on the existing record's status:
+
+- **uploading / completing / complete** — the existing record is returned
+  with status 200 (idempotent). Any newly-created tusd upload is terminated.
+- **backend_lost / deleted** — the server re-registers: it binds the
+  newly-created tusd upload to the existing record, resets the status to
+  `uploading`, and clears any stale `organized_path`. Returns 201 with the
+  refreshed record. This is the recovery path for lost backends and for
+  re-uploading a previously deleted `localIdentifier`.
 
 **Request:**
 ```json
@@ -311,8 +321,11 @@ Get a single upload record by its safe server ID.
 #### `HEAD /uploads/:id/data`
 
 Get the current upload offset (TUS protocol). Returns TUS protocol headers.
+Only valid while the upload is in the `uploading` state; HEAD on a completed,
+deleted, or `backend_lost` upload does not contact the tusd backend (so it
+cannot corrupt a completed record's status).
 
-**Response 204:**
+**Response 200:**
 ```
 Upload-Offset: 1048576
 Tus-Resumable: 1.0.0
@@ -321,9 +334,9 @@ Tus-Resumable: 1.0.0
 **Status codes:**
 | Code | Description |
 |------|-------------|
-| 204  | Offset returned in header |
+| 200  | Offset returned in header |
 | 404  | Upload not found or deleted |
-| 409  | Backend lost (`{"error":"backend_lost"}`) |
+| 409  | Backend lost, or upload already completed (`{"error":"..."}`) |
 
 ---
 
@@ -460,9 +473,14 @@ uploading / complete / backend_lost ── DELETE /uploads/:id ──→ deleted
 - **uploading**: Upload in progress. The client can send PATCH /data chunks.
 - **complete**: File has been moved to the organized tree. No further data
   operations allowed.
-- **deleted**: Record deleted by client. Tusd backend cleaned up.
+- **deleted**: Record marked deleted by the client. The tusd backend is
+  cleaned up. A subsequent `POST /uploads` with the same `localIdentifier`
+  re-registers a fresh upload (resets the record to `uploading` with a new
+  `backend_id`), so a deleted `localIdentifier` is never permanently stuck.
 - **backend_lost**: Tusd backend no longer has the upload data (e.g. after
-  server restart). The client must delete and re-register.
+  server restart). The client re-registers by sending `POST /uploads` with
+  the same `localIdentifier`; the server binds a fresh tusd upload to the
+  existing record and resets it to `uploading`. No `DELETE` is required.
 
 ### Indexes
 
@@ -556,14 +574,14 @@ To customize, edit `server/Caddyfile`:
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
     }
 
-    handle_path /uploads* {
+    handle /uploads* {
         request_body {
             max_size 0
         }
         reverse_proxy server:8080
     }
 
-    handle_path /health {
+    handle /health {
         reverse_proxy server:8080
     }
 
