@@ -417,8 +417,8 @@ func TestResume_ManySmallChunks(t *testing.T) {
 	cr := CreateTestUpload(t, localID, "IMG_many_chunks.jpg")
 	require.Equal(t, "uploading", cr.Status)
 
-	chunkSize := 64       // 64 bytes per chunk
-	numChunks := 10       // 10 chunks = 640 bytes total
+	chunkSize := 64 // 64 bytes per chunk
+	numChunks := 10 // 10 chunks = 640 bytes total
 	totalLength := int64(chunkSize * numChunks)
 
 	currentOffset := int64(0)

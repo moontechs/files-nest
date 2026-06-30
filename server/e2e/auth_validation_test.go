@@ -136,16 +136,16 @@ func TestAuth_EndpointsRequireAuth(t *testing.T) {
 			path:   "/uploads/" + SafeIDFromLocal("e2e-auth-nonexistent") + "/data",
 		},
 		{
-			name:   "PATCH /uploads/{id}/data",
-			method: "PATCH",
-			path:   "/uploads/" + SafeIDFromLocal("e2e-auth-nonexistent") + "/data",
+			name:        "PATCH /uploads/{id}/data",
+			method:      "PATCH",
+			path:        "/uploads/" + SafeIDFromLocal("e2e-auth-nonexistent") + "/data",
 			body:        bytes.NewReader([]byte("test-data")),
 			contentType: "application/offset+octet-stream",
 		},
 		{
-			name:   "PATCH /uploads/{id}/status",
-			method: "PATCH",
-			path:   "/uploads/" + SafeIDFromLocal("e2e-auth-nonexistent") + "/status",
+			name:        "PATCH /uploads/{id}/status",
+			method:      "PATCH",
+			path:        "/uploads/" + SafeIDFromLocal("e2e-auth-nonexistent") + "/status",
 			body:        bytes.NewReader([]byte(`{"status":"complete"}`)),
 			contentType: "application/json",
 		},
@@ -276,7 +276,7 @@ func TestValidation_InvalidJSONBody(t *testing.T) {
 		`{bad json`,
 		`{"local_identifier"`,
 		`not-json-at-all`,
-		`[1, 2, 3]`,     // valid JSON, but not an object
+		`[1, 2, 3]`, // valid JSON, but not an object
 		`null`,
 		`"just a string"`,
 	}

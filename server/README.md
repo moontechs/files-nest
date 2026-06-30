@@ -794,12 +794,13 @@ The e2e test suite never hangs or requires user interaction:
   `os.Exit(0)` and a log message. This is the default when running
   `go test -tags=e2e ./e2e/` without setting `SERVER_URL`.
 - **`SERVER_URL` set but unreachable** — `TestMain` polls `/health` for up
-  to the configured timeout (controlled by `E2E_WAIT` in `make e2e`, or a
-  hardcoded 30 seconds when running directly). If the server never responds
-  with 200, the suite exits with a fatal error and a non-zero exit code.
-- **Missing or mismatched credentials** — Tests that require auth (the
-  majority of the suite) fail individual test cases. Tests that verify
-  unauthenticated access (e.g. `/health`) pass without credentials.
+  to the `E2E_WAIT` timeout (default 30 seconds; override via the `E2E_WAIT`
+  environment variable). If the server never responds with 200, the suite
+  exits with a fatal error and a non-zero exit code.
+- **Missing credentials** — If `SERVER_URL` is set but `BACKUP_USER` or
+  `BACKUP_PASS` is unset/empty, `TestMain` prints a clear configuration
+  error and exits with a non-zero status before any test runs. The e2e
+  stack always enforces Basic Auth, so both credentials are required.
 
 #### Isolated Port Usage
 

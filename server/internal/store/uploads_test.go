@@ -1203,21 +1203,11 @@ func TestListByDateRange_PaginationCursorDeleted(t *testing.T) {
 	if len(seen) != 3 {
 		t.Errorf("expected 3 unique IDs across pages (1 deleted), got %d", len(seen))
 	}
-	// A trailing cursor is expected when the page fills the limit exactly;
-	// the following page must be empty with no cursor, confirming no record
-	// was skipped.
-	if nextCursor == "" {
-		t.Fatalf("page 2: expected a trailing cursor after a full page")
-	}
-	page3, finalCursor, err := s.ListByDateRange(from, to, "", 2, nextCursor)
-	if err != nil {
-		t.Fatalf("page 3 failed: %v", err)
-	}
-	if len(page3) != 0 {
-		t.Errorf("page 3: expected 0 uploads (all returned), got %d", len(page3))
-	}
-	if finalCursor != "" {
-		t.Errorf("page 3: expected empty cursor, got %q", finalCursor)
+	// When the page fills the limit exactly but there are no more items in
+	// the iterator, no cursor is returned — the peek-ahead optimization
+	// avoids an unnecessary trailing round-trip.
+	if nextCursor != "" {
+		t.Fatalf("page 2: expected no trailing cursor when no more items exist, got %q", nextCursor)
 	}
 }
 

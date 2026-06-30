@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 )
 
@@ -127,29 +128,26 @@ func CreateUpload(body CreateUploadBody) (*CreateUploadResponse, int, error) {
 // ListUploads sends GET /uploads with optional query parameters.
 // Pass zero/empty values to omit a parameter.
 func ListUploads(from, to, status string, limit int, cursor string) (*ListUploadsResponse, error) {
-	path := "/uploads"
-
-	// Build query string manually to avoid importing url.Values.
-	sep := "?"
-	addParam := func(k, v string) {
-		path += sep + k + "=" + v
-		sep = "&"
-	}
-
+	q := url.Values{}
 	if from != "" {
-		addParam("from", from)
+		q.Set("from", from)
 	}
 	if to != "" {
-		addParam("to", to)
+		q.Set("to", to)
 	}
 	if status != "" {
-		addParam("status", status)
+		q.Set("status", status)
 	}
 	if limit > 0 {
-		addParam("limit", strconv.Itoa(limit))
+		q.Set("limit", strconv.Itoa(limit))
 	}
 	if cursor != "" {
-		addParam("cursor", cursor)
+		q.Set("cursor", cursor)
+	}
+
+	path := "/uploads"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
 	}
 
 	resp, err := doRequest("GET", path, nil)

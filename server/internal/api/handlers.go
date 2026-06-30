@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -154,6 +155,15 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+
+	// Reject trailing data after the JSON value (prevents confusing
+	// "{"local_identifier":"x","filename":"y","creation_date":"z"}extra"
+	// from being silently accepted).
+	var trailing json.RawMessage
+	if err := dec.Decode(&trailing); err != io.EOF {
+		writeError(w, http.StatusBadRequest, "request body contains trailing data")
 		return
 	}
 
@@ -689,6 +699,13 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Reject trailing data after the JSON value.
+	var trailing json.RawMessage
+	if err := dec.Decode(&trailing); err != io.EOF {
+		writeError(w, http.StatusBadRequest, "request body contains trailing data")
 		return
 	}
 

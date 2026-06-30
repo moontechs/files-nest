@@ -42,8 +42,8 @@ type Upload struct {
 
 // Sentinel errors returned by store operations.
 var (
-	ErrNotFound     = fmt.Errorf("upload not found")
-	ErrConflict     = fmt.Errorf("upload already exists")
+	ErrNotFound      = fmt.Errorf("upload not found")
+	ErrConflict      = fmt.Errorf("upload already exists")
 	ErrInvalidCursor = fmt.Errorf("invalid cursor")
 )
 
@@ -650,11 +650,38 @@ func (s *Store) ListByDateRange(from, to time.Time, statusFilter Status, limit i
 				continue
 			}
 
+			// Post-filter by full timestamp — the date index only has day
+			// precision (YYYY-MM-DD), so a query like "from=2035-07-15T12:00:00Z"
+			// would return all records from July 15 rather than just those after
+			// noon. This refinement compares the stored creation_date (which is
+			// always an RFC3339 or date-only string) against the parsed from/to
+			// time.Time values to enforce the caller's intended time range.
+			ct, parseErr := time.Parse(time.RFC3339, upload.CreationDate)
+			if parseErr != nil {
+				ct, parseErr = time.Parse(time.RFC3339Nano, upload.CreationDate)
+				if parseErr != nil {
+					ct, parseErr = time.Parse("2006-01-02", upload.CreationDate)
+					if parseErr != nil {
+						continue // skip records with unparseable creation dates
+					}
+				}
+			}
+			if ct.Before(from) || ct.After(to) {
+				continue
+			}
+
 			uploads = append(uploads, &upload)
 
 			if len(uploads) >= limit {
-				cursorID := dateStr + "/" + id
-				nextCursor = base64.RawURLEncoding.EncodeToString([]byte(cursorID))
+				// Peek ahead: only return a cursor if there is actually a next
+				// item in the iterator. Without this check, when the last page
+				// fills exactly to the limit, the client makes an unnecessary
+				// round-trip that returns an empty page.
+				it.Next()
+				if it.ValidForPrefix(prefix) {
+					cursorID := dateStr + "/" + id
+					nextCursor = base64.RawURLEncoding.EncodeToString([]byte(cursorID))
+				}
 				break
 			}
 		}
@@ -666,4 +693,3 @@ func (s *Store) ListByDateRange(from, to time.Time, statusFilter Status, limit i
 
 	return uploads, nextCursor, nil
 }
-

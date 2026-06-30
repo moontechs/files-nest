@@ -49,9 +49,9 @@ func TestE2E_Lifecycle(t *testing.T) {
 	// Closure-scoped upload state shared by all subtests.
 	// -----------------------------------------------------------------------
 	var (
-		uploadID          string // safe server ID returned by POST
-		localIdentifier   string // unique per-run local identifier
-		deterministicID   string // computed from localIdentifier for comparison
+		uploadID        string // safe server ID returned by POST
+		localIdentifier string // unique per-run local identifier
+		deterministicID string // computed from localIdentifier for comparison
 	)
 
 	localIdentifier = MakeLocalIdentifier(t, t.Name())

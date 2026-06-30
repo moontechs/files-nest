@@ -91,11 +91,15 @@ func TestListing_Pagination_ThreePages(t *testing.T) {
 		ids[i] = cr.ID
 	}
 
-	// Collect all items across pages.
+	// Collect all items across pages. We Paginate to the end of the date
+	// window; previous test runs (or concurrent suites) may have left
+	// records at the same future date, so we filter strictly to records
+	// created by this run via IsRunItem before asserting exact counts.
 	var allItems []UploadRecord
 	cursor := ""
+	terminated := false
 
-	for page := 0; page < 10; page++ {
+	for page := 0; page < 1000; page++ {
 		list, err := ListUploads(from, to, "", limit, cursor)
 		require.NoError(t, err, "page %d should not error", page)
 		require.NotNil(t, list.Items, "page %d items must not be nil", page)
@@ -104,25 +108,32 @@ func TestListing_Pagination_ThreePages(t *testing.T) {
 
 		allItems = append(allItems, list.Items...)
 
-		if len(list.Items) < limit {
-			// Last (or only) page — cursor must be empty.
-			require.Empty(t, list.NextCursor,
-				"page %d: expected empty cursor on final page", page)
+		if list.NextCursor == "" {
+			// Terminal page reached.
+			terminated = true
 			break
 		}
-
-		require.NotEmpty(t, list.NextCursor,
-			"page %d: expected cursor when more items exist", page)
 		cursor = list.NextCursor
 	}
+	require.True(t, terminated,
+		"pagination should terminate with an empty cursor within 50 pages")
 
-	// Verify we collected all expected items.
-	require.Len(t, allItems, count,
-		"should collect exactly %d items across all pages", count)
+	// Filter to records created by this run; only these may be asserted
+	// exactly, since the shared future date is not run-unique.
+	runItems := make([]UploadRecord, 0, count)
+	for _, item := range allItems {
+		if IsRunItem(item) {
+			runItems = append(runItems, item)
+		}
+	}
+
+	// Verify we collected all expected run-scoped items.
+	require.Len(t, runItems, count,
+		"should collect exactly %d run-scoped items across all pages", count)
 
 	// Verify no duplicates across pages.
 	seen := make(map[string]bool)
-	for _, item := range allItems {
+	for _, item := range runItems {
 		require.False(t, seen[item.ID],
 			"duplicate item %s across pages", item.ID)
 		seen[item.ID] = true
@@ -139,16 +150,19 @@ func TestListing_Pagination_ThreePages(t *testing.T) {
 // Pagination: limit=1
 // ---------------------------------------------------------------------------
 
-// TestListing_Pagination_LimitOne creates three uploads and paginates
-// with limit=1, verifying that each page returns a single distinct
-// record. When limit == 1 and there are N items, every page has
-// exactly 1 item == limit, so a cursor is always returned except on
-// the trailing empty page.
+// TestListing_Pagination_LimitOne creates three run-scoped uploads and
+// paginates through the shared future date window with limit=1, verifying
+// that every page returns at most one record and that all run-scoped
+// records eventually appear exactly once before pagination terminates.
+//
+// Because the future date is shared across test runs, the window may also
+// contain records left by previous runs; assertions are therefore scoped
+// to records created by this run via IsRunItem, not to global emptiness.
 func TestListing_Pagination_LimitOne(t *testing.T) {
 	const count = 3
 	from, to := paginationFromTo(paginationDateLimitOne)
 
-	ids := make([]string, count)
+	ids := make(map[string]bool, count)
 	for i := 0; i < count; i++ {
 		localID := MakeLocalIdentifier(t, fmt.Sprintf("limit-one-%d", i))
 		body := CreateUploadBody{
@@ -159,41 +173,47 @@ func TestListing_Pagination_LimitOne(t *testing.T) {
 		cr, status, err := CreateUpload(body)
 		require.NoError(t, err, "create upload %d should not error", i)
 		require.Equal(t, http.StatusCreated, status, "create upload %d should return 201", i)
-		ids[i] = cr.ID
+		ids[cr.ID] = true
 	}
 
-	// Page 1.
-	list1, err := ListUploads(from, to, "", 1, "")
-	require.NoError(t, err)
-	require.Len(t, list1.Items, 1, "page 1 should have exactly 1 item")
-	require.NotEmpty(t, list1.NextCursor, "page 1 should have a cursor")
+	// Paginate with limit=1 until the cursor is exhausted.
+	var runItems []UploadRecord
+	cursor := ""
+	terminated := false
+	for page := 0; page < 1000; page++ {
+		list, err := ListUploads(from, to, "", 1, cursor)
+		require.NoError(t, err, "page %d should not error", page)
+		require.NotNil(t, list.Items, "page %d items must not be nil", page)
+		require.LessOrEqual(t, len(list.Items), 1,
+			"page %d should return at most 1 item with limit=1", page)
 
-	// Page 2.
-	list2, err := ListUploads(from, to, "", 1, list1.NextCursor)
-	require.NoError(t, err)
-	require.Len(t, list2.Items, 1, "page 2 should have exactly 1 item")
-	require.NotEmpty(t, list2.NextCursor, "page 2 should have a cursor")
+		for _, item := range list.Items {
+			if IsRunItem(item) {
+				runItems = append(runItems, item)
+			}
+		}
 
-	// Page 3 — last data page: limit was reached so cursor is non-empty.
-	list3, err := ListUploads(from, to, "", 1, list2.NextCursor)
-	require.NoError(t, err)
-	require.Len(t, list3.Items, 1, "page 3 should have exactly 1 item")
-	require.NotEmpty(t, list3.NextCursor,
-		"page 3 has limit=1 items, so cursor is non-empty (trail to next page)")
+		if list.NextCursor == "" {
+			terminated = true
+			break
+		}
+		cursor = list.NextCursor
+	}
+	require.True(t, terminated,
+		"limit=1 pagination should terminate with an empty cursor")
 
-	// Page 4 — trailing empty page, cursor must be empty.
-	list4, err := ListUploads(from, to, "", 1, list3.NextCursor)
-	require.NoError(t, err)
-	require.Empty(t, list4.Items, "page 4 should be empty (no more records)")
-	require.Empty(t, list4.NextCursor, "page 4 should have empty cursor")
+	// Assert each run-scoped record appears exactly once (no duplicates).
+	seen := make(map[string]bool)
+	for _, item := range runItems {
+		require.False(t, seen[item.ID], "duplicate run-scoped item %s", item.ID)
+		seen[item.ID] = true
+	}
 
-	// All data pages must return different records.
-	require.NotEqual(t, list1.Items[0].ID, list2.Items[0].ID,
-		"page 1 and page 2 must return different records")
-	require.NotEqual(t, list2.Items[0].ID, list3.Items[0].ID,
-		"page 2 and page 3 must return different records")
-	require.NotEqual(t, list1.Items[0].ID, list3.Items[0].ID,
-		"page 1 and page 3 must return different records")
+	// Assert the run-scoped union equals exactly the fixtures we created.
+	require.Len(t, seen, count, "expected exactly %d distinct run-scoped records", count)
+	for id := range ids {
+		require.True(t, seen[id], "created upload %s must appear in limit=1 pagination", id)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -207,6 +227,7 @@ func TestListing_DefaultLimit(t *testing.T) {
 	const count = 3
 	from, to := paginationFromTo(paginationDateDefault)
 
+	ids := make(map[string]bool, count)
 	for i := 0; i < count; i++ {
 		localID := MakeLocalIdentifier(t, fmt.Sprintf("default-limit-%d", i))
 		body := CreateUploadBody{
@@ -214,17 +235,45 @@ func TestListing_DefaultLimit(t *testing.T) {
 			Filename:        fmt.Sprintf("DFL_%04d.jpg", i),
 			CreationDate:    paginationDateDefault,
 		}
-		_, status, err := CreateUpload(body)
+		cr, status, err := CreateUpload(body)
 		require.NoError(t, err, "create upload %d should not error", i)
 		require.Equal(t, http.StatusCreated, status, "create upload %d should return 201", i)
+		ids[cr.ID] = true
 	}
 
-	list, err := ListUploads(from, to, "", 0, "")
-	require.NoError(t, err)
-	require.Len(t, list.Items, count,
-		"default limit should return all %d matching items", count)
-	require.Empty(t, list.NextCursor,
-		"cursor should be empty when all results fit within default limit")
+	// Paginate to collect all results. The shared future date may contain
+	// records from previous runs, so we cannot assume the default limit (500)
+	// is sufficient — follow cursors to termination to avoid flakiness.
+	var allItems []UploadRecord
+	cursor := ""
+	terminated := false
+	for page := 0; page < 1000; page++ {
+		list, err := ListUploads(from, to, "", 0, cursor)
+		require.NoError(t, err, "page %d should not error", page)
+		require.NotNil(t, list.Items, "page %d items must not be nil", page)
+
+		allItems = append(allItems, list.Items...)
+
+		if list.NextCursor == "" {
+			terminated = true
+			break
+		}
+		cursor = list.NextCursor
+	}
+	require.True(t, terminated,
+		"default-limit pagination should terminate with an empty cursor")
+
+	// Assert that all run-scoped fixtures are present (subset check, not
+	// exact total count) to avoid depending on global database emptiness.
+	found := make(map[string]bool)
+	for _, item := range allItems {
+		if ids[item.ID] {
+			found[item.ID] = true
+		}
+	}
+	for id := range ids {
+		require.True(t, found[id], "default-limit fixture %s must be returned", id)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -308,6 +357,26 @@ func TestListing_DateRangeFiltering(t *testing.T) {
 			"upload with date %s should not appear when querying %s..%s",
 			paginationDateFilter, wrongFrom, wrongTo)
 	}
+
+	// Verify the upload IS returned when querying the correct range.
+	rightFrom := "2035-07-18T00:00:00Z"
+	rightTo := "2035-07-18T23:59:59Z"
+
+	listRight, err := ListUploads(rightFrom, rightTo, "", 0, "")
+	require.NoError(t, err)
+
+	found := false
+	for _, item := range listRight.Items {
+		if item.ID == cr.ID {
+			found = true
+			require.Equal(t, paginationDateFilter, item.CreationDate,
+				"creation_date must match in correct-range query")
+			break
+		}
+	}
+	require.True(t, found,
+		"upload with date %s must appear when querying %s..%s",
+		paginationDateFilter, rightFrom, rightTo)
 }
 
 // ---------------------------------------------------------------------------

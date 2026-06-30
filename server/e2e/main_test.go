@@ -16,9 +16,11 @@ package e2e
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -39,6 +41,14 @@ var (
 		Timeout: 30 * time.Second,
 	}
 
+	// healthClient is a short-timeout client used exclusively by the
+	// readiness poller in TestMain. A tight timeout lets the poller retry
+	// quickly instead of burning the entire E2E_WAIT budget on a single
+	// hung request.
+	healthClient = &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
 	// backupUser and backupPass hold the optional Basic Auth credentials
 	// read from the environment. When both are empty, no auth header is
 	// sent (used for unauthenticated development/staging deployments).
@@ -57,13 +67,16 @@ var (
 // Environment variables:
 //   - SERVER_URL (required): base URL of the server, e.g. "http://127.0.0.1:18080".
 //     When empty or unset, all tests are skipped.
-//   - BACKUP_USER (optional): username for HTTP Basic Auth.
-//   - BACKUP_PASS (optional): password for HTTP Basic Auth.
+//   - BACKUP_USER (required when SERVER_URL is set): username for HTTP Basic Auth.
+//   - BACKUP_PASS (required when SERVER_URL is set): password for HTTP Basic Auth.
+//   - E2E_WAIT (optional, default 30): seconds to wait for /health readiness.
 //
 // Behaviour:
 //   - Empty SERVER_URL → skip all tests (call os.Exit(0)).
+//   - SERVER_URL set but BACKUP_USER or BACKUP_PASS missing → fail with a
+//     clear configuration error (call os.Exit(1)).
 //   - Configured SERVER_URL but unreachable → fail with fatal error after
-//     exhausting the retry budget (call os.Exit(1)).
+//     exhausting the E2E_WAIT retry budget (call os.Exit(1)).
 //   - Configured SERVER_URL and reachable → run all tests normally.
 func TestMain(m *testing.M) {
 	// -----------------------------------------------------------------------
@@ -80,10 +93,27 @@ func TestMain(m *testing.M) {
 	backupPass = os.Getenv("BACKUP_PASS")
 
 	log.Printf("e2e: SERVER_URL=%s", serverURL)
-	if backupUser != "" || backupPass != "" {
-		log.Printf("e2e: auth enabled (user=%s)", backupUser)
-	} else {
-		log.Println("e2e: no auth credentials — running without authentication")
+
+	// SERVER_URL is configured, so the target stack is expected to enforce
+	// Basic Auth. Both credentials are required to drive the authenticated
+	// endpoints; bail out early with a clear configuration error rather
+	// than a cascade of opaque 401 test failures.
+	if backupUser == "" || backupPass == "" {
+		fmt.Fprintln(os.Stderr, "e2e: SERVER_URL is set but BACKUP_USER and/or BACKUP_PASS is missing — set both credentials to run e2e tests")
+		os.Exit(1)
+	}
+
+	log.Printf("e2e: auth enabled (user=%s)", backupUser)
+
+	// E2E_WAIT overrides the readiness poll timeout (default 30s). A
+	// malformed value falls back to the default with a warning.
+	waitSeconds := 30
+	if raw := os.Getenv("E2E_WAIT"); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v > 0 {
+			waitSeconds = v
+		} else {
+			log.Printf("e2e: invalid E2E_WAIT=%q, using default %ds", raw, waitSeconds)
+		}
 	}
 
 	// -----------------------------------------------------------------------
@@ -93,8 +123,8 @@ func TestMain(m *testing.M) {
 	healthURL := serverURL + "/health"
 	log.Printf("e2e: polling %s for readiness ...", healthURL)
 
-	if err := pollUntilHealthy(healthURL, 30*time.Second, 500*time.Millisecond); err != nil {
-		log.Fatalf("e2e: server not healthy within timeout: %v", err)
+	if err := pollUntilHealthy(healthURL, time.Duration(waitSeconds)*time.Second, 500*time.Millisecond); err != nil {
+		log.Fatalf("e2e: server not healthy within %ds: %v", waitSeconds, err)
 	}
 
 	log.Println("e2e: server is healthy — starting tests")
@@ -112,12 +142,13 @@ func pollUntilHealthy(healthURL string, timeout, waitBetween time.Duration) erro
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
-		resp, err := httpClient.Get(healthURL)
+		resp, err := healthClient.Get(healthURL)
 		if err != nil {
 			log.Printf("e2e: health check failed (will retry): %v", err)
 			time.Sleep(waitBetween)
 			continue
 		}
+		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 
 		if resp.StatusCode == http.StatusOK {
@@ -129,40 +160,4 @@ func pollUntilHealthy(healthURL string, timeout, waitBetween time.Duration) erro
 	}
 
 	return fmt.Errorf("health endpoint %s did not return 200 within %v", healthURL, timeout)
-}
-
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
-
-// authenticatedRequest creates a new HTTP request with the given method and
-// path (e.g. "/uploads"). If backup credentials are configured, the request
-// includes Basic Authentication headers. The caller is responsible for
-// setting the body and any additional headers, and for closing the response
-// body after use.
-//
-// Example:
-//
-//	req := authenticatedRequest("GET", "/uploads", nil)
-//	resp, err := httpClient.Do(req)
-func authenticatedRequest(method, path string, body any) (*http.Request, error) {
-	// TODO: implement body encoding in a follow-up — for now, this is a
-	// placeholder that creates a request without a body. The concrete test
-	// files in this package (uploads_test.go etc.) will provide full request
-	// builders with proper body handling.
-	return authenticatedRequestNoBody(method, path)
-}
-
-// authenticatedRequestNoBody creates a GET-style request without a body.
-func authenticatedRequestNoBody(method, path string) (*http.Request, error) {
-	req, err := http.NewRequest(method, serverURL+path, nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating %s %s: %w", method, path, err)
-	}
-
-	if backupUser != "" || backupPass != "" {
-		req.SetBasicAuth(backupUser, backupPass)
-	}
-
-	return req, nil
 }

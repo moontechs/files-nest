@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -51,12 +52,20 @@ func init() {
 	initTime = time.Now().UTC()
 }
 
-// RunID returns the opaque run-scoped identifier used to tag all fixture
-// uploads created by this test run. Tests can embed this in their own
-// local_identifier values via MakeLocalIdentifier. Example:
-//
-//	localID := MakeLocalIdentifier(t, "my-fixture")
-func RunID() string { return runID }
+// runPrefix returns the literal prefix shared by every local_identifier
+// produced by MakeLocalIdentifier for the current test run. Listing
+// assertions use it to filter paginated result sets strictly to records
+// created by this run, so they do not depend on the database being empty
+// (the suite may be re-run against an already-warm stack).
+func runPrefix() string {
+	return "e2e-" + runID + "-"
+}
+
+// IsRunItem reports whether item was created by the current test run, by
+// checking that its local_identifier carries this run's prefix.
+func IsRunItem(item UploadRecord) bool {
+	return strings.HasPrefix(item.LocalIdentifier, runPrefix())
+}
 
 // MakeLocalIdentifier returns a deterministic local_identifier that is
 // scoped to the current test run and incorporates the given suffix.
@@ -243,23 +252,6 @@ func MustDeleteUpload(t testing.TB, id string) {
 		"DELETE /uploads/{id} should return 204")
 }
 
-// MustPatchStatus sends a PATCH /uploads/{id}/status request with the given
-// body and asserts that the response has the expected HTTP status code.
-//
-// Example:
-//
-//	MustPatchStatus(t, id, PatchStatusBody{Status: "complete"}, http.StatusNoContent)
-func MustPatchStatus(t testing.TB, id string, statusBody PatchStatusBody, expectedStatus int) {
-	t.Helper()
-
-	require.NotEmpty(t, id, "upload ID must not be empty")
-
-	statusCode, err := PatchUploadStatus(id, statusBody)
-	require.NoError(t, err, "PATCH /uploads/{id}/status should not error")
-	require.Equal(t, expectedStatus, statusCode,
-		"PATCH /uploads/{id}/status with %+v should return %d", statusBody, expectedStatus)
-}
-
 // ---------------------------------------------------------------------------
 // Fixture: Query helpers
 // ---------------------------------------------------------------------------
@@ -287,21 +279,6 @@ func ListRunUploads(t testing.TB, status string, limit int, cursor string) *List
 	require.NotNil(t, list.Items, "list items must not be nil (even if empty)")
 
 	return list
-}
-
-// AssertRunScopedListCount asserts that ListRunUploads returns exactly the
-// given number of items. This is a concise way to verify expected fixture
-// counts without repeating the list boilerplate.
-//
-// Example:
-//
-//	AssertRunScopedListCount(t, 3, "")
-func AssertRunScopedListCount(t testing.TB, expectedCount int, status string) {
-	t.Helper()
-
-	list := ListRunUploads(t, status, 0, "")
-	require.Len(t, list.Items, expectedCount,
-		"expected %d run-scoped upload(s) with status %q", expectedCount, status)
 }
 
 // ---------------------------------------------------------------------------
