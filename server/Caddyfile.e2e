@@ -1,0 +1,66 @@
+# =============================================================================
+# Caddyfile — iCloud Backup Server (E2E Testing)
+# =============================================================================
+# Simplified Caddyfile for end-to-end testing. Listens on plain HTTP (no TLS)
+# inside the container; the Compose file binds to localhost on a configurable
+# port to avoid conflicts with the production stack.
+#
+# Used by: docker-compose.e2e.yml
+# =============================================================================
+
+:80 {
+    # -----------------------------------------------------------------------
+    # Security headers
+    # -----------------------------------------------------------------------
+    header {
+        # Prevent MIME type sniffing
+        X-Content-Type-Options "nosniff"
+        # Prevent clickjacking
+        X-Frame-Options "DENY"
+        # Enable XSS filter in older browsers
+        X-XSS-Protection "1; mode=block"
+        # Disable referrer header leaking
+        Referrer-Policy "no-referrer"
+        # Restrict API to same origin (no embedded content)
+        Content-Security-Policy "default-src 'self'; frame-ancestors 'none'"
+    }
+
+    # -----------------------------------------------------------------------
+    # Reverse proxy to the Go server
+    # -----------------------------------------------------------------------
+    # NOTE: use `handle` (not `handle_path`) so the matched prefix is NOT
+    # stripped before proxying. The Go server routes on the full path
+    # (/uploads, /uploads/{id}, /uploads/{id}/data, ...). handle_path would
+    # rewrite /uploads/{id}/data to /{id}/data and break every route.
+    handle /uploads* {
+        # Allow large upload bodies — no size limit for TUS PATCH requests.
+        request_body {
+            max_size 0
+        }
+        reverse_proxy server:8080 {
+            # Pass through the original Host header to the backend.
+            header_up Host {host}
+
+            # Health check for the upstream server.
+            health_uri /health
+            health_interval 10s
+            health_timeout 3s
+        }
+    }
+
+    # -----------------------------------------------------------------------
+    # Health check passthrough (unauthenticated)
+    # -----------------------------------------------------------------------
+    handle /health {
+        reverse_proxy server:8080 {
+            header_up Host {host}
+        }
+    }
+
+    # -----------------------------------------------------------------------
+    # Default: 404 for all other paths
+    # -----------------------------------------------------------------------
+    handle {
+        respond 404
+    }
+}
