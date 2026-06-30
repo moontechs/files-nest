@@ -130,11 +130,11 @@ Add black-box Go e2e tests for the server under `server/e2e/`, gated by the `e2e
 **Files:**
 - Create: `server/e2e/reregister_test.go`
 
-- [ ] Create a fresh upload fixture independent of lifecycle tests.
-- [ ] Verify `DELETE /uploads/{id}` returns `204`.
-- [ ] Verify `GET /uploads/{id}` after delete returns `200` with status `deleted`.
-- [ ] Verify re-POSTing the same `local_identifier` returns `201`, same deterministic ID, and status `uploading`.
-- [ ] Verify the re-registered upload supports `HEAD /uploads/{id}/data` with offset `0`.
+- [x] Create a fresh upload fixture independent of lifecycle tests.
+- [x] Verify `DELETE /uploads/{id}` returns `204`.
+- [x] Verify `GET /uploads/{id}` after delete returns `200` with status `deleted`.
+- [x] Verify re-POSTing the same `local_identifier` returns `201`, same deterministic ID, and status `uploading`.
+- [x] Verify the re-registered upload supports `HEAD /uploads/{id}/data` with offset `0`.
 
 ### Task 9: Add resume and offset conflict tests
 **Files:**
