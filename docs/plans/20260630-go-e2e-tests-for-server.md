@@ -99,22 +99,22 @@ Add black-box Go e2e tests for the server under `server/e2e/`, gated by the `e2e
 **Files:**
 - Create: `server/e2e/fixtures_test.go`
 
-- [ ] Add test-local `safeID(localIdentifier string)` using SHA-256 plus raw URL-safe base64.
-- [ ] Generate a unique per-run prefix using timestamp plus random bytes.
-- [ ] Generate list/pagination fixture creation dates in a unique future-dated RFC3339Nano window to avoid collisions with real data.
-- [ ] Add fixture builders for lifecycle, auth, validation, delete/re-register, listing, pagination, and resume tests.
-- [ ] Keep all request/response structs local to `server/e2e`.
+- [x] Add test-local `safeID(localIdentifier string)` using SHA-256 plus raw URL-safe base64.
+- [x] Generate a unique per-run prefix using timestamp plus random bytes.
+- [x] Generate list/pagination fixture creation dates in a unique future-dated RFC3339Nano window to avoid collisions with real data.
+- [x] Add fixture builders for lifecycle, auth, validation, delete/re-register, listing, pagination, and resume tests.
+- [x] Keep all request/response structs local to `server/e2e`.
 
 ### Task 6: Add core upload lifecycle test
 **Files:**
 - Create: `server/e2e/lifecycle_test.go`
 
-- [ ] Add `TestE2E_Lifecycle` with ordered subtests and closure-scoped upload state.
-- [ ] Verify unauthenticated `GET /health` returns `200` and status `ok`.
-- [ ] Verify authenticated `POST /uploads` returns `201`, status `uploading`, expected deterministic ID, and upload URL `/uploads/{id}/data`.
-- [ ] Verify `HEAD /uploads/{id}/data` returns offset `0`, then final `PATCH` 1 KiB with `Upload-Length: 1024` returns offset `1024`.
-- [ ] Verify `PATCH /uploads/{id}/status` completes the upload, then `GET /uploads/{id}` returns status `complete` and non-empty `organized_path`.
-- [ ] Verify re-POSTing the completed fixture returns `200` with the same ID and status `complete`.
+- [x] Add `TestE2E_Lifecycle` with ordered subtests and closure-scoped upload state.
+- [x] Verify unauthenticated `GET /health` returns `200` and status `ok`.
+- [x] Verify authenticated `POST /uploads` returns `201`, status `uploading`, expected deterministic ID, and upload URL `/uploads/{id}/data`.
+- [x] Verify `HEAD /uploads/{id}/data` returns offset `0`, then final `PATCH` 1 KiB with `Upload-Length: 1024` returns offset `1024`.
+- [x] Verify `PATCH /uploads/{id}/status` completes the upload, then `GET /uploads/{id}` returns status `complete` and non-empty `organized_path`.
+- [x] Verify re-POSTing the completed fixture returns `200` with the same ID and status `complete`.
 
 ### Task 7: Add auth and validation tests
 **Files:**

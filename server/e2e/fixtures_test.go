@@ -15,6 +15,8 @@ package e2e
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -300,4 +302,18 @@ func AssertRunScopedListCount(t testing.TB, expectedCount int, status string) {
 	list := ListRunUploads(t, status, 0, "")
 	require.Len(t, list.Items, expectedCount,
 		"expected %d run-scoped upload(s) with status %q", expectedCount, status)
+}
+
+// ---------------------------------------------------------------------------
+// Helpers: ID computation
+// ---------------------------------------------------------------------------
+
+// SafeIDFromLocal computes the deterministic safe server ID for a given
+// localIdentifier using the same algorithm as the server:
+// SHA-256(localIdentifier) → raw URL-safe base64 encoding (43 characters).
+//
+// Tests use this to verify that POST /uploads returns the expected ID.
+func SafeIDFromLocal(localIdentifier string) string {
+	h := sha256.Sum256([]byte(localIdentifier))
+	return base64.RawURLEncoding.EncodeToString(h[:])
 }
