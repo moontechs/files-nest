@@ -88,12 +88,12 @@ Add black-box Go e2e tests for the server under `server/e2e/`, gated by the `e2e
 **Files:**
 - Create: `server/e2e/client_test.go`
 
-- [ ] Define a `Client` with `baseURL`, `username`, `password`, and `*http.Client`.
-- [ ] Implement authenticated `do` and unauthenticated `doNoAuth` helpers that set `Tus-Resumable: 1.0.0`.
-- [ ] Add helpers for JSON `GET`, `POST`, `PATCH`, `DELETE`, `HEAD` offset reads, and TUS data `PATCH`.
-- [ ] Support final data patches with optional `Upload-Length` and `Upload-Complete`.
-- [ ] Add a list helper that supports `from`, `to`, `status`, `limit`, and `cursor`, and decodes the `items`/`next_cursor` envelope.
-- [ ] Include status, headers, and short body snippets in assertion failure messages.
+- [x] Define a `Client` with `baseURL`, `username`, `password`, and `*http.Client`.
+- [x] Implement authenticated `do` and unauthenticated `doNoAuth` helpers that set `Tus-Resumable: 1.0.0`.
+- [x] Add helpers for JSON `GET`, `POST`, `PATCH`, `DELETE`, `HEAD` offset reads, and TUS data `PATCH`.
+- [x] Support final data patches with optional `Upload-Length` and `Upload-Complete`.
+- [x] Add a list helper that supports `from`, `to`, `status`, `limit`, and `cursor`, and decodes the `items`/`next_cursor` envelope.
+- [x] Include status, headers, and short body snippets in assertion failure messages.
 
 ### Task 5: Add isolated e2e fixtures
 **Files:**
