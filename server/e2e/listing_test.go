@@ -20,16 +20,28 @@ import (
 // ---------------------------------------------------------------------------
 // Isolated date constants for pagination tests
 //
-// These tests create uploads with a far-future creation_date and query
-// with a matching date range so they do not overlap with uploads from
-// other tests (which use time.Now() as their creation date).
+// Each test that creates uploads uses its own unique far-future date so
+// that query windows don't overlap. This prevents cross-contamination
+// when tests run sequentially (uploads from test A leak into test B's
+// query window).
 // ---------------------------------------------------------------------------
 
-const (
-	listingTestDate = "2035-07-15T00:00:00Z"
-	listingTestFrom = "2035-07-15T00:00:00Z"
-	listingTestTo   = "2035-07-15T23:59:59Z"
-)
+// paginationDateThreePages is used by TestListing_Pagination_ThreePages.
+const paginationDateThreePages = "2035-07-15T00:00:00Z"
+
+// paginationDateLimitOne is used by TestListing_Pagination_LimitOne.
+const paginationDateLimitOne = "2035-07-16T00:00:00Z"
+
+// paginationDateDefault is used by TestListing_DefaultLimit.
+const paginationDateDefault = "2035-07-17T00:00:00Z"
+
+// paginationDateFilter is used by TestListing_DateRangeFiltering.
+const paginationDateFilter = "2035-07-18T00:00:00Z"
+
+// paginationFromTo is a convenience for querying a full day range.
+var paginationFromTo = func(date string) (from, to string) {
+	return date, date[:11] + "23:59:59Z"
+}
 
 // ---------------------------------------------------------------------------
 // Empty result
@@ -63,6 +75,7 @@ func TestListing_EmptyResult(t *testing.T) {
 func TestListing_Pagination_ThreePages(t *testing.T) {
 	const count = 5
 	const limit = 2
+	from, to := paginationFromTo(paginationDateThreePages)
 
 	ids := make([]string, count)
 	for i := 0; i < count; i++ {
@@ -70,7 +83,7 @@ func TestListing_Pagination_ThreePages(t *testing.T) {
 		body := CreateUploadBody{
 			LocalIdentifier: localID,
 			Filename:        fmt.Sprintf("PG3_%04d.jpg", i),
-			CreationDate:    listingTestDate,
+			CreationDate:    paginationDateThreePages,
 		}
 		cr, status, err := CreateUpload(body)
 		require.NoError(t, err, "create upload %d should not error", i)
@@ -83,7 +96,7 @@ func TestListing_Pagination_ThreePages(t *testing.T) {
 	cursor := ""
 
 	for page := 0; page < 10; page++ {
-		list, err := ListUploads(listingTestFrom, listingTestTo, "", limit, cursor)
+		list, err := ListUploads(from, to, "", limit, cursor)
 		require.NoError(t, err, "page %d should not error", page)
 		require.NotNil(t, list.Items, "page %d items must not be nil", page)
 		require.LessOrEqual(t, len(list.Items), limit,
@@ -128,9 +141,12 @@ func TestListing_Pagination_ThreePages(t *testing.T) {
 
 // TestListing_Pagination_LimitOne creates three uploads and paginates
 // with limit=1, verifying that each page returns a single distinct
-// record and the final page has an empty cursor.
+// record. When limit == 1 and there are N items, every page has
+// exactly 1 item == limit, so a cursor is always returned except on
+// the trailing empty page.
 func TestListing_Pagination_LimitOne(t *testing.T) {
 	const count = 3
+	from, to := paginationFromTo(paginationDateLimitOne)
 
 	ids := make([]string, count)
 	for i := 0; i < count; i++ {
@@ -138,7 +154,7 @@ func TestListing_Pagination_LimitOne(t *testing.T) {
 		body := CreateUploadBody{
 			LocalIdentifier: localID,
 			Filename:        fmt.Sprintf("PG1_%04d.jpg", i),
-			CreationDate:    listingTestDate,
+			CreationDate:    paginationDateLimitOne,
 		}
 		cr, status, err := CreateUpload(body)
 		require.NoError(t, err, "create upload %d should not error", i)
@@ -147,24 +163,31 @@ func TestListing_Pagination_LimitOne(t *testing.T) {
 	}
 
 	// Page 1.
-	list1, err := ListUploads(listingTestFrom, listingTestTo, "", 1, "")
+	list1, err := ListUploads(from, to, "", 1, "")
 	require.NoError(t, err)
 	require.Len(t, list1.Items, 1, "page 1 should have exactly 1 item")
 	require.NotEmpty(t, list1.NextCursor, "page 1 should have a cursor")
 
 	// Page 2.
-	list2, err := ListUploads(listingTestFrom, listingTestTo, "", 1, list1.NextCursor)
+	list2, err := ListUploads(from, to, "", 1, list1.NextCursor)
 	require.NoError(t, err)
 	require.Len(t, list2.Items, 1, "page 2 should have exactly 1 item")
 	require.NotEmpty(t, list2.NextCursor, "page 2 should have a cursor")
 
-	// Page 3 — final page, must have empty cursor.
-	list3, err := ListUploads(listingTestFrom, listingTestTo, "", 1, list2.NextCursor)
+	// Page 3 — last data page: limit was reached so cursor is non-empty.
+	list3, err := ListUploads(from, to, "", 1, list2.NextCursor)
 	require.NoError(t, err)
 	require.Len(t, list3.Items, 1, "page 3 should have exactly 1 item")
-	require.Empty(t, list3.NextCursor, "page 3 should have empty cursor")
+	require.NotEmpty(t, list3.NextCursor,
+		"page 3 has limit=1 items, so cursor is non-empty (trail to next page)")
 
-	// All pages must return different records.
+	// Page 4 — trailing empty page, cursor must be empty.
+	list4, err := ListUploads(from, to, "", 1, list3.NextCursor)
+	require.NoError(t, err)
+	require.Empty(t, list4.Items, "page 4 should be empty (no more records)")
+	require.Empty(t, list4.NextCursor, "page 4 should have empty cursor")
+
+	// All data pages must return different records.
 	require.NotEqual(t, list1.Items[0].ID, list2.Items[0].ID,
 		"page 1 and page 2 must return different records")
 	require.NotEqual(t, list2.Items[0].ID, list3.Items[0].ID,
@@ -182,20 +205,21 @@ func TestListing_Pagination_LimitOne(t *testing.T) {
 // when they fit within that default.
 func TestListing_DefaultLimit(t *testing.T) {
 	const count = 3
+	from, to := paginationFromTo(paginationDateDefault)
 
 	for i := 0; i < count; i++ {
 		localID := MakeLocalIdentifier(t, fmt.Sprintf("default-limit-%d", i))
 		body := CreateUploadBody{
 			LocalIdentifier: localID,
 			Filename:        fmt.Sprintf("DFL_%04d.jpg", i),
-			CreationDate:    listingTestDate,
+			CreationDate:    paginationDateDefault,
 		}
 		_, status, err := CreateUpload(body)
 		require.NoError(t, err, "create upload %d should not error", i)
 		require.Equal(t, http.StatusCreated, status, "create upload %d should return 201", i)
 	}
 
-	list, err := ListUploads(listingTestFrom, listingTestTo, "", 0, "")
+	list, err := ListUploads(from, to, "", 0, "")
 	require.NoError(t, err)
 	require.Len(t, list.Items, count,
 		"default limit should return all %d matching items", count)
@@ -266,15 +290,15 @@ func TestListing_DateRangeFiltering(t *testing.T) {
 	body := CreateUploadBody{
 		LocalIdentifier: localID,
 		Filename:        "date-filter-test.jpg",
-		CreationDate:    listingTestDate,
+		CreationDate:    paginationDateFilter,
 	}
 	cr, status, err := CreateUpload(body)
 	require.NoError(t, err, "create upload should not error")
 	require.Equal(t, http.StatusCreated, status, "create upload should return 201")
 
-	// Query with a range that does not include listingTestDate.
-	wrongFrom := "2035-07-14T00:00:00Z"
-	wrongTo := "2035-07-14T23:59:59Z"
+	// Query with a range that does not include paginationDateFilter.
+	wrongFrom := "2035-07-17T00:00:00Z"
+	wrongTo := "2035-07-17T23:59:59Z"
 
 	list, err := ListUploads(wrongFrom, wrongTo, "", 0, "")
 	require.NoError(t, err)
@@ -282,7 +306,7 @@ func TestListing_DateRangeFiltering(t *testing.T) {
 	for _, item := range list.Items {
 		require.NotEqual(t, cr.ID, item.ID,
 			"upload with date %s should not appear when querying %s..%s",
-			listingTestDate, wrongFrom, wrongTo)
+			paginationDateFilter, wrongFrom, wrongTo)
 	}
 }
 

@@ -401,9 +401,9 @@ func TestLifecycle_PatchDataDeleted(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // nonExistentID is a well-formed (length-43) but non-existent upload ID.
-// It is a valid base64url-encoded SHA-256 hash but does not correspond to
-// any record in the database.
-const nonExistentID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+// It is a valid base64url-encoded SHA-256 hash (SHA-256 of the empty
+// string) but does not correspond to any record in the database.
+const nonExistentID = "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU"
 
 // TestLifecycle_GetNonExistent verifies GET on a non-existent ID is 404.
 func TestLifecycle_GetNonExistent(t *testing.T) {
@@ -455,11 +455,15 @@ func TestLifecycle_DeleteNonExistent(t *testing.T) {
 
 // TestLifecycle_InvalidIDFormat verifies that requests with invalid
 // upload ID formats return 400.
+//
+// NOTE: empty string is not tested here because Go's ServeMux redirects
+// /uploads/ (empty {id}) to /uploads (list), so the validation handler
+// is never reached. The empty-ID case is tested implicitly via other
+// path-based error handling.
 func TestLifecycle_InvalidIDFormat(t *testing.T) {
 	invalidIDs := []string{
-		"",
 		"short",
-		"not-base64!@#$",
+		"not-base64!!!",
 		strings.Repeat("x", 200),
 	}
 

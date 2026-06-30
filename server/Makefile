@@ -104,7 +104,7 @@ clean:
 
 ## Start the e2e Docker Compose stack (detached).
 e2e-up:
-	$(COMPOSE_CMD) up -d --build
+	BACKUP_USER=$(BACKUP_USER) BACKUP_PASS=$(BACKUP_PASS) $(COMPOSE_CMD) up -d --build
 
 ## Stop the e2e stack and remove volumes, networks, and orphans.
 e2e-down:
@@ -146,7 +146,7 @@ e2e:
 	trap 'cleanup' EXIT; \
 	\
 	echo "=== Building and starting e2e stack ==="; \
-	$(COMPOSE_CMD) up -d --build 2>&1; \
+	BACKUP_USER=$(BACKUP_USER) BACKUP_PASS=$(BACKUP_PASS) $(COMPOSE_CMD) up -d --build 2>&1; \
 	\
 	echo ""; \
 	echo "=== Waiting for server readiness (E2E_WAIT=$(E2E_WAIT)s) ==="; \

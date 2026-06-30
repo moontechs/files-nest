@@ -172,8 +172,8 @@ Add black-box Go e2e tests for the server under `server/e2e/`, gated by the `e2e
 **Files:**
 - No file changes
 
-- [ ] Run `cd server && go test ./...`.
-- [ ] Run `cd server && go test -tags=e2e ./e2e/...` without `SERVER_URL` and confirm clean skip behavior.
-- [ ] Run `cd server && SERVER_URL=http://127.0.0.1:18080 go test -tags=e2e ./e2e/...` without credentials and confirm non-zero failure.
-- [ ] Run `cd server && make e2e` and confirm all e2e suites pass.
-- [ ] Run `cd server && E2E_HTTP_PORT=18081 COMPOSE_PROJECT_NAME=files-nest-e2e-alt make e2e` to confirm port and project isolation.
+- [x] Run `cd server && go test ./...`.
+- [x] Run `cd server && go test -tags=e2e ./e2e/...` without `SERVER_URL` and confirm clean skip behavior.
+- [x] Run `cd server && SERVER_URL=http://127.0.0.1:18080 go test -tags=e2e ./e2e/...` without credentials and confirm non-zero failure.
+- [x] Run `cd server && make e2e` and confirm all e2e suites pass.
+- [x] Run `cd server && E2E_HTTP_PORT=18081 COMPOSE_PROJECT_NAME=files-nest-e2e-alt make e2e` to confirm port and project isolation.
