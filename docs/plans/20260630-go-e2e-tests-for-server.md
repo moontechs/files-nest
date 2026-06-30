@@ -78,11 +78,11 @@ Add black-box Go e2e tests for the server under `server/e2e/`, gated by the `e2e
 - Modify: `server/go.sum`
 - Create: `server/e2e/main_test.go`
 
-- [ ] Add `github.com/stretchr/testify` as a direct test dependency if not already direct.
-- [ ] Read `SERVER_URL`, `BACKUP_USER`, `BACKUP_PASS`, `E2E_WAIT`, and `E2E_TIMEOUT` once at startup.
-- [ ] If `SERVER_URL` is empty, print a skip banner to stderr and exit `0`.
-- [ ] If `SERVER_URL` is set but either credential is missing, print a configuration error and exit non-zero.
-- [ ] Poll unauthenticated `GET /health` until it returns `200 {"status":"ok"}` or `E2E_WAIT` expires; timeout is a failure when `SERVER_URL` is configured.
+- [x] Add `github.com/stretchr/testify` as a direct test dependency if not already direct.
+- [x] Read `SERVER_URL`, `BACKUP_USER`, `BACKUP_PASS`, `E2E_WAIT`, and `E2E_TIMEOUT` once at startup.
+- [x] If `SERVER_URL` is empty, print a skip banner to stderr and exit `0`.
+- [x] If `SERVER_URL` is set but either credential is missing, print a configuration error and exit non-zero.
+- [x] Poll unauthenticated `GET /health` until it returns `200 {"status":"ok"}` or `E2E_WAIT` expires; timeout is a failure when `SERVER_URL` is configured.
 
 ### Task 4: Implement thin HTTP e2e client
 **Files:**
