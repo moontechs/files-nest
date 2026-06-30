@@ -120,11 +120,11 @@ Add black-box Go e2e tests for the server under `server/e2e/`, gated by the `e2e
 **Files:**
 - Create: `server/e2e/auth_validation_test.go`
 
-- [ ] Verify unauthenticated `POST /uploads` returns `401` with a Basic `WWW-Authenticate` challenge.
-- [ ] Verify wrong Basic Auth credentials return `401`.
-- [ ] Verify create validation failures return `400` for missing `local_identifier`, invalid `creation_date`, unsafe filename, and unknown JSON field.
-- [ ] Verify `PATCH /uploads/{id}/data` without `Content-Type: application/offset+octet-stream` returns `400`.
-- [ ] Verify `PATCH /uploads/{id}/data` without `Upload-Offset` returns `400`.
+- [x] Verify unauthenticated `POST /uploads` returns `401` with a Basic `WWW-Authenticate` challenge.
+- [x] Verify wrong Basic Auth credentials return `401`.
+- [x] Verify create validation failures return `400` for missing `local_identifier`, invalid `creation_date`, unsafe filename, and unknown JSON field.
+- [x] Verify `PATCH /uploads/{id}/data` without `Content-Type: application/offset+octet-stream` returns `400`.
+- [x] Verify `PATCH /uploads/{id}/data` without `Upload-Offset` returns `400`.
 
 ### Task 8: Add delete and re-register tests
 **Files:**
