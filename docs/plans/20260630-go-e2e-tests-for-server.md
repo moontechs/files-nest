@@ -140,11 +140,11 @@ Add black-box Go e2e tests for the server under `server/e2e/`, gated by the `e2e
 **Files:**
 - Create: `server/e2e/resume_test.go`
 
-- [ ] Create a fresh upload and send an initial chunk without `Upload-Length`.
-- [ ] Verify a wrong `Upload-Offset` returns `409`.
-- [ ] Verify a follow-up `HEAD` reports the unchanged server offset.
-- [ ] Create a new client instance, discover offset with `HEAD`, send the final chunk with `Upload-Length` and `Upload-Complete: 1`, and assert returned offset equals total size.
-- [ ] Complete the resumed upload and verify status `complete`.
+- [x] Create a fresh upload and send an initial chunk without `Upload-Length`.
+- [x] Verify a wrong `Upload-Offset` returns `409`.
+- [x] Verify a follow-up `HEAD` reports the unchanged server offset.
+- [x] Create a new client instance, discover offset with `HEAD`, send the final chunk with `Upload-Length` and `Upload-Complete: 1`, and assert returned offset equals total size.
+- [x] Complete the resumed upload and verify status `complete`.
 
 ### Task 10: Add scoped listing and pagination tests
 **Files:**
