@@ -4,6 +4,7 @@ go 1.26.2
 
 require (
 	github.com/dgraph-io/badger/v4 v4.9.2
+	github.com/stretchr/testify v1.11.1
 	github.com/tus/tusd/v2 v2.10.0
 )
 

@@ -65,12 +65,12 @@ Add black-box Go e2e tests for the server under `server/e2e/`, gated by the `e2e
 **Files:**
 - Create: `server/Makefile`
 
-- [ ] Add `.PHONY: e2e e2e-down e2e-logs` and set safe defaults for `COMPOSE_PROJECT_NAME`, `E2E_HTTP_PORT`, `DOMAIN`, `BACKUP_USER`, and `BACKUP_PASS`.
-- [ ] Implement `make e2e` as a single shell script using `set -eu`, preserving the test exit status through cleanup.
-- [ ] Run `docker compose -p "$$COMPOSE_PROJECT_NAME" -f docker-compose.e2e.yml up -d --build` before tests; do not rely on `docker compose --wait` as the only readiness mechanism.
-- [ ] Export `SERVER_URL=http://127.0.0.1:${E2E_HTTP_PORT}`, `BACKUP_USER`, and `BACKUP_PASS` into `go test -tags=e2e ./e2e/...`.
-- [ ] Always run `docker compose ... down -v --remove-orphans` via trap/cleanup, including when build, startup, or tests fail.
-- [ ] On failure, print `docker compose ps` and service logs before cleanup while returning the original failure code.
+- [x] Add `.PHONY: e2e e2e-down e2e-logs` and set safe defaults for `COMPOSE_PROJECT_NAME`, `E2E_HTTP_PORT`, `DOMAIN`, `BACKUP_USER`, and `BACKUP_PASS`.
+- [x] Implement `make e2e` as a single shell script using `set -eu`, preserving the test exit status through cleanup.
+- [x] Run `docker compose -p "$$COMPOSE_PROJECT_NAME" -f docker-compose.e2e.yml up -d --build` before tests; do not rely on `docker compose --wait` as the only readiness mechanism.
+- [x] Export `SERVER_URL=http://127.0.0.1:${E2E_HTTP_PORT}`, `BACKUP_USER`, and `BACKUP_PASS` into `go test -tags=e2e ./e2e/...`.
+- [x] Always run `docker compose ... down -v --remove-orphans` via trap/cleanup, including when build, startup, or tests fail.
+- [x] On failure, print `docker compose ps` and service logs before cleanup while returning the original failure code.
 
 ### Task 3: Add e2e dependency and TestMain
 **Files:**
