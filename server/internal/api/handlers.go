@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/moontechs/files-nest/server/internal/filestore"
@@ -494,18 +493,23 @@ func (h *Handler) HandleHeadUploadData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	offset, err := h.backend.GetOffset(upload.BackendID)
+	info, err := h.backend.GetInfo(upload.BackendID)
 	if err != nil {
 		if errors.Is(err, uploadbackend.ErrNotFound) {
 			h.handleBackendLost(w, r, upload)
 			return
 		}
-		log.Printf("GetOffset failed for backend %s: %v", upload.BackendID, err)
-		writeError(w, http.StatusInternalServerError, "failed to get upload offset")
+		log.Printf("GetInfo failed for backend %s: %v", upload.BackendID, err)
+		writeError(w, http.StatusInternalServerError, "failed to get upload info")
 		return
 	}
 
-	w.Header().Set("Upload-Offset", strconv.FormatInt(offset, 10))
+	w.Header().Set("Upload-Offset", strconv.FormatInt(info.Offset, 10))
+	if info.SizeIsDeferred {
+		w.Header().Set("Upload-Defer-Length", "1")
+	} else {
+		w.Header().Set("Upload-Length", strconv.FormatInt(info.Size, 10))
+	}
 	w.Header().Set("Tus-Resumable", "1.0.0")
 	w.WriteHeader(http.StatusOK)
 }
@@ -643,6 +647,10 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid upload id: "+err.Error())
 		return
 	}
+
+	// Limit body size to prevent abuse (16 KB is generous for a single-field
+	// JSON body). An unbounded body stream could be used as a DoS vector.
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 
 	h.locks.Lock(id)
 	defer h.locks.Unlock(id)
@@ -892,19 +900,8 @@ func (h *Handler) handleBackendLost(w http.ResponseWriter, _ *http.Request, uplo
 
 // ---------------------------------------------------------------------------
 // extractID extracts the ":id" path parameter from the request.
-// It supports Go 1.22+ ServeMux patterns (r.PathValue) and falls back to
-// extracting from the URL path as a last resort.
+// The router is configured with Go 1.22+ ServeMux patterns (e.g.
+// /uploads/{id}/data), so the ID is always available via r.PathValue.
 func extractID(r *http.Request) string {
-	// Go 1.22+ ServeMux: GET /uploads/{id}
-	if id := r.PathValue("id"); id != "" {
-		return id
-	}
-	// Fallback: extract the last non-empty segment of the URL path.
-	// This handles the case where the handler is mounted at /uploads/
-	// and the path is /uploads/<id>.
-	parts := strings.Split(strings.TrimRight(r.URL.Path, "/"), "/")
-	if len(parts) > 0 {
-		return parts[len(parts)-1]
-	}
-	return ""
+	return r.PathValue("id")
 }
