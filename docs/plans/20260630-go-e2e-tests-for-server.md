@@ -55,11 +55,11 @@ Add black-box Go e2e tests for the server under `server/e2e/`, gated by the `e2e
 - Create: `server/docker-compose.e2e.yml`
 - Create: `server/Caddyfile.e2e`
 
-- [ ] Define `server` and `caddy` services using the existing `Dockerfile`, e2e-only named volumes, and no dependency on the production `docker-compose.yml`.
-- [ ] Bind Caddy to `127.0.0.1:${E2E_HTTP_PORT:-18080}:80` only.
-- [ ] Use an e2e Caddyfile with a plain-HTTP `:80` site block that proxies `/health` and `/uploads*` to `server:8080` without path rewriting.
-- [ ] Add service healthchecks: `server` checks `http://localhost:8080/health`; `caddy` checks `http://localhost/health`.
-- [ ] Propagate `BACKUP_USER`, `BACKUP_PASS`, `STORAGE_PATH=/data`, `PORT=8080`, and `DOMAIN=localhost`.
+- [x] Define `server` and `caddy` services using the existing `Dockerfile`, e2e-only named volumes, and no dependency on the production `docker-compose.yml`.
+- [x] Bind Caddy to `127.0.0.1:${E2E_HTTP_PORT:-18080}:80` only.
+- [x] Use an e2e Caddyfile with a plain-HTTP `:80` site block that proxies `/health` and `/uploads*` to `server:8080` without path rewriting.
+- [x] Add service healthchecks: `server` checks `http://localhost:8080/health`; `caddy` checks `http://localhost/health`.
+- [x] Propagate `BACKUP_USER`, `BACKUP_PASS`, `STORAGE_PATH=/data`, `PORT=8080`, and `DOMAIN=localhost`.
 
 ### Task 2: Add robust Makefile runner
 **Files:**
