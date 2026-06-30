@@ -150,23 +150,23 @@ Add black-box Go e2e tests for the server under `server/e2e/`, gated by the `e2e
 **Files:**
 - Create: `server/e2e/listing_test.go`
 
-- [ ] Create a dedicated set of uploads with unique local identifiers and creation dates inside a unique future-dated window.
-- [ ] Verify `GET /uploads?status=uploading&from=<window>&to=<window>` includes the expected current-run uploading fixtures after filtering by local identifier prefix.
-- [ ] Complete one fixture and verify `status=complete` includes it while `status=uploading` excludes it.
-- [ ] Verify date-range filtering using only the exact current-run fixture window.
-- [ ] Verify `limit=2` pagination by following cursors until empty, filtering to current-run fixture IDs, and asserting no duplicates.
-- [ ] Assert the paginated current-run union equals the expected fixture IDs without relying on global database emptiness.
-- [ ] Verify invalid cursor and invalid date range return `400`.
+- [x] Create a dedicated set of uploads with unique local identifiers and creation dates inside a unique future-dated window.
+- [x] Verify `GET /uploads?status=uploading&from=<window>&to=<window>` includes the expected current-run uploading fixtures after filtering by local identifier prefix.
+- [x] Complete one fixture and verify `status=complete` includes it while `status=uploading` excludes it.
+- [x] Verify date-range filtering using only the exact current-run fixture window.
+- [x] Verify `limit=2` pagination by following cursors until empty, filtering to current-run fixture IDs, and asserting no duplicates.
+- [x] Assert the paginated current-run union equals the expected fixture IDs without relying on global database emptiness.
+- [x] Verify invalid cursor and invalid date range return `400`.
 
 ### Task 11: Document e2e usage
 **Files:**
 - Modify: `server/README.md`
 
-- [ ] Add an “E2E Tests” section documenting `make e2e`.
-- [ ] Document configurable variables: `E2E_HTTP_PORT`, `COMPOSE_PROJECT_NAME`, `DOMAIN`, `BACKUP_USER`, `BACKUP_PASS`, `E2E_WAIT`, and `E2E_TIMEOUT`.
-- [ ] Document direct usage against an already-running stack with `SERVER_URL`.
-- [ ] Document that normal `go test ./...` excludes e2e tests because of the `e2e` build tag.
-- [ ] Document skip/fail behavior for unset `SERVER_URL`, missing credentials, and unreachable configured stacks.
+- [x] Add an "E2E Tests" section documenting `make e2e`.
+- [x] Document configurable variables: `E2E_HTTP_PORT`, `COMPOSE_PROJECT_NAME`, `DOMAIN`, `BACKUP_USER`, `BACKUP_PASS`, `E2E_WAIT`, and `E2E_TIMEOUT`.
+- [x] Document direct usage against an already-running stack with `SERVER_URL`.
+- [x] Document that normal `go test ./...` excludes e2e tests because of the `e2e` build tag.
+- [x] Document skip/fail behavior for unset `SERVER_URL`, missing credentials, and unreachable configured stacks.
 
 ### Task 12: Verify skipped, failure, and full flows
 **Files:**

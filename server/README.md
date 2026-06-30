@@ -676,6 +676,9 @@ go test ./... -v
 All tests use real BadgerDB instances in temp directories and real embedded
 tusd storage. There are no mocks of BadgerDB, tusd, or the filesystem.
 
+End-to-end tests are gated behind the `e2e` build tag and require a running
+Docker Compose stack. See [End-to-End Tests](#end-to-end-tests) below.
+
 ### Adding a New Endpoint
 
 1. Add the handler method to `internal/api/handlers.go`
@@ -685,6 +688,179 @@ tusd storage. There are no mocks of BadgerDB, tusd, or the filesystem.
 The per-upload lock (`UploadLocker`) should be used for any handler that
 mutates upload state — `PATCH /data`, `PATCH /status`, and `DELETE` all
 acquire it.
+
+### End-to-End Tests
+
+The `server/e2e/` package provides black-box end-to-end tests that exercise
+the full HTTP API through Caddy, verify real behavior (auth, upload lifecycle,
+resume, listing, re-registration), and never import `internal/` packages.
+
+All e2e test files are gated by `//go:build e2e` — normal `go test ./...`
+runs are unaffected. The tests are invisible to the Go toolchain without the
+`-tags=e2e` flag.
+
+#### Prerequisites
+
+- Docker + Docker Compose
+- Go 1.26+
+
+#### Quick Start (make e2e)
+
+The fastest way to run the full e2e suite:
+
+```bash
+cd server
+make e2e
+```
+
+This single target:
+1. Starts the isolated e2e Docker Compose stack (builds images, binds to
+   `127.0.0.1:18080` only — no production port conflicts)
+2. Polls the `/health` endpoint until the server is ready
+3. Runs the e2e test suite with `-tags=e2e -v -count=1`
+4. Prints container diagnostics (logs, status) on failure
+5. Tears down the stack (`down -v --remove-orphans`) on exit, even on
+   failure
+
+If the server does not become healthy within `E2E_WAIT` seconds, the target
+fails immediately with container diagnostics printed before cleanup.
+
+#### Compose-only Stack (manual)
+
+Start the stack without running tests:
+
+```bash
+cd server
+make e2e-up
+```
+
+Tail the logs, check status, or tear down:
+
+```bash
+make e2e-logs
+make e2e-ps
+make e2e-down
+```
+
+#### Running Tests Against an Existing Stack
+
+If the stack is already running (started with `make e2e-up` or manually):
+
+```bash
+make e2e-test
+```
+
+Or directly with `go test`:
+
+```bash
+SERVER_URL=http://127.0.0.1:18080 \
+  BACKUP_USER=testuser \
+  BACKUP_PASS=testpass \
+  go test -tags=e2e -v -count=1 -timeout=120s ./e2e/
+```
+
+#### Full make Target Reference
+
+| Target         | Description                                                    |
+|----------------|----------------------------------------------------------------|
+| `make e2e`     | Full runner: `up → wait → test → down` (with failure diags).   |
+| `make e2e-up`  | Start the e2e Docker Compose stack (detached).                 |
+| `make e2e-down`| Stop the e2e stack, remove volumes and orphans.                |
+| `make e2e-logs`| Tail logs from the e2e stack.                                  |
+| `make e2e-ps`  | Show container status for the e2e stack.                       |
+| `make e2e-test`| Run e2e tests against an already-running stack.                |
+
+#### Configuration Variables
+
+All variables have sensible defaults and can be overridden via environment
+or `make VAR=value`.
+
+| Variable                | Default | Description                                                  |
+|-------------------------|---------|--------------------------------------------------------------|
+| `E2E_HTTP_PORT`         | `18080` | Host port for the e2e Caddy container (binds `127.0.0.1`).   |
+| `COMPOSE_PROJECT_NAME`  | `files-nest-e2e` | Docker Compose project name, isolating e2e from production. |
+| `DOMAIN`                | `localhost` | Domain passed to Caddy (always plain HTTP for e2e).          |
+| `BACKUP_USER`           | `testuser` | HTTP Basic Auth username for API requests.                   |
+| `BACKUP_PASS`           | `testpass` | HTTP Basic Auth password. Must be set with `BACKUP_USER`.     |
+| `E2E_WAIT`              | `30`      | Max seconds to wait for server `/health` before failing.     |
+| `E2E_TIMEOUT`           | `120`     | Go test timeout in seconds (passed as `-timeout`).           |
+| `SERVER_URL`            | *(derived)* | Base URL of the deployed server (`http://127.0.0.1:$E2E_HTTP_PORT`). Used directly for `make e2e-test` or manual `go test`. |
+
+#### Behaviour: Skip vs Failure
+
+The e2e test suite never hangs or requires user interaction:
+
+- **`SERVER_URL` empty or unset** — All tests are skipped with a clean
+  `os.Exit(0)` and a log message. This is the default when running
+  `go test -tags=e2e ./e2e/` without setting `SERVER_URL`.
+- **`SERVER_URL` set but unreachable** — `TestMain` polls `/health` for up
+  to the configured timeout (controlled by `E2E_WAIT` in `make e2e`, or a
+  hardcoded 30 seconds when running directly). If the server never responds
+  with 200, the suite exits with a fatal error and a non-zero exit code.
+- **Missing or mismatched credentials** — Tests that require auth (the
+  majority of the suite) fail individual test cases. Tests that verify
+  unauthenticated access (e.g. `/health`) pass without credentials.
+
+#### Isolated Port Usage
+
+To run multiple e2e instances concurrently (e.g. CI matrix jobs), change the
+port and project name:
+
+```bash
+make e2e E2E_HTTP_PORT=18081 COMPOSE_PROJECT_NAME=files-nest-e2e-alt
+```
+
+#### Test Suite Overview
+
+| File                        | Focus                                                   |
+|-----------------------------|---------------------------------------------------------|
+| `main_test.go`              | `TestMain` — readiness polling, environment validation. |
+| `client_test.go`            | Shared HTTP client helpers and request builders.        |
+| `fixtures_test.go`          | Test data generation (unique IDs, dates, payloads).     |
+| `auth_validation_test.go`   | Authentication: unauthenticated access, bad credentials, missing headers, disabled auth mode. |
+| `lifecycle_test.go`         | Full upload lifecycle: create, chunk, complete, delete. |
+| `resume_test.go`            | Resumable uploads: offset tracking, interrupted uploads, multi-chunk flows. |
+| `reregister_test.go`        | Idempotent creation, re-registration after deleted/`backend_lost`. |
+| `listing_test.go`           | List with date ranges, pagination, status filtering, empty results. |
+
+#### Architecture
+
+The e2e stack uses a separate Compose file and Caddyfile to avoid conflicts
+with the production deployment:
+
+```
+┌─────────────────────┐  :18080 (host)  ┌──────────────────────┐
+│  go test -tags=e2e  │ ◄─────────────► │  Caddy (e2e)  :80    │
+│  (HTTP client)      │                 │  plain HTTP, no TLS  │
+└─────────────────────┘                 └──────────┬───────────┘
+                                                   │ reverse_proxy
+                                          ┌────────▼───────────┐
+                                          │  Go server  :8080  │
+                                          │  (same Dockerfile) │
+                                          └────────────────────┘
+```
+
+- **Caddy** binds to `127.0.0.1:${E2E_HTTP_PORT:-18080}` (host) → `:80` (container).
+- **Server** is built from the same `Dockerfile` as production.
+- **Data** is ephemeral: `make e2e-down` or `docker compose down -v` removes
+  volumes entirely.
+- **Healthchecks** on the server container are diagnostic; the Go test suite
+  does its own readiness polling in `TestMain`.
+
+#### Key Constraints
+
+- Every file in `e2e/` starts with `//go:build e2e` — without `-tags=e2e`,
+  these files are invisible to the Go toolchain.
+- E2E tests must **not** import `github.com/moontechs/files-nest/server/internal/...`.
+- All response bodies must be closed after use.
+- Listing assertions are scoped to the current test run's unique local
+  identifier prefix and date window to avoid interference between runs.
+- Final upload chunks must include `Upload-Length: <total_size>` and
+  `Upload-Complete: 1`.
+- Idempotent create expectations: existing active/completed records return
+  `200`; re-registering deleted/`backend_lost` records returns `201`.
+- The suite does not include destructive restart/backend-loss tests in this
+  pass; those need a separate orchestrator.
 
 ---
 
