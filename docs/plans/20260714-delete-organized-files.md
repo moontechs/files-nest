@@ -84,8 +84,8 @@ Key ordering:
 **Files:**
 - Modify: `server/README.md`
 
-- [ ] Update the `DELETE /uploads/:id` section: change "Does **not** remove the organized file" to state plainly that the organized file IS now removed, that this is **permanent and unrecoverable** (no trash/retention window), and that file-removal failures are logged but do not block the record from being marked `deleted` (i.e. a 204 response does not guarantee the file was actually removed from disk)
-- [ ] Verify no other references to the old behavior need updating
+- [x] Update the `DELETE /uploads/:id` section: change "Does **not** remove the organized file" to state plainly that the organized file IS now removed, that this is **permanent and unrecoverable** (no trash/retention window), and that file-removal failures are logged but do not block the record from being marked `deleted` (i.e. a 204 response does not guarantee the file was actually removed from disk)
+- [x] Verify no other references to the old behavior need updating
 
 ### Task 5: Final verification
 

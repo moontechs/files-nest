@@ -405,8 +405,15 @@ Before marking complete, the server:
 #### `DELETE /uploads/:id`
 
 Delete an upload record. Terminates the tusd backend state (if it exists),
-then marks the record as `deleted` in the database. Does **not** remove the
-organized file.
+then removes the organized file from disk, and finally marks the record as
+`deleted` in the database. The organized file is **permanently deleted and
+cannot be recovered** — there is no trash or retention window.
+
+If the organized file cannot be removed (e.g. permission error), the failure
+is logged but does **not** prevent the record from being marked `deleted`.
+A 204 response does not guarantee the file was actually removed from disk.
+If the organized file is already gone (e.g. second DELETE on the same upload),
+removal is silently skipped.
 
 **Response 204** (no body).
 
