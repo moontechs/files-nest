@@ -830,7 +830,11 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 
 // HandleDeleteUpload handles DELETE /uploads/:id. It terminates the upload
 // in the tusd backend (ignoring ErrNotFound since the backend may already
-// be gone), then updates the record status to deleted.
+// be gone), removes the organized file from disk (if the upload was
+// completed), and then updates the record status to deleted.
+//
+// File-removal errors are logged but do not abort the operation — the DB
+// record is still marked deleted even if file cleanup fails.
 func (h *Handler) HandleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 	id := extractID(r)
 	if id == "" {
@@ -868,6 +872,15 @@ func (h *Handler) HandleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 	// previous partial cleanup).
 	if termErr := h.backend.TerminateOrCleanup(upload.BackendID); termErr != nil && !errors.Is(termErr, uploadbackend.ErrNotFound) {
 		log.Printf("failed to terminate tusd upload %s during delete: %v", upload.BackendID, termErr)
+	}
+
+	// Remove the organized file from disk if the upload was completed.
+	// Errors are logged but do not abort the DELETE — the DB record
+	// is still marked deleted even if file cleanup fails.
+	if upload.OrganizedPath != "" {
+		if removeErr := h.mover.RemoveOrganizedFile(upload.OrganizedPath); removeErr != nil {
+			log.Printf("failed to remove organized file %s for upload %s: %v", upload.OrganizedPath, upload.ID, removeErr)
+		}
 	}
 
 	// Update the DB record status to deleted.

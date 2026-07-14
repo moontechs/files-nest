@@ -5,6 +5,7 @@ package api
 import (
 	"log"
 	"net/http"
+	"runtime/debug"
 	"time"
 )
 
@@ -54,13 +55,13 @@ func NewRouter(h *Handler, authCfg AuthConfig) http.Handler {
 // ---------------------------------------------------------------------------
 
 // recoveryMiddleware recovers from panics in downstream handlers, logs the
-// stack trace, and returns a 500 Internal Server Error. Without this, a
-// single panic would crash the entire server process.
+// panic value and stack trace, and returns a 500 Internal Server Error.
+// Without this, a single panic would crash the entire server process.
 func recoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.Printf("panic recovered: %v (path=%s method=%s)", rec, r.URL.Path, r.Method)
+				log.Printf("panic recovered: %v (path=%s method=%s)\n%s", rec, r.URL.Path, r.Method, debug.Stack())
 				// Emit a JSON body with a JSON content type so clients can parse
 				// it consistently. http.Error would label this text/plain.
 				w.Header().Set("Content-Type", "application/json")

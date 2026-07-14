@@ -57,10 +57,10 @@ These were explicitly confirmed before implementation (see critique in conversat
 **Files:**
 - Modify: `server/internal/api/handlers.go`
 
-- [ ] After the tusd `TerminateOrCleanup` call (and before the DB status update), check if `upload.OrganizedPath != ""`
-- [ ] If non-empty, call `h.mover.RemoveOrganizedFile(upload.OrganizedPath)`
-- [ ] Log the error if removal fails but do NOT abort the overall DELETE operation — the record should still be marked `deleted` in DB even if file cleanup fails
-- [ ] Continue with existing `UpdateStatus` to `deleted`
+- [x] After the tusd `TerminateOrCleanup` call (and before the DB status update), check if `upload.OrganizedPath != ""`
+- [x] If non-empty, call `h.mover.RemoveOrganizedFile(upload.OrganizedPath)`
+- [x] Log the error if removal fails but do NOT abort the overall DELETE operation — the record should still be marked `deleted` in DB even if file cleanup fails
+- [x] Continue with existing `UpdateStatus` to `deleted`
 
 Key ordering:
 - TUS terminate first (may clean up sidecar files)
