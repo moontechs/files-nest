@@ -1037,6 +1037,140 @@ func TestMoveFile_SameDateFilenameDifferentBackendIDs(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// RemoveOrganizedFile
+// ---------------------------------------------------------------------------
+
+func TestRemoveOrganizedFile_Success(t *testing.T) {
+	m := openTestMover(t)
+
+	// Create a file in the organized tree.
+	relPath := "organized/2024/03/15/test_image.jpg"
+	absPath := filepath.Join(m.StoragePath(), relPath)
+	writeFile(t, absPath, []byte("organized file content"))
+
+	// Remove it.
+	if err := m.RemoveOrganizedFile(relPath); err != nil {
+		t.Fatalf("RemoveOrganizedFile failed: %v", err)
+	}
+
+	// File should be gone.
+	assertPathNotExists(t, absPath)
+}
+
+func TestRemoveOrganizedFile_Idempotent(t *testing.T) {
+	m := openTestMover(t)
+
+	relPath := "organized/2024/06/20/photo.jpg"
+	absPath := filepath.Join(m.StoragePath(), relPath)
+	writeFile(t, absPath, []byte("content"))
+
+	// First removal succeeds.
+	if err := m.RemoveOrganizedFile(relPath); err != nil {
+		t.Fatalf("first RemoveOrganizedFile failed: %v", err)
+	}
+
+	// Second removal (file already gone) must also return nil.
+	if err := m.RemoveOrganizedFile(relPath); err != nil {
+		t.Errorf("second RemoveOrganizedFile should return nil (idempotent), got: %v", err)
+	}
+
+	assertPathNotExists(t, absPath)
+}
+
+func TestRemoveOrganizedFile_NonExistentFile(t *testing.T) {
+	m := openTestMover(t)
+
+	// A path that never existed.
+	relPath := "organized/2024/01/01/never_existed.txt"
+
+	// Should return nil (not an error).
+	if err := m.RemoveOrganizedFile(relPath); err != nil {
+		t.Errorf("RemoveOrganizedFile for non-existent file should return nil, got: %v", err)
+	}
+}
+
+func TestRemoveOrganizedFile_EmptyPath(t *testing.T) {
+	m := openTestMover(t)
+
+	// Empty path is a clean no-op for uploads that were never completed.
+	if err := m.RemoveOrganizedFile(""); err != nil {
+		t.Errorf("RemoveOrganizedFile with empty path should return nil, got: %v", err)
+	}
+}
+
+func TestRemoveOrganizedFile_PathTraversal(t *testing.T) {
+	m := openTestMover(t)
+
+	// Create a file just outside the storage root to verify it is NOT removed.
+	outsidePath := filepath.Join(filepath.Dir(m.StoragePath()), "escaped_file.txt")
+	writeFile(t, outsidePath, []byte("should not be removed"))
+	t.Cleanup(func() { os.Remove(outsidePath) })
+
+	// Attempt traversal with ".." segments.
+	err := m.RemoveOrganizedFile("../../escaped_file.txt")
+	if err == nil {
+		t.Error("expected error for path traversal, got nil")
+	} else {
+		t.Logf("got expected error: %v", err)
+	}
+
+	// The outside file should still exist.
+	assertPathExists(t, outsidePath)
+}
+
+func TestRemoveOrganizedFile_DeepPathTraversal(t *testing.T) {
+	m := openTestMover(t)
+
+	outsidePath := filepath.Join(filepath.Dir(m.StoragePath()), "deep_escape.txt")
+	writeFile(t, outsidePath, []byte("should not be removed"))
+	t.Cleanup(func() { os.Remove(outsidePath) })
+
+	// Deeper traversal.
+	err := m.RemoveOrganizedFile("organized/2024/../../../deep_escape.txt")
+	if err == nil {
+		t.Error("expected error for deep path traversal, got nil")
+	} else {
+		t.Logf("got expected error: %v", err)
+	}
+
+	assertPathExists(t, outsidePath)
+}
+
+func TestRemoveOrganizedFile_PermissionDenied(t *testing.T) {
+	m := openTestMover(t)
+
+	// Create a file in a subdirectory.
+	relPath := "organized/2024/08/01/protected_file.txt"
+	absPath := filepath.Join(m.StoragePath(), relPath)
+	writeFile(t, absPath, []byte("protected content"))
+
+	// Make the parent directory read-only so the file cannot be removed.
+	parentDir := filepath.Dir(absPath)
+	origMode, err := os.Stat(parentDir)
+	if err != nil {
+		t.Fatalf("Stat parent dir: %v", err)
+	}
+	if err := os.Chmod(parentDir, 0555); err != nil {
+		t.Fatalf("Chmod parent dir to 0555: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(parentDir, origMode.Mode()) })
+
+	// Removing the file should fail because the directory is read-only.
+	err = m.RemoveOrganizedFile(relPath)
+	if err == nil {
+		t.Error("expected error for permission denied, got nil")
+	} else {
+		t.Logf("got expected permission error: %v", err)
+	}
+
+	// File should still exist.
+	assertPathExists(t, absPath)
+
+	// Restore permissions so cleanup can remove the temp dir.
+	os.Chmod(parentDir, 0755)
+}
+
+// ---------------------------------------------------------------------------
 // PlanDestination
 // ---------------------------------------------------------------------------
 

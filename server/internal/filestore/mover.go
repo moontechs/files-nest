@@ -87,6 +87,49 @@ type PlanDestResult struct {
 	Rel string
 }
 
+// RemoveOrganizedFile removes the organized file at the given relative path
+// from the storage root. It is safe to call on uploads that were never
+// completed (empty organizedPath returns nil immediately).
+//
+// Path safety: the resolved absolute path is cleaned and verified to be
+// contained within the storage root before any file operation, as
+// defense-in-depth in case organizedPath is ever fed from a source other
+// than Mover's own output.
+//
+// The mutex m.moveMu is acquired for the duration of the os.Remove call
+// to prevent TOCTOU with concurrent PlanDestination / MoveFile operations
+// that may stat and rename to the same computed path.
+//
+// If the file does not exist (os.IsNotExist), nil is returned — the
+// operation is idempotent. Any other error is returned to the caller.
+func (m *Mover) RemoveOrganizedFile(organizedPath string) error {
+	if organizedPath == "" {
+		return nil
+	}
+
+	absPath := filepath.Join(m.storagePath, organizedPath)
+	cleanAbs := filepath.Clean(absPath)
+	cleanRoot := filepath.Clean(m.storagePath)
+
+	// Verify the resolved path is still contained within the storage root.
+	// Without this check, a relative path containing ".." segments could
+	// escape the organized tree even after filepath.Join and Clean.
+	if !strings.HasPrefix(cleanAbs, cleanRoot+string(filepath.Separator)) && cleanAbs != cleanRoot {
+		return fmt.Errorf("path %q escapes storage root %q", organizedPath, m.storagePath)
+	}
+
+	m.moveMu.Lock()
+	defer m.moveMu.Unlock()
+
+	if err := os.Remove(cleanAbs); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
 // PlanDestination computes the destination file paths for an upload,
 // returning the absolute destination path and relative organized path.
 //
