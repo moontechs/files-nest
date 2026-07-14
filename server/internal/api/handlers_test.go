@@ -1880,18 +1880,52 @@ func TestHandleDeleteUpload_Success(t *testing.T) {
 	h, st, _ := setupHandler(t)
 	created := createTestUpload(t, h, "DELETE-OK/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
 
-	rec := deleteUploadRequest(h.HandleDeleteUpload, created.ID)
-	if rec.Code != http.StatusNoContent {
-		t.Errorf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	// Upload all data.
+	data := []byte("file content for full delete test")
+	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
+		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+	if patchRec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
+	}
+
+	// Mark complete to get an organized_path.
+	statusRec := statusPatchRequest(h.HandlePatchUploadStatus, created.ID, `{"status": "complete"}`)
+	if statusRec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH status expected 204, got %d: %s", statusRec.Code, statusRec.Body.String())
+	}
+
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.OrganizedPath == "" {
+		t.Fatal("expected non-empty organized_path after completion")
+	}
+
+	// Verify the organized file exists before delete.
+	absPath := filepath.Join(h.StoragePath(), upload.OrganizedPath)
+	if _, err := os.Stat(absPath); err != nil {
+		t.Fatalf("organized file should exist before delete: %v", err)
+	}
+
+	// Delete the upload.
+	delRec := deleteUploadRequest(h.HandleDeleteUpload, created.ID)
+	if delRec.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d: %s", delRec.Code, delRec.Body.String())
 	}
 
 	// Verify DB record is now deleted.
-	upload, err := st.GetUpload(created.ID)
+	upload, err = st.GetUpload(created.ID)
 	if err != nil {
 		t.Fatalf("GetUpload: %v", err)
 	}
 	if upload.Status != store.StatusDeleted {
 		t.Errorf("expected status deleted, got %q", upload.Status)
+	}
+
+	// Verify organized file is removed from disk.
+	if _, err := os.Stat(absPath); !os.IsNotExist(err) {
+		t.Errorf("organized file should be removed after delete, stat: %v", err)
 	}
 }
 
@@ -1998,6 +2032,135 @@ func TestHandleDeleteUpload_InvalidID(t *testing.T) {
 	rec := deleteUploadRequest(h.HandleDeleteUpload, "bad")
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for invalid ID, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleDeleteUpload_RemovesOrganizedFile(t *testing.T) {
+	h, st, _ := setupHandler(t)
+	created := createTestUpload(t, h, "DELETE-REMOVE/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Upload all data.
+	data := []byte("file content for remove test")
+	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
+		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+	if patchRec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
+	}
+
+	// Mark complete to get an organized_path.
+	statusRec := statusPatchRequest(h.HandlePatchUploadStatus, created.ID, `{"status": "complete"}`)
+	if statusRec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH status expected 204, got %d: %s", statusRec.Code, statusRec.Body.String())
+	}
+
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.OrganizedPath == "" {
+		t.Fatal("expected non-empty organized_path after completion")
+	}
+
+	absPath := filepath.Join(h.StoragePath(), upload.OrganizedPath)
+	if _, err := os.Stat(absPath); err != nil {
+		t.Fatalf("organized file should exist before delete: %v", err)
+	}
+
+	// DELETE should remove the organized file.
+	delRec := deleteUploadRequest(h.HandleDeleteUpload, created.ID)
+	if delRec.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d: %s", delRec.Code, delRec.Body.String())
+	}
+
+	// Verify organized file is gone from disk.
+	if _, err := os.Stat(absPath); !os.IsNotExist(err) {
+		t.Errorf("organized file should be removed after delete, stat: %v", err)
+	}
+
+	// Verify DB record is deleted.
+	upload, err = st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.Status != store.StatusDeleted {
+		t.Errorf("expected status deleted, got %q", upload.Status)
+	}
+}
+
+func TestHandleDeleteUpload_NoOrganizedPath(t *testing.T) {
+	h, st, _ := setupHandler(t)
+	created := createTestUpload(t, h, "DELETE-NOORG/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Confirm the upload has no organized_path (never completed).
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.OrganizedPath != "" {
+		t.Skip("test requires empty organized_path; upload was already completed")
+	}
+
+	// DELETE should succeed.
+	rec := deleteUploadRequest(h.HandleDeleteUpload, created.ID)
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify DB record is deleted.
+	upload, err = st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.Status != store.StatusDeleted {
+		t.Errorf("expected status deleted, got %q", upload.Status)
+	}
+}
+
+func TestHandleDeleteUpload_OrganizedFileAlreadyGone(t *testing.T) {
+	h, st, _ := setupHandler(t)
+	created := createTestUpload(t, h, "DELETE-GONE/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+
+	// Upload all data.
+	data := []byte("file content for already-gone test")
+	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
+		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+	if patchRec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
+	}
+
+	// Mark complete.
+	statusRec := statusPatchRequest(h.HandlePatchUploadStatus, created.ID, `{"status": "complete"}`)
+	if statusRec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH status expected 204, got %d: %s", statusRec.Code, statusRec.Body.String())
+	}
+
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.OrganizedPath == "" {
+		t.Fatal("expected non-empty organized_path after completion")
+	}
+
+	// Manually remove the organized file before DELETE.
+	absPath := filepath.Join(h.StoragePath(), upload.OrganizedPath)
+	if err := os.Remove(absPath); err != nil {
+		t.Fatalf("failed to manually remove organized file: %v", err)
+	}
+
+	// DELETE should still succeed (idempotent).
+	delRec := deleteUploadRequest(h.HandleDeleteUpload, created.ID)
+	if delRec.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d: %s", delRec.Code, delRec.Body.String())
+	}
+
+	// Verify DB record is deleted.
+	upload, err = st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.Status != store.StatusDeleted {
+		t.Errorf("expected status deleted, got %q", upload.Status)
 	}
 }
 

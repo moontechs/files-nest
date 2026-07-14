@@ -73,11 +73,11 @@ Key ordering:
 **Files:**
 - Modify: `server/internal/api/handlers_test.go`
 
-- [ ] Add test `TestHandleDeleteUpload_RemovesOrganizedFile`: create a completed upload (upload data + PATCH status complete to get an organized_path), then DELETE it, verify the organized file is removed from disk
-- [ ] Add test `TestHandleDeleteUpload_NoOrganizedPath`: create an uploading-only upload (never completed, organized_path is empty), DELETE it, verify no file deletion attempted
-- [ ] Add test `TestHandleDeleteUpload_OrganizedFileAlreadyGone`: create completed upload, manually remove the file, then DELETE — should succeed (idempotent)
-- [ ] Update `TestHandleDeleteUpload_Success` to also verify the organized file is removed
-- [ ] Run `go test ./internal/api/... -run Delete` — must pass
+- [x] Add test `TestHandleDeleteUpload_RemovesOrganizedFile`: create a completed upload (upload data + PATCH status complete to get an organized_path), then DELETE it, verify the organized file is removed from disk
+- [x] Add test `TestHandleDeleteUpload_NoOrganizedPath`: create an uploading-only upload (never completed, organized_path is empty), DELETE it, verify no file deletion attempted
+- [x] Add test `TestHandleDeleteUpload_OrganizedFileAlreadyGone`: create completed upload, manually remove the file, then DELETE — should succeed (idempotent)
+- [x] Update `TestHandleDeleteUpload_Success` to also verify the organized file is removed
+- [x] Run `go test ./internal/api/... -run Delete` — must pass
 
 ### Task 4: Update README documentation
 
