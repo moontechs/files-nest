@@ -89,6 +89,6 @@ Key ordering:
 
 ### Task 5: Final verification
 
-- [ ] `go test ./...` — all tests pass
-- [ ] `go vet ./...` — no issues
-- [ ] Verify README accurately describes the new DELETE behavior
+- [x] `go test ./...` — all tests pass
+- [x] `go vet ./...` — no issues
+- [x] Verify README accurately describes the new DELETE behavior
