@@ -830,6 +830,30 @@ make e2e E2E_HTTP_PORT=18081 COMPOSE_PROJECT_NAME=files-nest-e2e-alt
 | `resume_test.go`            | Resumable uploads: offset tracking, interrupted uploads, multi-chunk flows. |
 | `reregister_test.go`        | Idempotent creation, re-registration after deleted/`backend_lost`. |
 | `listing_test.go`           | List with date ranges, pagination, status filtering, empty results. |
+| `storage_test.go`           | On-disk verification: organized file content matches uploaded bytes; DELETE removes the file from disk. |
+
+#### On-Disk Storage Verification
+
+Every other e2e test only checks HTTP responses (e.g. that `organized_path`
+is non-empty). `storage_test.go` goes one level deeper: it reaches into the
+running container's filesystem via `docker compose cp`/`exec` and confirms
+the server actually wrote (and removed) the right bytes.
+
+- **`TestStorage_CompletedFileContentMatchesUploadedBytes`** — uploads a
+  known payload, then copies the organized file out of the container and
+  asserts it is byte-for-byte identical to what was sent.
+- **`TestStorage_DeleteRemovesFileFromDisk`** — confirms the organized file
+  exists right after completion, then confirms it is actually gone after
+  `DELETE /uploads/:id`.
+
+These checks are **opt-in and auto-skip** when there's no local stack to
+inspect (e.g. `SERVER_URL` points at a remote/staging deployment) — they
+require `COMPOSE_PROJECT_NAME` (or `E2E_COMPOSE_PROJECT`) to be set and the
+`docker` CLI to be on `PATH`. `make e2e` and `make e2e-test` export
+`COMPOSE_PROJECT_NAME` automatically, so they run by default in the normal
+local/CI flow. Override `E2E_COMPOSE_FILE` (default
+`docker-compose.e2e.yml`) or `E2E_STORAGE_SERVICE` (default `server`) if
+your stack uses different names.
 
 #### Architecture
 

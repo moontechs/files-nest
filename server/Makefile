@@ -128,6 +128,7 @@ e2e-test:
 	SERVER_URL=$(SERVER_URL) \
 	BACKUP_USER=$(BACKUP_USER) \
 	BACKUP_PASS=$(BACKUP_PASS) \
+	COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) \
 	go test -tags=e2e ./e2e/... -v -count=1 -timeout=$(E2E_TIMEOUT)s
 
 # ===========================================================================
@@ -183,6 +184,7 @@ e2e:
 	SERVER_URL=http://127.0.0.1:$(E2E_HTTP_PORT) \
 	BACKUP_USER=$(BACKUP_USER) \
 	BACKUP_PASS=$(BACKUP_PASS) \
+	COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) \
 	go test -tags=e2e ./e2e/... -v -count=1 -timeout=$(E2E_TIMEOUT)s || _exit_code=$$?; \
 	\
 	if [ "$$_exit_code" -ne 0 ]; then \
