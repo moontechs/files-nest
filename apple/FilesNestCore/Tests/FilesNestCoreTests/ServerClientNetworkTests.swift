@@ -78,6 +78,84 @@ struct ServerClientNetworkTests {
             try await client.getUpload(id: "X")
         }
     }
+
+    // MARK: TUS data endpoints
+
+    @Test func headParsesOffsetAndLength() async throws {
+        nonisolated(unsafe) var captured: URLRequest?
+        MockURLProtocol.handler = { req in
+            captured = req
+            return MockURLProtocol.respond(status: 200,
+                headers: ["Upload-Offset": "500", "Upload-Length": "2048", "Tus-Resumable": "1.0.0"],
+                for: req.url!)
+        }
+        let result = try await makeClient().offset(forUploadID: "ID")
+        #expect(captured?.httpMethod == "HEAD")
+        #expect(captured?.url?.absoluteString == "https://h.test/uploads/ID/data")
+        #expect(result.offset == 500)
+        #expect(result.length == 2048)
+    }
+
+    @Test func headDeferredLengthIsNil() async throws {
+        MockURLProtocol.handler = { req in
+            MockURLProtocol.respond(status: 200,
+                headers: ["Upload-Offset": "0", "Upload-Defer-Length": "1", "Tus-Resumable": "1.0.0"],
+                for: req.url!)
+        }
+        let result = try await makeClient().offset(forUploadID: "ID")
+        #expect(result.offset == 0)
+        #expect(result.length == nil)
+    }
+
+    @Test func head409BackendLostMapsTyped() async throws {
+        MockURLProtocol.handler = { req in
+            MockURLProtocol.respond(status: 409,
+                body: #"{"error":"backend_lost"}"#.data(using: .utf8)!, for: req.url!)
+        }
+        let client = makeClient()
+        await #expect(throws: ServerClientError.backendLost) {
+            try await client.offset(forUploadID: "ID")
+        }
+    }
+
+    @Test func patchSendsTusHeadersAndReturnsNewOffset() async throws {
+        nonisolated(unsafe) var captured: URLRequest?
+        MockURLProtocol.handler = { req in
+            captured = req
+            return MockURLProtocol.respond(status: 204, headers: ["Upload-Offset": "1024"], for: req.url!)
+        }
+        let newOffset = try await makeClient().patchData(uploadID: "ID", offset: 512,
+            data: Data(repeating: 7, count: 512), finalLength: nil)
+        #expect(newOffset == 1024)
+        #expect(captured?.httpMethod == "PATCH")
+        #expect(captured?.value(forHTTPHeaderField: "Content-Type") == "application/offset+octet-stream")
+        #expect(captured?.value(forHTTPHeaderField: "Upload-Offset") == "512")
+        #expect(captured?.value(forHTTPHeaderField: "Tus-Resumable") == "1.0.0")
+        #expect(captured?.value(forHTTPHeaderField: "Upload-Length") == nil)
+    }
+
+    @Test func patchFinalChunkDeclaresUploadLength() async throws {
+        nonisolated(unsafe) var captured: URLRequest?
+        MockURLProtocol.handler = { req in
+            captured = req
+            return MockURLProtocol.respond(status: 204, headers: ["Upload-Offset": "2048"], for: req.url!)
+        }
+        _ = try await makeClient().patchData(uploadID: "ID", offset: 1024,
+            data: Data(count: 1024), finalLength: 2048)
+        #expect(captured?.value(forHTTPHeaderField: "Upload-Length") == "2048")
+    }
+
+    @Test func patch409OffsetMismatchMapsTyped() async throws {
+        MockURLProtocol.handler = { req in
+            MockURLProtocol.respond(status: 409,
+                body: #"{"error":"offset mismatch: client=5, server=10"}"#.data(using: .utf8)!,
+                for: req.url!)
+        }
+        let client = makeClient()
+        await #expect(throws: ServerClientError.offsetConflict) {
+            try await client.patchData(uploadID: "ID", offset: 5, data: Data(count: 8), finalLength: nil)
+        }
+    }
 }
 
 extension URLRequest {

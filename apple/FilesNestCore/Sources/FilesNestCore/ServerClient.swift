@@ -95,4 +95,44 @@ public struct ServerClient: Sendable {
         let (data, _) = try await send(req)
         return try decode(UploadRecord.self, from: data)
     }
+
+    // MARK: TUS data endpoints
+
+    /// HEAD /uploads/{id}/data — the current offset, for resuming.
+    /// `length` is nil when the server reports `Upload-Defer-Length` (size not yet declared).
+    public func offset(forUploadID id: String) async throws -> UploadOffset {
+        let req = try await authorizedRequest(dataURL(for: id), method: "HEAD")
+        let (_, http) = try await send(req)
+        guard let offsetString = http.value(forHTTPHeaderField: "Upload-Offset"),
+              let offset = Int64(offsetString) else {
+            throw ServerClientError.decoding("missing or invalid Upload-Offset header")
+        }
+        let length = http.value(forHTTPHeaderField: "Upload-Length").flatMap(Int64.init)
+        return UploadOffset(offset: offset, length: length)
+    }
+
+    /// PATCH /uploads/{id}/data — appends `data` at `offset`.
+    /// Pass `finalLength` on the last chunk to declare the total size for a
+    /// deferred-length upload. Returns the server's new `Upload-Offset`.
+    ///
+    /// Note: `data` is a single already-bounded chunk — this method never
+    /// accumulates, so its memory cost is O(one chunk).
+    @discardableResult
+    public func patchData(uploadID id: String, offset: Int64, data: Data,
+                          finalLength: Int64?) async throws -> Int64 {
+        var req = try await authorizedRequest(dataURL(for: id), method: "PATCH")
+        req.setValue("application/offset+octet-stream", forHTTPHeaderField: "Content-Type")
+        req.setValue(String(offset), forHTTPHeaderField: "Upload-Offset")
+        req.setValue("1.0.0", forHTTPHeaderField: "Tus-Resumable")
+        if let finalLength {
+            req.setValue(String(finalLength), forHTTPHeaderField: "Upload-Length")
+        }
+        req.httpBody = data
+        let (_, http) = try await send(req)
+        guard let offsetString = http.value(forHTTPHeaderField: "Upload-Offset"),
+              let newOffset = Int64(offsetString) else {
+            throw ServerClientError.decoding("missing Upload-Offset in PATCH response")
+        }
+        return newOffset
+    }
 }
