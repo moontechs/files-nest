@@ -135,4 +135,22 @@ public struct ServerClient: Sendable {
         }
         return newOffset
     }
+
+    // MARK: Status transition and deletion
+
+    /// PATCH /uploads/{id}/status — the server only accepts "complete"; it moves
+    /// the file from incoming to organized storage before flipping the status.
+    public func markComplete(uploadID id: String) async throws {
+        let url = uploadURL(id: id).appendingPathComponent("status")
+        var req = try await authorizedRequest(url, method: "PATCH")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = #"{"status":"complete"}"#.data(using: .utf8)
+        try await send(req)
+    }
+
+    /// DELETE /uploads/{id} — the server performs the TUS termination.
+    public func deleteUpload(id: String) async throws {
+        let req = try await authorizedRequest(uploadURL(id: id), method: "DELETE")
+        try await send(req)
+    }
 }

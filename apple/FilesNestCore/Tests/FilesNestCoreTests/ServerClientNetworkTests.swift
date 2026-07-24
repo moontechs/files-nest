@@ -156,6 +156,47 @@ struct ServerClientNetworkTests {
             try await client.patchData(uploadID: "ID", offset: 5, data: Data(count: 8), finalLength: nil)
         }
     }
+
+    // MARK: Status transition and deletion
+
+    @Test func markCompletePatchesStatus() async throws {
+        nonisolated(unsafe) var captured: URLRequest?
+        nonisolated(unsafe) var bodyData: Data?
+        MockURLProtocol.handler = { req in
+            captured = req
+            bodyData = req.httpBodyStreamData()
+            return MockURLProtocol.respond(status: 200,
+                body: #"{"id":"ID","local_identifier":"l","status":"complete","backend_id":"b"}"#.data(using: .utf8)!,
+                for: req.url!)
+        }
+        try await makeClient().markComplete(uploadID: "ID")
+        #expect(captured?.httpMethod == "PATCH")
+        #expect(captured?.url?.absoluteString == "https://h.test/uploads/ID/status")
+        let obj = try JSONSerialization.jsonObject(with: #require(bodyData)) as! [String: Any]
+        #expect(obj["status"] as? String == "complete")
+    }
+
+    @Test func markCompleteBackendLostThrows() async throws {
+        MockURLProtocol.handler = { req in
+            MockURLProtocol.respond(status: 409,
+                body: #"{"error":"backend_lost"}"#.data(using: .utf8)!, for: req.url!)
+        }
+        let client = makeClient()
+        await #expect(throws: ServerClientError.backendLost) {
+            try await client.markComplete(uploadID: "ID")
+        }
+    }
+
+    @Test func deleteUploadSendsDelete() async throws {
+        nonisolated(unsafe) var captured: URLRequest?
+        MockURLProtocol.handler = { req in
+            captured = req
+            return MockURLProtocol.respond(status: 204, for: req.url!)
+        }
+        try await makeClient().deleteUpload(id: "ID")
+        #expect(captured?.httpMethod == "DELETE")
+        #expect(captured?.url?.absoluteString == "https://h.test/uploads/ID")
+    }
 }
 
 extension URLRequest {
