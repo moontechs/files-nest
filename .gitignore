@@ -1,3 +1,27 @@
 .ralpix
 
 server/bin/
+
+# ---- macOS ----
+.DS_Store
+
+# ---- Xcode ----
+## User-specific
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+## Build products / derived data
+DerivedData/
+build/
+*.xcarchive
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# ---- Swift Package Manager ----
+.build/
+.swiftpm/
+
+# ---- Local signing override (keeps DEVELOPMENT_TEAM out of the public repo) ----
+Local.xcconfig
+*.local.xcconfig
