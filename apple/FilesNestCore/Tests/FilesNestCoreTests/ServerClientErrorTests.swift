@@ -11,7 +11,18 @@ private func body(_ s: String) -> Data { #"{"error":"\#(s)"}"#.data(using: .utf8
     #expect(ServerClientError.map(status: 409, body: body("offset mismatch: client=5, server=10")) == .offsetConflict)
 }
 @Test func map409AlreadyCompleted() {
+    #expect(ServerClientError.map(status: 409, body: body("upload already completed")) == .alreadyCompleted)
+}
+@Test func map409AlreadyDeletedIsDistinct() {
+    // The status handler distinguishes deleted from completed; so must we.
+    #expect(ServerClientError.map(status: 409, body: body("upload already deleted")) == .alreadyDeleted)
+}
+@Test func map409CombinedCompletedOrDeletedIsTerminal() {
+    // PATCH /data emits a combined message; treat it as the terminal completed case.
     #expect(ServerClientError.map(status: 409, body: body("upload already completed or deleted")) == .alreadyCompleted)
+}
+@Test func map409UploadIncomplete() {
+    #expect(ServerClientError.map(status: 409, body: body("upload_incomplete")) == .uploadIncomplete)
 }
 @Test func map409NotUploading() {
     #expect(ServerClientError.map(status: 409, body: body("upload not in uploading state")) == .notUploading)

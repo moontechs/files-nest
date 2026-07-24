@@ -165,9 +165,8 @@ struct ServerClientNetworkTests {
         MockURLProtocol.handler = { req in
             captured = req
             bodyData = req.httpBodyStreamData()
-            return MockURLProtocol.respond(status: 200,
-                body: #"{"id":"ID","local_identifier":"l","status":"complete","backend_id":"b"}"#.data(using: .utf8)!,
-                for: req.url!)
+            // The Go handler returns 204 No Content on a successful transition.
+            return MockURLProtocol.respond(status: 204, for: req.url!)
         }
         try await makeClient().markComplete(uploadID: "ID")
         #expect(captured?.httpMethod == "PATCH")

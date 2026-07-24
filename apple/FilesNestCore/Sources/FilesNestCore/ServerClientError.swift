@@ -5,8 +5,12 @@ public enum ServerClientError: Error, Sendable, Equatable {
     case notFound
     case backendLost
     case alreadyCompleted
+    case alreadyDeleted
     case notUploading
     case offsetConflict
+    /// 409 `upload_incomplete` — the backend upload isn't finalized yet, so the
+    /// status transition was rejected. Recoverable: finish the data upload first.
+    case uploadIncomplete
     case badRequest(message: String)
     case requestTooLarge
     case unexpectedStatus(code: Int, message: String?)
@@ -26,10 +30,17 @@ public enum ServerClientError: Error, Sendable, Equatable {
         case 404: return .notFound
         case 413: return .requestTooLarge
         case 409:
+            // The server overloads 409; the error string is the discriminator.
+            // Order matters: the PATCH-data handler emits a combined
+            // "already completed or deleted" message, which must be matched
+            // before the individual "already deleted"/"already completed" cases.
             let m = msg ?? ""
+            if m.contains("upload_incomplete") { return .uploadIncomplete }
             if m.contains("backend_lost") { return .backendLost }
             if m.contains("offset mismatch") { return .offsetConflict }
-            if m.contains("already completed") || m.contains("already deleted") { return .alreadyCompleted }
+            if m.contains("already completed or deleted") { return .alreadyCompleted }
+            if m.contains("already deleted") { return .alreadyDeleted }
+            if m.contains("already completed") { return .alreadyCompleted }
             if m.contains("not in uploading") { return .notUploading }
             return .unexpectedStatus(code: 409, message: msg)
         case 400: return .badRequest(message: msg ?? "")

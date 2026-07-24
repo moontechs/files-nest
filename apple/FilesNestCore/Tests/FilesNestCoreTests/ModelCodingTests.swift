@@ -38,3 +38,16 @@ import Foundation
     #expect(obj["creation_date"] as? String == "2024-03-15T10:30:00Z")
     #expect(obj["bundle_id"] == nil)  // nil omitted
 }
+
+@Test func decodeCompletingStatus() throws {
+    // Transient server state while the file is moved to organized storage.
+    let rec = try JSONDecoder().decode(UploadRecord.self,
+        from: #"{"id":"x","local_identifier":"l","status":"completing","backend_id":"b"}"#.data(using: .utf8)!)
+    #expect(rec.status == .completing)
+}
+
+@Test func decodeOrganizedPath() throws {
+    let rec = try JSONDecoder().decode(UploadRecord.self,
+        from: #"{"id":"x","local_identifier":"l","status":"complete","backend_id":"b","organized_path":"organized/2024/03/15/IMG_1.jpg"}"#.data(using: .utf8)!)
+    #expect(rec.organizedPath == "organized/2024/03/15/IMG_1.jpg")
+}

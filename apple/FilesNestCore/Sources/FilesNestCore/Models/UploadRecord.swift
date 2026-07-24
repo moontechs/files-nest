@@ -8,6 +8,8 @@ public struct UploadRecord: Codable, Sendable, Equatable {
     public let creationDate: String?
     public let createdAt: String?
     public let updatedAt: String?
+    /// Set by the server once the file is moved into organized storage.
+    public let organizedPath: String?
 
     enum CodingKeys: String, CodingKey {
         case id, status, filename
@@ -17,5 +19,6 @@ public struct UploadRecord: Codable, Sendable, Equatable {
         case creationDate = "creation_date"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case organizedPath = "organized_path"
     }
 }
