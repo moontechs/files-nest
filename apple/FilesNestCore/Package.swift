@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "FilesNestCore",
-    platforms: [.macOS(.v15), .iOS(.v17)],
+    platforms: [.macOS(.v13), .iOS(.v17)],
     products: [
         .library(name: "FilesNestCore", targets: ["FilesNestCore"]),
     ],
