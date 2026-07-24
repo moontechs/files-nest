@@ -50,12 +50,44 @@ import Foundation
         #expect(skip.take(bytes(1...10)) == bytes(5...10))
     }
 
-    /// The returned Data must NOT be a slice aliasing the input's storage — a
-    /// retained slice keeps the whole input buffer alive, which is the
-    /// copy-on-write failure mode from spec §2.2.
-    @Test func returnedDataDoesNotAliasInputStorage() {
+    /// The returned Data must NOT retain the input's storage. A retained slice
+    /// keeps the WHOLE input buffer alive, which is the copy-on-write failure
+    /// mode from design §2.2 — an 8 MB blob kept alive by a 1-byte slice.
+    ///
+    /// This proves non-retention directly, by observing the input buffer's
+    /// deallocator. An earlier version only asserted `startIndex == 0`, which an
+    /// aliasing implementation with normalised indices would also satisfy —
+    /// inferring independence rather than demonstrating it.
+    @Test func returnedDataDoesNotRetainInputStorage() {
+        // Must exceed Data's inline-storage threshold (~14 bytes on 64-bit).
+        // At or below it, Data(bytesNoCopy:) copies into inline storage and fires
+        // the deallocator immediately, which would make this test meaningless.
+        let size = 1024
+        let tracker = BlobLifetimeTracker()
         var skip = OffsetSkip(skipping: 4)
-        let result = skip.take(bytes(1...10))
-        #expect(result?.startIndex == 0)
+        var result: Data?
+
+        do {
+            let ptr = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
+            ptr.initializeMemory(as: UInt8.self, repeating: 7, count: size)
+            tracker.didAllocate()
+            let source = Data(bytesNoCopy: ptr, count: size, deallocator: .custom { p, _ in
+                p.deallocate()
+                tracker.didFree()
+            })
+            result = skip.take(source)
+            // ARC releases at LAST USE, not at scope end, so `source` would
+            // already be gone here without withExtendedLifetime — this pins the
+            // tracker as working before the assertion below means anything.
+            withExtendedLifetime(source) {
+                #expect(tracker.alive == 1)
+            }
+        }
+
+        // `source` is gone but `result` is still held. If the remainder aliased
+        // the input, its buffer could not have been freed.
+        #expect(tracker.alive == 0)
+        #expect(result?.count == size - 4)
+        #expect(result == Data(repeating: 7, count: size - 4))
     }
 }

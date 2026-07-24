@@ -213,8 +213,8 @@ managing it. See `docs/design/20260724-assetuploader.md` §2.
 
 `ServerClient` is the single HTTP client. It handles:
 - Basic Auth header injection on every request
-- All server API calls (createUpload, listUploads, getOffset, uploadChunk, updateStatus, deleteUpload)
-- Throws typed `BackendLostError` on 409 responses so callers can branch without string-matching
+- All server API calls: `createUpload`, `listUploads`, `getUpload`, `offset(forUploadID:)` (TUS HEAD), `patchData(uploadID:offset:data:finalLength:)` (TUS PATCH), `markComplete(uploadID:)`, `deleteUpload`
+- Throws typed `ServerClientError` so callers branch without string-matching. The server overloads 409, so the error body string is the discriminator: `.backendLost`, `.offsetConflict`, `.alreadyCompleted`, `.alreadyDeleted`, `.notUploading`, `.uploadIncomplete`. Cancellation propagates as `CancellationError`, never as `.transport`.
 
 There is no separate TUSClient wrapper — that would duplicate the call stack and require two sets of fakes for no benefit. `AssetUploader` and `SyncCoordinator` take `ServerClient` directly.
 
@@ -229,7 +229,7 @@ There is no separate TUSClient wrapper — that would duplicate the call stack a
 3. Diff: assets missing on server → upload queue; server records not in library → delete queue.
 4. Live Photos: JPEG and MOV resources are two separate upload records sharing `bundle_id`. They are treated as a pair — both uploaded or both deleted as a unit.
 5. Upload queue processed sequentially. Records with `status=uploading` are resumed from HEAD offset.
-6. `BackendLostError` during resume or upload: call `deleteUpload` to clean up the lost record, then `createUpload` to re-register, then upload from offset 0.
+6. `ServerClientError.backendLost` during resume or upload: call `deleteUpload` to clean up the lost record, then `createUpload` to re-register, then upload from offset 0.
 7. Delete queue processed after all uploads complete.
 8. Sync state (`lastSyncStarted`, current position) persisted to `UserDefaults` so a crash-restart resumes from the first incomplete item, not from scratch.
 

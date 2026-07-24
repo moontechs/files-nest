@@ -19,6 +19,14 @@ import Foundation
 /// KNOWN LIMIT: a leak that COPIES bytes into fresh storage allocates memory this
 /// tracker never handed out, so it would not be caught here. Aliasing/retention,
 /// the historical failure mode, is caught exactly.
+///
+/// CAVEAT: tracked buffers must exceed `Data`'s inline-storage threshold (~14
+/// bytes on 64-bit). At or below it, `Data(bytesNoCopy:count:deallocator:)`
+/// copies into inline storage and fires the deallocator immediately, so liveness
+/// reads as 0 no matter who retains the value. Measured: a 10-byte buffer freed
+/// instantly; 100 bytes and above track correctly. The gate uses 8 MB blobs, so
+/// it is unaffected — but a future test using tiny blobs would silently measure
+/// nothing.
 final class BlobLifetimeTracker: @unchecked Sendable {
     private let lock = NSLock()
     private var _alive = 0

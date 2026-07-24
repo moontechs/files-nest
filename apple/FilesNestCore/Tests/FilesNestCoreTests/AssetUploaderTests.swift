@@ -191,7 +191,12 @@ struct AssetUploaderTests {
         try await Task.sleep(for: .milliseconds(20))
         task.cancel()
 
-        await #expect(throws: (any Error).self) { try await task.value }
+        // Assert the SPECIFIC error. This previously asserted `(any Error).self`,
+        // which passed while cancellation was actually being mangled into
+        // ServerClientError.transport("...Code=-999 cancelled..."). A caller could
+        // then only distinguish cancellation from a network failure by
+        // string-matching -999 — exactly what the typed error exists to prevent.
+        await #expect(throws: CancellationError.self) { try await task.value }
         #expect(!recorder.markedComplete)
     }
 

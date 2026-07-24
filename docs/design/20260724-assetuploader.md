@@ -337,9 +337,10 @@ previous run but the length was never declared.
 Resolution: a **zero-byte PATCH declaring `Upload-Length = startOffset`**.
 
 `handlers.go:616-619` forwards the client's `Upload-Length` header into `ForwardPatch`, so the
-server needs no change. But **no existing Go test covers a 0-byte PATCH**, so this slice must add
-one. If tusd rejects it, this section must be redesigned — which is why the test comes early
-rather than at integration.
+server needed no change. No existing Go test covered a 0-byte PATCH, so this slice added
+`TestTUSZeroByteFinalPatchDeclaresLength` (`server/internal/uploadbackend/tushandler_test.go:883`).
+**Confirmed accepted:** tusd logs `ChunkWriteComplete bytesWritten=0` followed by
+`UploadFinished size=40`. The test ran before any uploader code depended on it.
 
 ### 6.4 Error handling
 
@@ -489,6 +490,17 @@ swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/x
    copies bytes into fresh storage, and `phys_footprint` cannot see it either under allocation
    churn. Closing this needs process-external RSS measurement or memory scanning, both judged
    disproportionate here. Accepted, not forgotten.
+3. **The uploader cannot detect asset/offset divergence.** (§6.3) It trusts the server's HEAD
+   offset unconditionally. If a prior run uploaded more bytes than the asset now contains — the
+   asset changed or was re-encoded between runs — the source yields nothing, the zero-blob path
+   declares `Upload-Length = startOffset`, and `markComplete` finalizes a file longer than the
+   local asset. Raised by adversarial review.
+
+   Not fixable in this slice: with `Upload-Defer-Length` the client has no trustworthy length to
+   compare against, and reading `PHAssetResource.fileSize` means private KVC (§6.2). The declared
+   length is at least always consistent with what the server actually holds, so the file is never
+   truncated or mis-sized relative to its own bytes. Revisit when the adapter can supply a resource
+   size through a supported API.
 
 **Resolved during implementation:**
 

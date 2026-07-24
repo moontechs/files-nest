@@ -38,6 +38,13 @@ public struct ServerClient: Sendable {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            // Cancellation must stay cancellation. URLSession reports a cancelled
+            // task as URLError(.cancelled) (-999), and wrapping that in .transport
+            // forced callers to string-match the very thing this typed error exists
+            // to avoid — SyncCoordinator needs to tell "user cancelled" apart from
+            // "network died" to decide whether to retry.
+            if error is CancellationError { throw error }
+            if Task.isCancelled { throw CancellationError() }
             throw ServerClientError.transport(String(describing: error))
         }
         guard let http = response as? HTTPURLResponse else {
