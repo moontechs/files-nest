@@ -193,20 +193,19 @@ protocol CredentialStore: Sendable {
 - `swift test` green, covering §8.
 - Zero dependency on Keychain, PhotoKit, SwiftUI, or any app target — pure Foundation.
 
-## 10. Open items to confirm during implementation
+## 10. Open items — all resolved
 
-These are small and resolved by reading server code, not blockers:
-
-1. **`UploadRecord` exact fields** — confirm against the `store.Upload` struct in
-   `server/internal/store`.
-2. **PATCH finalization header** — `Upload-Complete: 1` vs a resolved
-   `Upload-Length` on the last chunk; confirm against the tusd PATCH handler /
-   `handlers_head_complete_test.go`.
-3. **409-on-PATCH disambiguation** — `backend_lost` vs a TUS offset-conflict; both
-   can be 409 on PATCH. Confirm how the PATCH handler signals each (error body vs
-   TUS headers) and map to `backendLost` vs `offsetConflict`.
-4. **`metadata` schema** — what, if anything, the client should put in it now
-   (Live Photo pairing uses `bundleID`, not metadata). Likely omit for this slice.
+1. ~~`UploadRecord` exact fields~~ — confirmed against `server/internal/store`; modelled in
+   `Models/UploadRecord.swift` and covered by `ModelCodingTests`.
+2. ~~PATCH finalization header~~ — resolved: a resolved **`Upload-Length` on the last chunk**, not
+   `Upload-Complete: 1`. `handlers.go:616-619` forwards the client's `Upload-Length` into
+   `ForwardPatch`, and `tushandler_test.go:154-189` confirms deferred length survives PATCHes that
+   omit it. Implemented as `patchData(finalLength:)`.
+3. ~~409-on-PATCH disambiguation~~ — resolved: the server overloads 409 and the **error body string**
+   is the discriminator. Mapped in `ServerClientError.map(status:body:)`, where match order matters
+   because the PATCH-data handler emits a combined "already completed or deleted" message.
+4. ~~`metadata` schema~~ — omitted. Live Photo pairing uses `bundleID`; the client has no use for
+   `metadata` yet, so it is not sent.
 
 ## 11. Out of scope (future slices, each its own spec)
 

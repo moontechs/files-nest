@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Swift 6 language mode, complete concurrency checking, **zero warnings** (`swift-tools-version: 6.0`).
-- Platforms: `.macOS(.v15)`, `.iOS(.v17)`.
+- Platforms: core `.macOS(.v13)`, `.iOS(.v17)`. The macOS app target is macOS 14 (`@Observable` requires 14). macOS 13 for the app was considered and declined.
 - Pure Foundation only — **no** Keychain, PhotoKit, SwiftUI, or app-target dependency.
 - Wire JSON is **snake_case**; requests send snake_case via explicit `CodingKeys`.
 - Dates on the wire are **RFC3339** strings.
@@ -67,7 +67,7 @@ import PackageDescription
 
 let package = Package(
     name: "FilesNestCore",
-    platforms: [.macOS(.v15), .iOS(.v17)],
+    platforms: [.macOS(.v13), .iOS(.v17)],
     products: [
         .library(name: "FilesNestCore", targets: ["FilesNestCore"]),
     ],

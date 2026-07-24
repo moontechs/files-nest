@@ -16,7 +16,29 @@ Two repos:
 
 ## Core constraints that drive every design decision
 
-1. **No temp files.** PHAssetResourceManager streams data via callbacks; the server proxies chunks directly to the upload backend. A 7GB video never lands on disk on the Mac or as a completed file in the server before it is moved to final storage.
+1. **No temp files *we* own, and no whole-file buffering in *our* memory.**
+   `PHAssetResourceManager` streams data via callbacks; the server proxies chunks directly to the
+   upload backend. A 7GB video never lands on the server as a completed file before it is moved to
+   final storage, and never exists as a file this app created, named, or must clean up.
+
+   **The bytes do touch the Mac's disk, and that is unavoidable.** When an asset is iCloud-only
+   (Optimize Mac Storage), its bytes are not on the machine. The only sanctioned way to obtain them
+   is `requestData` with `isNetworkAccessAllowed = true`, and PhotoKit materializes the resource
+   into the Photos library container in order to serve it. **There is no public PhotoKit API for a
+   ranged iCloud fetch** — you cannot ask for "bytes 0–8MB of this asset" and have only that
+   fetched. That copy belongs to PhotoKit: it creates it, owns its lifecycle, and evicts it under
+   disk pressure. We never create, name, or delete it. This is why the constraint is about
+   *ownership*, not about bytes never touching storage.
+
+   What we control is how many copies exist and how often they are made:
+   - **Single pass** (`AssetUploader`) — one materialization per asset, not one per chunk.
+   - **Sequential processing** — at most one asset materialized at a time, so peak transient cost
+     is roughly the largest single asset, not the library.
+   - **Free-space pre-flight** (adapter slice) — skip an asset with a typed error rather than
+     filling the disk.
+
+   The previous iOS client did not avoid this cost either; it depended on the materialization and,
+   per `CODE_AUDIT.md` §5.1, triggered it once per chunk.
 
 2. **No CGO.** The server runs in Docker on a homeserver. No C toolchain available. All dependencies must be pure Go. This is why BadgerDB (pure Go KV store) is used instead of SQLite.
 
@@ -160,11 +182,30 @@ Cross-device moves: `os.Rename` first; fall back to copy+delete if source and de
 
 `PHAssetResourceManager.requestData` delivers data via a callback (`dataReceivedHandler`). The app:
 
-1. Bridges the callback API to `AsyncThrowingStream` — callbacks append to the stream, `completionHandler` closes or errors it.
-2. Applies back-pressure with a bounded channel (capacity 1): each PATCH must complete before the next callback is consumed. For a 7GB file at 8MB chunks, at most 1 chunk is buffered in memory at any time.
-3. Accumulates incoming data in a buffer; flushes as TUS PATCH when buffer reaches chunk size (default 8MB); sends `Upload-Complete: 1` on the last chunk.
+1. Bridges the callback API to an **async sink**: `AssetDataSource.read(assetID:from:into:)` takes a
+   `@Sendable (Data) async throws -> Void`, and the source must fully await the sink before
+   consuming the next callback. Backpressure is therefore structural — capacity-1 is guaranteed by
+   the signature, not by coordination code.
+2. **PATCHes each blob straight through** as it arrives. There is no accumulation buffer, so there
+   is no buffer to mismanage.
+3. Holds exactly **one blob back** (look-ahead), so the final PATCH can carry a resolved
+   `Upload-Length` — a blob is only known to be the last one once the source completes. (Not
+   `Upload-Complete: 1`; the server resolves length via the `Upload-Length` header, see
+   `handlers.go:616`.)
 
-**iCloud resume asymmetry:** `requestData` cannot resume mid-file. If interrupted at 3GB of a 7GB video, iCloud restarts from byte 0 even if the TUS offset is at 3GB. The uploader discards the initial bytes up to `startOffset` and logs this clearly — it is expected behavior, not a bug.
+Peak memory is therefore **two blobs, independent of asset size**, enforced by a test gate that
+counts live blobs exactly (`MemoryGateTests`).
+
+**Why not `AsyncThrowingStream`?** It has no producer backpressure: while the consumer uploads
+chunk 1, the stream buffers chunks 2..N — 7GB resident for a 7GB file. Its `bufferingPolicy` does
+not help, because `.bufferingNewest(1)` and `.bufferingOldest(1)` **drop** elements rather than
+throttling the producer, and dropping file bytes is silent corruption. A stream plus a
+`DispatchSemaphore` was tried in the previous client: it serialized correctly but still grew
+linearly, because `Data.append` with `prefix`/`dropFirst` on one long-lived buffer kept
+copy-on-write backing storage alive. The async sink removes the buffer entirely rather than
+managing it. See `docs/design/20260724-assetuploader.md` §2.
+
+**iCloud resume asymmetry:** `requestData` cannot resume mid-file. If interrupted at 3GB of a 7GB video, iCloud restarts from byte 0 even if the TUS offset is at 3GB. The adapter discards the initial bytes up to `startOffset` using `OffsetSkip` and logs this clearly — it is expected behavior, not a bug. `OffsetSkip` lives in core, tested, rather than in each adapter: that discard is the exact `dropFirst` shape implicated in the previous client's leak, and it returns freshly-copied `Data` so the skipped buffer is not kept alive by an aliasing slice.
 
 ---
 
