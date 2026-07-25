@@ -56,11 +56,16 @@ BadgerDB is a pure-Go embedded KV store (no CGO). It is chosen over SQLite (whic
 
 ### Schema
 
-Main records keyed by `uploads/<localIdentifier>`:
+Main records keyed by `uploads/<SafeID(resourceKey)>`, where `SafeID` is the SHA-256 → base64url
+of the resource key (`server/internal/api/ids.go`, `store/index.go` `recordKey`). The raw resource
+key lives in the record body, not the BadgerDB key. The `resourceKey` is
+`<localIdentifier>#<kind>` (`apple/FilesNestCore/Sources/FilesNestCore/ResourceKey.swift`) so a
+Live Photo's JPEG and MOV resources — which share a `localIdentifier` — get distinct keys and
+distinct `idx/local/*` index entries instead of colliding.
 
 ```json
 {
-  "id":            "<localIdentifier>",
+  "id":            "<SafeID of the resource key>",
   "status":        "uploading | complete | deleted | backend_lost",
   "backend_id":    "<upload backend internal ID>",
   "filename":      "IMG_1234.jpg",
@@ -207,6 +212,8 @@ managing it. See `docs/design/20260724-assetuploader.md` §2.
 
 **iCloud resume asymmetry:** `requestData` cannot resume mid-file. If interrupted at 3GB of a 7GB video, iCloud restarts from byte 0 even if the TUS offset is at 3GB. The adapter discards the initial bytes up to `startOffset` using `OffsetSkip` and logs this clearly — it is expected behavior, not a bug. `OffsetSkip` lives in core, tested, rather than in each adapter: that discard is the exact `dropFirst` shape implicated in the previous client's leak, and it returns freshly-copied `Data` so the skipped buffer is not kept alive by an aliasing slice.
 
+**Does PhotoKit stream during download or materialize first, and does it honour backpressure?** The instrument that answers this — `MeasurementRunner`/`MeasurementView` in the macOS app, running the within-run mid-stream stall of the PhotosAssetDataSource design §6.2.1 — is built but the run itself requires a real iCloud-only asset on a real machine with TCC consent. **Result: not yet recorded.** Fill in the observed free-space growth-rate-around-stall and `maxConcurrentDeliver` once the run has been performed; if the three stalls disagree, record UNRESOLVED rather than rounding.
+
 ---
 
 ## Mac app: client layer
@@ -227,7 +234,7 @@ There is no separate TUSClient wrapper — that would duplicate the call stack a
 1. Fetch PHAssets from Photos library for the range (or all, for full sync).
 2. Page through `GET /uploads` using cursor until `next_cursor` is empty.
 3. Diff: assets missing on server → upload queue; server records not in library → delete queue.
-4. Live Photos: JPEG and MOV resources are two separate upload records sharing `bundle_id`. They are treated as a pair — both uploaded or both deleted as a unit.
+4. Live Photos: JPEG and MOV resources are two separate upload records sharing `bundle_id`, addressed by distinct `ResourceKey`s (`<localIdentifier>#photo`, `<localIdentifier>#pairedVideo`). They are treated as a pair — both uploaded or both deleted as a unit. (`SyncCoordinator` must build records with these keys; until it does, the two resources still collide on `SafeID` and the `idx/local` index — see the PhotosAssetDataSource design §9/§11.)
 5. Upload queue processed sequentially. Records with `status=uploading` are resumed from HEAD offset.
 6. `ServerClientError.backendLost` during resume or upload: call `deleteUpload` to clean up the lost record, then `createUpload` to re-register, then upload from offset 0.
 7. Delete queue processed after all uploads complete.
