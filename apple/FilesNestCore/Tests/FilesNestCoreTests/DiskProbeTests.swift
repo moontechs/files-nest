@@ -46,4 +46,10 @@ import Foundation
 
         #expect(try DiskProbe.directorySize(at: dir) >= 4096)
     }
+
+    @Test func volumeFreeSpaceIsPositiveForHomeDirectory() throws {
+        let home = URL(fileURLWithPath: NSHomeDirectory())
+        let free = try DiskProbe.volumeFreeSpace(at: home)
+        #expect(free > 0)
+    }
 }
