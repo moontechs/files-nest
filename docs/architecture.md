@@ -212,7 +212,17 @@ managing it. See `docs/design/20260724-assetuploader.md` §2.
 
 **iCloud resume asymmetry:** `requestData` cannot resume mid-file. If interrupted at 3GB of a 7GB video, iCloud restarts from byte 0 even if the TUS offset is at 3GB. The adapter discards the initial bytes up to `startOffset` using `OffsetSkip` and logs this clearly — it is expected behavior, not a bug. `OffsetSkip` lives in core, tested, rather than in each adapter: that discard is the exact `dropFirst` shape implicated in the previous client's leak, and it returns freshly-copied `Data` so the skipped buffer is not kept alive by an aliasing slice.
 
-**Does PhotoKit stream during download or materialize first, and does it honour backpressure?** The instrument that answers this — `MeasurementRunner`/`MeasurementView` in the macOS app, running the within-run mid-stream stall of the PhotosAssetDataSource design §6.2.1 — is built but the run itself requires a real iCloud-only asset on a real machine with TCC consent. **Result: not yet recorded.** Fill in the observed free-space growth-rate-around-stall and `maxConcurrentDeliver` once the run has been performed; if the three stalls disagree, record UNRESOLVED rather than rounding.
+**Does PhotoKit stream during download or materialize first, and does it honour backpressure?** Measured with `MeasurementRunner`/`MeasurementView` (macOS app) against real assets on 2026-07-25.
+
+- **Confirmed: PhotoKit materializes first, does not stream during download.** Wiring
+  `PHAssetResourceRequestOptions.progressHandler` made it unambiguous: on a large iCloud-only video
+  the download progress climbed (0.000 → 0.045 …) while `dataReceivedHandler` delivered **zero
+  bytes** and our footprint stayed flat at ~28 MB. Download progress therefore cannot be inferred
+  from delivered bytes; `progressHandler` is the only signal for the download phase. `maxConcurrentDeliver`
+  was `1` on every run (serial delivery). This matches §3's "no ranged iCloud fetch" assumption.
+- **Memory guarantee: confirmed.** Our process footprint stayed ~28–34 MB regardless of asset size (204 MB and 120 MB streamed) — the capacity-1 ceiling holds on real PhotoKit data.
+- **Instrument limitations found:** (1) volume free space (`.volumeAvailableCapacity` and `…ForImportantUsage`) is **blind to PhotoKit's materialization** — it stayed flat even during an active multi-minute iCloud fetch, so disk-delta via volume capacity cannot quantify materialization; (2) the measurement is **one-shot per asset** — measuring caches the asset locally, so re-runs on the same asset read from disk and are vacuous; (3) "longest video" auto-pick selects multi-GB assets whose materialization exceeds a reasonable wait.
+- **Still open for a fully quantified answer:** a medium (~150–300 MB) iCloud-only asset that completes, measured with a materialization probe that isn't volume-free-space (e.g. the Photos container size with non-sandboxed access, or `photolibraryd`/`cloudd` activity). The qualitative answer (materialize-first) is already indicated; quantification is deferred.
 
 ---
 

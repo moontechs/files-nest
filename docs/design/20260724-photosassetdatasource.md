@@ -582,3 +582,33 @@ them. That is a smaller untested surface than the status quo, not a zero one.
    builds the records and is out of scope (§5, §9). Until it adopts the key, two resources of one
    Live Photo still collide on an identical `SafeID`. Recorded so the fix is not mistaken for
    delivered.
+
+---
+
+## 12. Progress reporting and sizing (decided 2026-07-25)
+
+Two progress bars are required: an **all-files** bar and a **per-file** bar. Driving them
+raised the question of how to know an asset's byte size, which PhotoKit does not expose publicly
+(§11.1). Decision:
+
+- **All-files bar:** `completedFiles / totalFiles`. Count-based, exact, needs no size.
+- **Per-file bar, download phase:** `PHAssetResourceRequestOptions.progressHandler` (0→1). Exact,
+  free, and the *only* usable signal — PhotoKit is **materialize-first** (confirmed 2026-07-25: the
+  handler climbed 0→1 with **zero bytes delivered** to `dataReceivedHandler`), so download progress
+  cannot be inferred from delivered bytes.
+- **Per-file bar, upload phase:** bytes-sent against an **estimated** size (e.g. `duration × bitrate`
+  for video). Approximate — it may settle at the end — which is acceptable for a bar.
+
+**Rejected — `PHAssetResourceManager.writeData(for:toFile:)` (materialize to our own temp file).**
+It would give an exact upload size, but it reverses §3's "no temp files we own" and roughly
+**doubles peak disk**: for a 7 GB asset, PhotoKit's ~7 GB materialization *plus* our ~7 GB copy
+coexist (~14 GB) before deletion — worst on exactly the large assets where disk is tightest.
+
+**Rejected — private KVC `resource.value(forKey: "fileSize")`** (what the old iOS client used).
+Exact and copy-free, but private API: App Store rejection / silent-breakage risk.
+
+**Consequences:**
+- Streaming stays as-is (`requestData` → capacity-1 reader); peak disk ~1× asset, no temp file we own.
+- The free-space pre-flight guard (§3.2) needs only ~1× the asset size, not ~2×.
+- Revisit `writeData` only if a *precise* upload percentage becomes a hard requirement — and record
+  it there as a deliberate reversal of §3.
