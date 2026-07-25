@@ -49,12 +49,28 @@ import Foundation
         #expect(tracker.maxAhead == 1)
     }
 
+    /// Not just "Boom is thrown" — the producer must actually STOP: its delivery
+    /// loop exits (deliver returns false) rather than streaming into a dead sink.
     @Test func sinkErrorPropagatesAndStopsProducer() async throws {
         struct Boom: Error {}
-        let producer = FakeCallbackProducer(blobs: [Data([1]), Data([2]), Data([3])])
+        let producer = StreamingProducer(blobCount: 1000)
+        let reader = producer.makeReader()
         await #expect(throws: Boom.self) {
-            try await producer.makeReader().read(from: 0) { _ in throw Boom() }
+            try await reader.read(from: 0) { _ in throw Boom() }
         }
+        let stopped = await producer.awaitFinished(timeoutMs: 2000)
+        #expect(stopped)   // false ⇒ producer kept streaming after the sink died
+    }
+
+    /// A sink failure must cancel the underlying request (`cancelDataRequest` in
+    /// the adapter), or PhotoKit keeps reading after the sink is dead (Finding 3).
+    @Test func sinkErrorCancelsToken() async throws {
+        struct Boom: Error {}
+        let producer = StreamingProducer(blobCount: 1000)
+        let reader = producer.makeReader()
+        _ = try? await reader.read(from: 0) { _ in throw Boom() }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(producer.cancelCount == 1)
     }
 
     // MARK: - Termination, cancellation, handoff (Task 5)
@@ -135,6 +151,53 @@ import Foundation
         #expect(tracker.maxAhead == 1)
     }
 
+    // MARK: - Coordinator state-machine unit tests (deterministic)
+    //
+    // The `.blobPending`-at-terminal strand (Finding 1) occupies a scheduling
+    // window the public async API cannot hit reliably — a stress test passed
+    // even with the bug present. These drive the coordinator directly: a
+    // background `deliver` reliably parks in `.blobPending` + `drained.wait()`
+    // (no consumer to take the blob), then a terminal transition must release it.
+
+    /// Spawns `deliver` on a background thread; it parks in `.blobPending`.
+    /// Returns a semaphore that signals when `deliver` returns.
+    private func parkedDeliver(
+        _ coord: CallbackStreamCoordinator<Int>
+    ) async -> DispatchSemaphore {
+        let returned = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            _ = coord.deliver(Data([1, 2, 3]))
+            returned.signal()
+        }
+        // Let the background deliver reach `.blobPending` + `drained.wait()`.
+        try? await Task.sleep(for: .milliseconds(50))
+        return returned
+    }
+
+    private func waitSignalled(_ sem: DispatchSemaphore, ms: Int) async -> Bool {
+        await withCheckedContinuation { c in
+            DispatchQueue.global().async {
+                c.resume(returning: sem.wait(timeout: .now() + .milliseconds(ms)) == .success)
+            }
+        }
+    }
+
+    @Test func finishDuringBlobPendingReleasesProducer() async throws {
+        let coord = CallbackStreamCoordinator<Int>(diagnostics: nil)
+        let returned = await parkedDeliver(coord)
+        coord.finish(nil)   // terminal while a blob is pending
+        let released = await waitSignalled(returned, ms: 2000)
+        #expect(released)   // false ⇒ producer stranded in drained.wait()
+    }
+
+    @Test func cancellationDuringBlobPendingReleasesProducer() async throws {
+        let coord = CallbackStreamCoordinator<Int>(diagnostics: nil)
+        let returned = await parkedDeliver(coord)
+        _ = coord.beginCancellation()   // terminal while a blob is pending
+        let released = await waitSignalled(returned, ms: 2000)
+        #expect(released)   // false ⇒ producer stranded in drained.wait()
+    }
+
     @Test func inlineSynchronousDeliveryIsSupported() async throws {
         let collector = BlobCollector()
         let reader = CallbackStreamReader<Int>(
@@ -148,16 +211,18 @@ import Foundation
         #expect(collector.joined == Data([9, 9, 9]))
     }
 
-    @Test func nestedReadOnSameReaderDoesNotDeadlock() async throws {
-        let inner = FakeCallbackProducer(blobs: [Data([2])]).makeReader()
-        let outerCollector = BlobCollector()
-        let innerCollector = BlobCollector()
-        let outer = FakeCallbackProducer(blobs: [Data([1])]).makeReader()
-        try await outer.read(from: 0) { blob in
-            try await outerCollector.sink(blob)
-            try await inner.read(from: 0, into: innerCollector.sink)
-        }
-        #expect(outerCollector.joined == Data([1]))
-        #expect(innerCollector.joined == Data([2]))
+    /// Two `read` calls on the SAME reader instance, running concurrently, must
+    /// be fully independent — proving the Coordinator and queue are per-CALL, not
+    /// per-instance (Finding 5). If the reader held per-instance state the two
+    /// calls would corrupt each other or deadlock.
+    @Test func concurrentReadsOnSameReaderAreIndependent() async throws {
+        let reader = FakeCallbackProducer(blobs: [Data([1])]).makeReader()
+        let c1 = BlobCollector()
+        let c2 = BlobCollector()
+        async let r1: Void = reader.read(from: 0, into: c1.sink)
+        async let r2: Void = reader.read(from: 0, into: c2.sink)
+        _ = try await (r1, r2)
+        #expect(c1.joined == Data([1]))
+        #expect(c2.joined == Data([1]))
     }
 }

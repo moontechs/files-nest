@@ -183,3 +183,39 @@ final class CompleteDuringSinkProducer: @unchecked Sendable {
         }
     }
 }
+
+/// Streams `blobCount` blobs on a background queue and signals `finished` when
+/// its delivery loop EXITS — which only happens if every `deliver` returned
+/// (none stranded in `drained.wait()`). Tracks `cancelCount`. Used to detect a
+/// stranded producer, which `read()`'s own completion cannot.
+final class StreamingProducer: @unchecked Sendable {
+    let blobCount: Int
+    private let queue = DispatchQueue(label: "streaming.producer")
+    let finished = DispatchSemaphore(value: 0)
+    private let cancelLock = NSLock(); private var _cancels = 0
+    var cancelCount: Int { cancelLock.lock(); defer { cancelLock.unlock() }; return _cancels }
+
+    init(blobCount: Int) { self.blobCount = blobCount }
+
+    func makeReader() -> CallbackStreamReader<Int> {
+        CallbackStreamReader<Int>(
+            start: { onData, onDone in
+                self.queue.async {
+                    for i in 0..<self.blobCount {
+                        if !onData(Data([UInt8(i & 0xff)])) { self.finished.signal(); onDone(nil); return }
+                    }
+                    self.finished.signal(); onDone(nil)
+                }
+                return 1
+            },
+            cancel: { _ in self.cancelLock.lock(); self._cancels += 1; self.cancelLock.unlock() })
+    }
+
+    func awaitFinished(timeoutMs: Int) async -> Bool {
+        await withCheckedContinuation { c in
+            DispatchQueue.global().async {
+                c.resume(returning: self.finished.wait(timeout: .now() + .milliseconds(timeoutMs)) == .success)
+            }
+        }
+    }
+}
