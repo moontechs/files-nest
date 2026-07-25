@@ -119,6 +119,33 @@ public struct CallbackStreamReader<Token: Sendable>: Sendable {
             drained.signal()
         }
 
+        /// Terminal transition from cancellation. Under the lock: mark terminal,
+        /// extract any suspended continuation (never a `.handoff` one — its resume
+        /// is already in flight), and decide whether the token is available to
+        /// cancel now or must be cancelled on arrival (§4.1.1). The caller resumes
+        /// and cancels OUTSIDE the lock (§4.1: decide under lock, call out from it).
+        func beginCancellation() -> (CheckedContinuation<Item, Never>?, Token?) {
+            lock.lock(); defer { lock.unlock() }
+            if case .terminal = state { return (nil, nil) }
+            let prev = state
+            state = .terminal(CancellationError())
+            var k: CheckedContinuation<Item, Never>?
+            if case .consumerWaiting(let cont) = prev { k = cont }
+            if let tok = token { return (k, tok) }
+            cancelOnTokenArrival = true
+            return (k, nil)
+        }
+
+        /// Store the token once `start` returns it. If cancellation already fired
+        /// while `start` was running, return it so the caller cancels immediately
+        /// (outside the lock). Lock-serialised with `beginCancellation` so the
+        /// token is cancelled exactly once.
+        func storeToken(_ t: Token) -> Token? {
+            lock.lock(); defer { lock.unlock() }
+            token = t
+            return cancelOnTokenArrival ? t : nil
+        }
+
         /// Invokes `start`, wiring `onData`→`deliver` and `onDone`→`finish`.
         func reentrantStart(
             _ start: @Sendable (_ onData: @escaping @Sendable (Data) -> Bool,
@@ -153,28 +180,40 @@ public struct CallbackStreamReader<Token: Sendable>: Sendable {
 
         // Per-CALL serial queue: a re-entrant read on the same reader gets its
         // own queue, so it cannot deadlock behind this call's blocked producer.
+        let cancel = self.cancel
+
+        // Per-CALL serial queue: a re-entrant read on the same reader gets its
+        // own queue, so it cannot deadlock behind this call's blocked producer.
         let queue = DispatchQueue(label: "CallbackStreamReader.\(UUID().uuidString)")
         queue.async {
-            _ = coord.reentrantStart(start)   // Task 5 stores/cancels the token.
+            let token = coord.reentrantStart(start)
+            // Decide-under-lock, call-out-outside-lock (§4.1.1).
+            if let toCancel = coord.storeToken(token) { cancel(toCancel) }
         }
 
-        // Consumer loop. Each blob handed to us is ours to signal, always.
-        while true {
-            let item = await coord.next()
-            switch item {
-            case .done(let err):
-                if let err { throw err }
-                return
-            case .blob(let blob, let gen):
-                do {
-                    if let b = skip.take(blob) { try await sink(b) }
-                } catch {
-                    coord.consumerDidProcess(generation: gen)  // release producer first
-                    coord.finish(error)                        // then mark terminal
-                    throw error
+        try await withTaskCancellationHandler {
+            // Consumer loop. Each blob handed to us is ours to signal, always.
+            while true {
+                let item = await coord.next()
+                switch item {
+                case .done(let err):
+                    if let err { throw err }
+                    return
+                case .blob(let blob, let gen):
+                    do {
+                        if let b = skip.take(blob) { try await sink(b) }
+                    } catch {
+                        coord.consumerDidProcess(generation: gen)  // release producer first
+                        coord.finish(error)                        // then mark terminal
+                        throw error
+                    }
+                    coord.consumerDidProcess(generation: gen)
                 }
-                coord.consumerDidProcess(generation: gen)
             }
+        } onCancel: {
+            let (k, tok) = coord.beginCancellation()
+            k?.resume(returning: .done(CancellationError()))   // outside lock
+            if let tok { cancel(tok) }                          // outside lock
         }
     }
 }

@@ -79,3 +79,107 @@ final class InstrumentedProducer: @unchecked Sendable {
             cancel: { _ in })
     }
 }
+
+/// A producer whose delivery you can pause and whose token arrival you can delay,
+/// so tests can force the exact interleavings spec §4.1 enumerates.
+final class ControllableProducer: @unchecked Sendable {
+    let started = DispatchSemaphore(value: 0)      // signalled when start() runs
+    let releaseToken = DispatchSemaphore(value: 0) // gate token return
+    private let queue = DispatchQueue(label: "controllable.producer")
+    private let cancelledLock = NSLock()
+    private var _cancelCount = 0
+    var cancelCount: Int { cancelledLock.lock(); defer { cancelledLock.unlock() }; return _cancelCount }
+
+    let blobs: [Data]
+    let delayTokenReturn: Bool
+    let completes: Bool
+    init(blobs: [Data], delayTokenReturn: Bool = false, completes: Bool = true) {
+        self.blobs = blobs; self.delayTokenReturn = delayTokenReturn; self.completes = completes
+    }
+
+    /// Async bridge to the blocking `started` wait (DispatchSemaphore.wait is
+    /// banned in async contexts under Swift 6).
+    func waitStarted() async {
+        await withCheckedContinuation { c in
+            DispatchQueue.global().async { self.started.wait(); c.resume() }
+        }
+    }
+
+    func makeReader() -> CallbackStreamReader<Int> {
+        CallbackStreamReader<Int>(
+            start: { onData, onDone in
+                self.started.signal()
+                self.queue.async {
+                    for blob in self.blobs {
+                        if !onData(blob) { onDone(nil); return }
+                    }
+                    if self.completes { onDone(nil) }
+                }
+                if self.delayTokenReturn { self.releaseToken.wait() }
+                return 1
+            },
+            cancel: { _ in
+                self.cancelledLock.lock(); self._cancelCount += 1; self.cancelledLock.unlock()
+            })
+    }
+}
+
+/// Completes only when told to, after start().
+final class LateCompletingProducer: @unchecked Sendable {
+    let started = DispatchSemaphore(value: 0)
+    private let doneLock = NSLock()
+    private var onDone: (@Sendable (Error?) -> Void)?
+
+    func waitStarted() async {
+        await withCheckedContinuation { c in
+            DispatchQueue.global().async { self.started.wait(); c.resume() }
+        }
+    }
+    func makeReader() -> CallbackStreamReader<Int> {
+        CallbackStreamReader<Int>(
+            start: { _, onDone in
+                self.doneLock.lock(); self.onDone = onDone; self.doneLock.unlock()
+                self.started.signal()
+                return 1
+            }, cancel: { _ in })
+    }
+    func completeNow() {
+        doneLock.lock(); let d = onDone; doneLock.unlock(); d?(nil)
+    }
+}
+
+/// Delivers one blob, then fires completion while that blob's sink is running.
+/// `deliverReturned` fires only when the blocked `deliver` call actually returns
+/// — i.e. the producer thread was released, not stranded. A test that waits on
+/// it can detect the handoff-under-signal deadlock, which read()'s own
+/// completion cannot (read returns via the terminal path regardless).
+final class CompleteDuringSinkProducer: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "complete.during.sink")
+    private let doneLock = NSLock()
+    private var onDone: (@Sendable (Error?) -> Void)?
+    let deliverReturned = DispatchSemaphore(value: 0)
+    func makeReader() -> CallbackStreamReader<Int> {
+        CallbackStreamReader<Int>(
+            start: { onData, onDone in
+                self.doneLock.lock(); self.onDone = onDone; self.doneLock.unlock()
+                self.queue.async {
+                    _ = onData(Data([7]))
+                    self.deliverReturned.signal()   // only reached if deliver unblocked
+                }
+                return 1
+            }, cancel: { _ in })
+    }
+    func fireCompletionDuringSink() {
+        doneLock.lock(); let d = onDone; doneLock.unlock()
+        DispatchQueue.global().async { d?(nil) }
+    }
+    /// Async bridge: true if the producer's deliver returned within `timeoutMs`.
+    func awaitDeliverReturned(timeoutMs: Int) async -> Bool {
+        await withCheckedContinuation { c in
+            DispatchQueue.global().async {
+                let r = self.deliverReturned.wait(timeout: .now() + .milliseconds(timeoutMs))
+                c.resume(returning: r == .success)
+            }
+        }
+    }
+}
