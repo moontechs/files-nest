@@ -1,15 +1,15 @@
 import Foundation
 
-/// Measures the byte-size delta of a directory across a unit of work.
+/// Measures disk usage for the streaming measurement run.
 ///
-/// In this slice it is exercised only against temp directories. Pointing it at
-/// the Photos library container to answer "does PhotoKit stream or materialize
-/// first?" belongs to the adapter slice, which needs a real library and TCC
-/// consent. This slice builds the instrument; it does not produce iCloud numbers.
-enum DiskProbe {
+/// `directorySize`/`sizeDelta` sample a directory's byte footprint; under App
+/// Sandbox they cannot read the Photos library container, so the measurement run
+/// uses `volumeFreeSpace` instead, which reads a sandbox-safe volume resource
+/// value. See docs/design/20260724-photosassetdatasource.md §6.3.
+public enum DiskProbe {
 
     /// Total allocated size of all regular files under `url`, recursively.
-    static func directorySize(at url: URL) throws -> Int64 {
+    public static func directorySize(at url: URL) throws -> Int64 {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: url,
@@ -31,10 +31,17 @@ enum DiskProbe {
     }
 
     /// Runs `work` and returns the directory's size change in bytes.
-    static func sizeDelta(of url: URL,
-                          during work: () async throws -> Void) async throws -> Int64 {
+    public static func sizeDelta(of url: URL,
+                                 during work: () async throws -> Void) async throws -> Int64 {
         let before = try directorySize(at: url)
         try await work()
         return try directorySize(at: url) - before
+    }
+
+    /// Bytes available for "important" usage on the volume containing `url`.
+    /// Sandbox-safe: reads a volume resource value, not directory contents.
+    public static func volumeFreeSpace(at url: URL) throws -> Int64 {
+        let values = try url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return Int64(values.volumeAvailableCapacityForImportantUsage ?? 0)
     }
 }
