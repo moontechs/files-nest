@@ -248,7 +248,7 @@ There is no separate TUSClient wrapper — that would duplicate the call stack a
 5. Upload queue processed sequentially. Records with `status=uploading` are resumed from HEAD offset.
 6. `ServerClientError.backendLost` during resume or upload: call `deleteUpload` to clean up the lost record, then `createUpload` to re-register, then upload from offset 0.
 7. Delete queue processed after all uploads complete.
-8. Sync state (`lastSyncStarted`, current position) persisted to `UserDefaults` so a crash-restart resumes from the first incomplete item, not from scratch.
+8. Only `lastSyncStarted` is persisted to `UserDefaults` (via `SyncStateStore`). No queue position is stored: because the server is the single source of truth, a crash-restart re-runs the diff — completed items already read `complete` on the server and are skipped, and `uploading` items resume from the HEAD offset — so resume is emergent, not stored. See `docs/design/20260726-synccoordinator.md` §3 (decision 3).
 
 ---
 

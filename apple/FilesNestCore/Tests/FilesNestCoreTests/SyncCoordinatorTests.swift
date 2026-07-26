@@ -195,3 +195,22 @@ extension SyncCoordinatorTests {
         await #expect(throws: CancellationError.self) { _ = try await task.value }
     }
 }
+
+// MARK: - Task 8: range-scoped delete integration
+extension SyncCoordinatorTests {
+    // End-to-end proof of spec §5.3 through the coordinator: a January sync must
+    // NOT delete a February backup even though listUploads returns everything.
+    @Test func januarySyncDoesNotDeleteFebruaryBackup() async throws {
+        let server = FakeServer(host: "sc-range.test")
+        let febID = server.seed(localIdentifier: "FEB#photo", status: "complete",
+                                creationDate: "2024-02-10T12:00:00Z")
+        let jan = date("2024-01-01T00:00:00Z")...date("2024-01-31T23:59:59Z")
+        let report = try await makeCoordinator(
+            server: server,
+            library: [resource("JAN", date: "2024-01-15T09:00:00Z")]).sync(range: .dates(jan))
+
+        #expect(report.uploaded == [ResourceKey(localIdentifier: "JAN", kind: .photo)])
+        #expect(report.deleted.isEmpty)
+        #expect(server.record(id: febID)?.status == "complete") // untouched
+    }
+}
