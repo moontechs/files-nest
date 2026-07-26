@@ -140,3 +140,58 @@ extension SyncCoordinatorTests {
         #expect(report.failed.map(\.key) == [ResourceKey(localIdentifier: "A", kind: .photo)])
     }
 }
+
+// MARK: - Task 7: failure policy (skip-and-continue + cancellation)
+extension SyncCoordinatorTests {
+    // One item's source read fails; the sync does NOT abort — both items are
+    // attempted and reported.
+    @Test func failedItemIsRecordedAndSyncContinues() async throws {
+        let server = FakeServer(host: "sc-continue.test")
+        let client = server.client()
+        let coord = SyncCoordinator(
+            client: client,
+            library: FakeAssetLibrary(items: [resource("A", date: "2024-01-01T00:00:00Z"),
+                                              resource("B", date: "2024-02-01T00:00:00Z")], error: nil),
+            uploader: AssetUploader(client: client,
+                                    source: FakeAssetDataSource(totalBytes: 1000, blobSize: 100, failAfterBlobs: 1)),
+            state: InMemorySyncStateStore(),
+            now: { Date(timeIntervalSince1970: 0) })
+
+        let report = try await coord.sync(range: .all)
+        // Neither completed, but BOTH were attempted (no fail-fast) and reported.
+        #expect(report.uploaded.isEmpty)
+        #expect(Set(report.failed.map { $0.key.localIdentifier }) == ["A", "B"])
+        // Both create calls happened → two records exist server-side (proof it didn't abort after A).
+        #expect(server.all().count == 2)
+    }
+
+    // A delete failure is recorded, and the remaining deletes still run.
+    @Test func failedDeleteIsRecordedAndOthersContinue() async throws {
+        let server = FakeServer(host: "sc-deletefail.test")
+        server.failDeleteIDs = ["id-0"]                                          // id-0 → DELETE 500
+        server.seed(localIdentifier: "GONE1#photo", status: "complete")         // id-0 → delete fails
+        server.seed(localIdentifier: "GONE2#photo", status: "complete")         // id-1 → delete ok
+        let report = try await makeCoordinator(server: server, library: []).sync(range: .all)
+
+        #expect(report.deleted == [ResourceKey(localIdentifier: "GONE2", kind: .photo)])
+        #expect(report.failed.map { $0.key.localIdentifier } == ["GONE1"])
+    }
+
+    // Cancellation stops promptly and propagates (not swallowed into `failed`).
+    @Test func cancellationStopsAndThrows() async throws {
+        let server = FakeServer(host: "sc-cancel.test")
+        let client = server.client()
+        let coord = SyncCoordinator(
+            client: client,
+            library: FakeAssetLibrary(items: [resource("A")], error: nil),
+            uploader: AssetUploader(client: client,
+                                    source: FakeAssetDataSource(totalBytes: 10_000_000, blobSize: 1000)),
+            state: InMemorySyncStateStore(),
+            now: { Date(timeIntervalSince1970: 0) })
+
+        let task = Task { try await coord.sync(range: .all) }
+        try await Task.sleep(for: .milliseconds(30))
+        task.cancel()
+        await #expect(throws: CancellationError.self) { _ = try await task.value }
+    }
+}
