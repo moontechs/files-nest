@@ -14,15 +14,7 @@ struct FilesNestApp: App {
 
     var body: some Scene {
         MenuBarExtra("FilesNest", systemImage: "arrow.triangle.2.circlepath") {
-            // Placeholder until Task 6 adds PanelView.
-            VStack(alignment: .leading, spacing: 6) {
-                Text("FilesNest").font(.headline)
-                Text(String(describing: model.status)).font(.caption).foregroundStyle(.secondary)
-                Button("Quit") { NSApp.terminate(nil) }
-            }
-            .padding(12)
-            .frame(width: 320)
-            .task { model.begin() }
+            PanelView(model: model).task { model.begin() }
         }
         .menuBarExtraStyle(.window)
     }
