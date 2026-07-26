@@ -55,14 +55,30 @@ struct KeychainStoreTests {
         // Seed the backend directly with non-JSON bytes under the store's key.
         let service = "kc.test.\(UUID().uuidString)"
         let backend = FakeKeychainBackend()
-        _ = backend.add([
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: "basic-auth",
-            kSecValueData as String: Data([0x00, 0x01, 0x02]),
-        ])
+        backend.seed(service: service, account: "basic-auth", data: Data([0x00, 0x01, 0x02]))
         let store = KeychainStore(service: service, backend: backend)
         await #expect(throws: KeychainStoreError.decoding) {
             _ = try await store.basicCredentials()
         }
+    }
+
+    @Test func updateFailureAfterDuplicateThrowsMappedError() throws {
+        // First save adds; a forced update failure exercises the duplicate → update branch.
+        let store = KeychainStore(service: "kc.test.\(UUID().uuidString)",
+                                  backend: FakeKeychainBackend(updateStatus: errSecIO))
+        try store.save(BasicCredentials(username: "alice", password: "first"))
+        #expect(throws: KeychainStoreError.unexpectedStatus(errSecIO)) {
+            try store.save(BasicCredentials(username: "alice", password: "second"))
+        }
+    }
+
+    @Test func updateVanishedRetriesAddAndSucceeds() async throws {
+        // Item disappears during update; save must retry the add and persist the new value.
+        let store = KeychainStore(service: "kc.test.\(UUID().uuidString)",
+                                  backend: FakeKeychainBackend(vanishOnUpdate: true))
+        try store.save(BasicCredentials(username: "alice", password: "first"))
+        try store.save(BasicCredentials(username: "alice", password: "second"))
+        #expect(try await store.basicCredentials()
+                == BasicCredentials(username: "alice", password: "second"))
     }
 }

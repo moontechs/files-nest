@@ -102,7 +102,17 @@ public struct KeychainStore: CredentialStore {
             return
         case errSecDuplicateItem:
             let updateStatus = backend.update(baseQuery, [kSecValueData as String: data])
-            guard updateStatus == errSecSuccess else {
+            switch updateStatus {
+            case errSecSuccess:
+                return
+            case errSecItemNotFound:
+                // The item was deleted between the add and the update (a racing
+                // caller). Honor the add-or-update contract by adding it now.
+                let retryStatus = backend.add(addQuery)
+                guard retryStatus == errSecSuccess else {
+                    throw KeychainStoreError.unexpectedStatus(retryStatus)
+                }
+            default:
                 throw KeychainStoreError.unexpectedStatus(updateStatus)
             }
         default:
