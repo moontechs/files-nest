@@ -94,3 +94,49 @@ struct SyncCoordinatorTests {
         await #expect(throws: Boom.self) { _ = try await coord.sync(range: .all) }
     }
 }
+
+// MARK: - Task 6: backend_lost recovery
+extension SyncCoordinatorTests {
+    // Proactive: planner sees a backend_lost record → recover before uploading.
+    @Test func backendLostRecordIsRecoveredProactively() async throws {
+        let server = FakeServer(host: "sc-recover-proactive.test")
+        let lostID = server.seed(localIdentifier: "A#photo", status: "backend_lost")
+        let report = try await makeCoordinator(server: server, library: [resource("A")]).sync(range: .all)
+
+        #expect(report.uploaded == [ResourceKey(localIdentifier: "A", kind: .photo)])
+        #expect(report.failed.isEmpty)
+        // Original lost record deleted; a fresh record carries the completed upload.
+        #expect(server.record(id: lostID)?.status == "deleted")
+        let completed = server.all().filter { $0.status == "complete" }
+        #expect(completed.count == 1)
+        #expect(completed[0].id != lostID)
+        #expect(completed[0].offset == 250)
+    }
+
+    // Reactive: planner sees `uploading`, but the server has since lost the backend
+    // (HEAD returns 409). Coordinator recovers mid-flight.
+    @Test func backendLostDuringResumeIsRecoveredReactively() async throws {
+        let server = FakeServer(host: "sc-recover-reactive.test")
+        let staleID = server.seed(localIdentifier: "A#photo", status: "uploading", offset: 100)
+        server.backendLostIDs = [staleID]   // HEAD/PATCH on this id → 409 backend_lost
+        let report = try await makeCoordinator(server: server, library: [resource("A")]).sync(range: .all)
+
+        #expect(report.uploaded == [ResourceKey(localIdentifier: "A", kind: .photo)])
+        #expect(report.failed.isEmpty)
+        #expect(server.record(id: staleID)?.status == "deleted")
+        #expect(server.all().contains { $0.status == "complete" && $0.id != staleID })
+    }
+
+    // Recovery that fails again → the item lands in `failed`, sync continues.
+    @Test func recoveryThatFailsAgainRecordsFailure() async throws {
+        // markLostOnFirstDataOp: even the fresh record created during recovery is
+        // lost on its first data op, so the single recovery attempt fails too.
+        let server = FakeServer(host: "sc-recover-fail.test")
+        server.markLostOnFirstDataOp = true
+        server.seed(localIdentifier: "A#photo", status: "backend_lost")
+        let report = try await makeCoordinator(server: server, library: [resource("A")]).sync(range: .all)
+
+        #expect(report.uploaded.isEmpty)
+        #expect(report.failed.map(\.key) == [ResourceKey(localIdentifier: "A", kind: .photo)])
+    }
+}
