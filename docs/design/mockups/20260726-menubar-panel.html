@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FilesNest — Menu Bar Panel Mockups</title>
+<style>
+  :root{
+    --bg:#e9e9ec; --panel:rgba(246,246,248,0.82); --panel-solid:#f6f6f8;
+    --text:#1d1d1f; --text2:#6b6b70; --text3:#9a9aa0;
+    --sep:rgba(0,0,0,0.08); --field:#ffffff; --fieldbrd:rgba(0,0,0,0.14);
+    --accent:#0a84ff; --accent-press:#0060df;
+    --green:#28a745; --red:#e5484d; --amber:#e09b12;
+    --tile:rgba(0,0,0,0.035); --shadow:0 12px 40px rgba(0,0,0,0.22),0 1px 0 rgba(255,255,255,0.5) inset;
+    --menubar:rgba(250,250,252,0.7);
+  }
+  :root[data-theme="dark"]{
+    --bg:#1c1c1f; --panel:rgba(38,38,42,0.86); --panel-solid:#2a2a2e;
+    --text:#f5f5f7; --text2:#a1a1a8; --text3:#6e6e75;
+    --sep:rgba(255,255,255,0.10); --field:#3a3a3f; --fieldbrd:rgba(255,255,255,0.16);
+    --accent:#0a84ff; --accent-press:#409cff;
+    --green:#30d158; --red:#ff6961; --amber:#ffd60a;
+    --tile:rgba(255,255,255,0.06); --shadow:0 14px 44px rgba(0,0,0,0.55),0 0 0 0.5px rgba(255,255,255,0.08);
+    --menubar:rgba(30,30,34,0.72);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; font:13px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",sans-serif;
+    color:var(--text); background:
+      radial-gradient(1200px 600px at 20% -10%, rgba(120,120,255,0.10), transparent),
+      radial-gradient(1000px 500px at 100% 0%, rgba(255,120,180,0.08), transparent),
+      var(--bg);
+    -webkit-font-smoothing:antialiased; padding:0 0 60px;
+  }
+  .toolbar{position:sticky;top:0;z-index:20;display:flex;gap:10px;align-items:center;
+    padding:10px 18px;background:var(--menubar);backdrop-filter:blur(20px);
+    border-bottom:1px solid var(--sep)}
+  .toolbar b{font-weight:600}
+  .toolbar .spring{flex:1}
+  .seg{display:inline-flex;border:1px solid var(--fieldbrd);border-radius:8px;overflow:hidden}
+  .seg button{border:0;background:transparent;color:var(--text2);padding:5px 11px;font:inherit;cursor:pointer}
+  .seg button.on{background:var(--accent);color:#fff}
+  .wrap{max-width:1180px;margin:34px auto;padding:0 24px;display:flex;flex-wrap:wrap;gap:48px;justify-content:center}
+  .col{display:flex;flex-direction:column;align-items:center;gap:14px}
+  .col h2{margin:0;font-size:13px;font-weight:600;color:var(--text2);letter-spacing:.02em}
+  .col .cap{color:var(--text3);font-size:12px;margin-top:-8px;max-width:320px;text-align:center}
+
+  /* menu bar context */
+  .stage{position:relative;width:340px}
+  .menubar{height:24px;border-radius:7px 7px 0 0;background:var(--menubar);backdrop-filter:blur(18px);
+    border:1px solid var(--sep);border-bottom:0;display:flex;align-items:center;justify-content:flex-end;
+    gap:14px;padding:0 12px;color:var(--text2);font-size:12px}
+  .menubar .icon{display:flex;align-items:center;gap:5px;color:var(--text);font-weight:600;
+    background:rgba(10,132,255,0.16);padding:2px 7px;border-radius:5px}
+  .menubar .dot{width:8px;height:8px;border-radius:50%;background:var(--green)}
+  .caret{position:absolute;right:26px;top:22px;width:14px;height:14px;background:var(--panel-solid);
+    transform:rotate(45deg);border-left:1px solid var(--sep);border-top:1px solid var(--sep);z-index:1}
+
+  /* panel */
+  .panel{width:340px;background:var(--panel);backdrop-filter:blur(30px) saturate(1.3);
+    border:1px solid var(--sep);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;position:relative;z-index:2}
+  .p-pad{padding:14px 15px}
+  .row{display:flex;align-items:center;gap:10px}
+  .sep{height:1px;background:var(--sep);margin:0}
+  .muted{color:var(--text2)} .dim{color:var(--text3)}
+  .badge{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;
+    padding:3px 9px;border-radius:20px;background:var(--tile)}
+  .badge .bdot{width:7px;height:7px;border-radius:50%}
+  .b-watch{color:var(--green)} .b-watch .bdot{background:var(--green)}
+  .b-sync{color:var(--accent)} .b-sync .bdot{background:var(--accent);animation:pulse 1s infinite}
+  .b-pause{color:var(--amber)} .b-pause .bdot{background:var(--amber)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .applogo{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;color:#fff;
+    background:linear-gradient(160deg,#0a84ff,#5e5ce6);font-size:12px;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+  .title{font-weight:600}
+  h3.sec{margin:0 0 2px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text3)}
+
+  /* stat rows (Variant A) */
+  .stat{display:flex;align-items:baseline;justify-content:space-between;padding:5px 0}
+  .stat .k{color:var(--text2)} .stat .v{font-variant-numeric:tabular-nums;font-weight:600}
+  .v.warn{color:var(--amber)} .v.bad{color:var(--red)} .v.ok{color:var(--green)}
+
+  /* progress */
+  .prog{height:6px;border-radius:4px;background:var(--tile);overflow:hidden;margin:8px 0 6px}
+  .prog>i{display:block;height:100%;width:38%;background:linear-gradient(90deg,var(--accent),#5e5ce6);border-radius:4px}
+  .cur{display:flex;gap:8px;align-items:center;color:var(--text2);font-size:12px}
+  .cur .thumb{width:26px;height:26px;border-radius:5px;background:linear-gradient(135deg,#b8c6ff,#e6b8ff);flex:none}
+
+  /* buttons */
+  .actions{display:flex;gap:8px}
+  .btn{flex:1;border:1px solid var(--fieldbrd);background:var(--field);color:var(--text);
+    border-radius:8px;padding:7px 10px;font:inherit;font-weight:500;cursor:pointer;text-align:center}
+  .btn.pri{background:var(--accent);border-color:transparent;color:#fff}
+  .btn.pri:active{background:var(--accent-press)}
+  .foot{display:flex;align-items:center;gap:16px;padding:9px 15px;background:var(--tile)}
+  .foot a{color:var(--text2);text-decoration:none;font-size:12px;cursor:pointer}
+  .foot a:hover{color:var(--text)} .foot .spring{flex:1}
+  .kbd{color:var(--text3);font-size:11px}
+
+  /* Variant B hero */
+  .hero{display:flex;flex-direction:column;align-items:center;text-align:center;padding:20px 15px 12px}
+  .ring{width:74px;height:74px;border-radius:50%;display:grid;place-items:center;position:relative;margin-bottom:10px}
+  .ring svg{position:absolute;inset:0;transform:rotate(-90deg)}
+  .ring .glyph{font-size:26px}
+  .hero .big{font-size:16px;font-weight:600} .hero .sub{color:var(--text2);font-size:12px;margin-top:2px}
+  .tiles{display:flex;gap:8px;padding:4px 12px 12px}
+  .tile{flex:1;background:var(--tile);border-radius:9px;padding:9px 8px;text-align:center}
+  .tile .tv{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+  .tile .tk{font-size:11px;color:var(--text2);margin-top:1px}
+  .tile .tv.warn{color:var(--amber)} .tile .tv.bad{color:var(--red)}
+  /* Variant B current-item strip */
+  .curstrip{display:flex;align-items:center;gap:10px;margin:2px 12px 10px;padding:8px 10px;
+    background:var(--tile);border-radius:10px}
+  .curstrip .thumb{width:34px;height:34px;border-radius:7px;
+    background:linear-gradient(135deg,#8fb4ff,#c79bff 55%,#ffc2a8);flex:none;position:relative;overflow:hidden}
+  .curstrip .thumb::after{content:"";position:absolute;left:0;right:0;bottom:0;height:14px;
+    background:linear-gradient(135deg,#3f7d4e,#6fae5f);clip-path:polygon(0 100%,32% 42%,52% 66%,78% 22%,100% 55%,100% 100%)}
+  .ci-meta{flex:1;min-width:0}
+  .ci-name{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ci-row{display:flex;justify-content:space-between;color:var(--text3);font-size:11px;margin:1px 0 4px}
+  .ci-prog{height:4px;border-radius:3px;background:var(--sep);overflow:hidden}
+  .ci-prog>i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#5e5ce6);border-radius:3px}
+
+  /* settings */
+  .set-title{font-size:15px;font-weight:600;padding:14px 16px 4px}
+  .field{padding:8px 16px}
+  .field label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px}
+  .field input{width:100%;background:var(--field);border:1px solid var(--fieldbrd);border-radius:7px;
+    padding:7px 9px;font:inherit;color:var(--text)}
+  .test{display:flex;align-items:center;gap:10px;padding:6px 16px 10px}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600}
+  .pill.ok{color:var(--green)} .pill.bad{color:var(--red)}
+  .togglerow{display:flex;align-items:center;justify-content:space-between;padding:10px 16px}
+  .switch{width:38px;height:22px;border-radius:20px;background:var(--green);position:relative;flex:none}
+  .switch::after{content:"";position:absolute;top:2px;left:18px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+  .set-foot{display:flex;justify-content:flex-end;gap:8px;padding:10px 16px 14px;border-top:1px solid var(--sep)}
+  .set-foot .btn{flex:none;min-width:78px}
+  .hide{display:none !important}
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <b>FilesNest — Menu Bar Panel</b>
+    <span class="dim">mockup</span>
+    <span class="spring"></span>
+    <span class="dim">state</span>
+    <span class="seg" id="stateSeg">
+      <button data-state="watching" class="on">Watching</button>
+      <button data-state="syncing">Syncing</button>
+      <button data-state="paused">Paused</button>
+    </span>
+    <span class="dim">theme</span>
+    <span class="seg" id="themeSeg">
+      <button data-theme="light" class="on">Light</button>
+      <button data-theme="dark">Dark</button>
+    </span>
+  </div>
+
+  <div class="wrap">
+    <!-- VARIANT A -->
+    <div class="col">
+      <h2>Variant A · Compact rows</h2>
+      <p class="cap">AirBuddy-like: status header, stat list, actions. Dense &amp; scannable.</p>
+      <div class="stage">
+        <div class="menubar"><span class="icon"><span class="dot" id="mbDotA"></span>FilesNest</span></div>
+        <div class="caret"></div>
+        <div class="panel">
+          <div class="p-pad">
+            <div class="row">
+              <div class="applogo">▲</div>
+              <div><div class="title">FilesNest</div><div class="dim" style="font-size:12px">iCloud → home server</div></div>
+              <span class="badge b-watch" id="badgeA"><span class="bdot"></span><span id="badgeTxtA">Watching</span></span>
+            </div>
+          </div>
+          <div class="sep"></div>
+          <div class="p-pad">
+            <div class="muted" id="lastA" style="margin-bottom:4px">Last sync 2 min ago · up to date</div>
+            <!-- progress only in syncing -->
+            <div id="progA" class="hide">
+              <div class="prog"><i style="width:33%"></i></div>
+              <div class="cur"><span class="thumb"></span><span>Uploading IMG_2043.HEIC · 4 of 12</span></div>
+            </div>
+            <div class="stat"><span class="k">Backed up</span><span class="v">1,240</span></div>
+            <div class="stat"><span class="k">Pending</span><span class="v warn" id="pendA">3</span></div>
+            <div class="stat"><span class="k">Failed</span><span class="v ok">0</span></div>
+          </div>
+          <div class="sep"></div>
+          <div class="p-pad actions">
+            <button class="btn" id="pauseA">Pause</button>
+            <button class="btn pri">Sync Now</button>
+          </div>
+          <div class="foot">
+            <a>Settings…<span class="kbd"> ⌘,</span></a><span class="spring"></span><a>Quit<span class="kbd"> ⌘Q</span></a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- VARIANT B -->
+    <div class="col">
+      <h2>Variant B · Hero + tiles</h2>
+      <p class="cap">Big status hero with a progress ring, three stat tiles below. More glanceable.</p>
+      <div class="stage">
+        <div class="menubar"><span class="icon"><span class="dot" id="mbDotB"></span>FilesNest</span></div>
+        <div class="caret"></div>
+        <div class="panel">
+          <div class="hero">
+            <div class="ring">
+              <svg width="74" height="74"><circle cx="37" cy="37" r="32" fill="none" stroke="var(--tile)" stroke-width="6"/>
+                <circle id="ringArc" cx="37" cy="37" r="32" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="round" stroke-dasharray="201" stroke-dashoffset="201"/></svg>
+              <span class="glyph" id="glyphB">✓</span>
+            </div>
+            <div class="big" id="bigB">Up to date</div>
+            <div class="sub" id="subB">Last sync 2 min ago</div>
+          </div>
+          <div class="curstrip hide" id="curB">
+            <span class="thumb"></span>
+            <div class="ci-meta">
+              <div class="ci-name">IMG_2043.HEIC</div>
+              <div class="ci-row"><span>Uploading · 4 of 12</span><span>18.2 MB</span></div>
+              <div class="ci-prog"><i style="width:62%"></i></div>
+            </div>
+          </div>
+          <div class="tiles">
+            <div class="tile"><div class="tv">1,240</div><div class="tk">Backed up</div></div>
+            <div class="tile"><div class="tv warn" id="pendB">3</div><div class="tk">Pending</div></div>
+            <div class="tile"><div class="tv">0</div><div class="tk">Failed</div></div>
+          </div>
+          <div class="p-pad actions" style="padding-top:2px">
+            <button class="btn" id="pauseB">Pause</button>
+            <button class="btn pri">Sync Now</button>
+          </div>
+          <div class="foot">
+            <a>Settings…<span class="kbd"> ⌘,</span></a><span class="spring"></span><a>Quit<span class="kbd"> ⌘Q</span></a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div class="col">
+      <h2>Settings window</h2>
+      <p class="cap">Opens via ⌘, — Basic Auth creds → KeychainStore. Test Connection probes <code>GET /uploads</code>.</p>
+      <div class="stage">
+        <div class="panel" style="margin-top:24px">
+          <div class="set-title">FilesNest Settings</div>
+          <div class="field"><label>Server URL</label><input value="https://nest.home.example" spellcheck="false"></div>
+          <div class="field"><label>Username</label><input value="paulo" spellcheck="false"></div>
+          <div class="field"><label>Password</label><input type="password" value="hunter2hunter2"></div>
+          <div class="test">
+            <button class="btn" style="flex:none;min-width:130px">Test Connection</button>
+            <span class="pill ok">● Connected · 200 OK</span>
+          </div>
+          <div class="test" style="margin-top:-14px">
+            <span style="min-width:130px"></span><span class="pill bad">✕ 401 Unauthorized</span>
+          </div>
+          <div class="sep"></div>
+          <div class="togglerow"><span>Launch at login</span><span class="switch"></span></div>
+          <div class="set-foot"><button class="btn">Cancel</button><button class="btn pri">Save</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const root=document.documentElement;
+  // theme
+  document.getElementById('themeSeg').addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b)return;
+    root.setAttribute('data-theme',b.dataset.theme);
+    [...e.currentTarget.children].forEach(c=>c.classList.toggle('on',c===b));
+  });
+  root.setAttribute('data-theme','light');
+  // state
+  const arc=document.getElementById('ringArc');
+  function setState(s){
+    const badge=document.getElementById('badgeA'), bt=document.getElementById('badgeTxtA');
+    const cls={watching:'b-watch',syncing:'b-sync',paused:'b-pause'}[s];
+    badge.className='badge '+cls; bt.textContent={watching:'Watching',syncing:'Syncing',paused:'Paused'}[s];
+    document.getElementById('progA').classList.toggle('hide',s!=='syncing');
+    document.getElementById('lastA').classList.toggle('hide',s==='syncing');
+    document.getElementById('pauseA').textContent = s==='paused'?'Resume':'Pause';
+    document.getElementById('pauseB').textContent = s==='paused'?'Resume':'Pause';
+    const dotColor={watching:'var(--green)',syncing:'var(--accent)',paused:'var(--amber)'}[s];
+    document.getElementById('mbDotA').style.background=dotColor;
+    document.getElementById('mbDotB').style.background=dotColor;
+    // hero
+    const glyph=document.getElementById('glyphB'), big=document.getElementById('bigB'), sub=document.getElementById('subB');
+    document.getElementById('curB').classList.toggle('hide',s!=='syncing');
+    if(s==='syncing'){glyph.textContent='';big.textContent='Syncing…';sub.textContent='4 of 12 · 210 MB left';arc.style.strokeDashoffset='134';arc.style.stroke='var(--accent)';}
+    else if(s==='paused'){glyph.textContent='⏸';big.textContent='Paused';sub.textContent='3 items waiting';arc.style.strokeDashoffset='201';arc.style.stroke='var(--amber)';}
+    else{glyph.textContent='✓';big.textContent='Up to date';sub.textContent='Last sync 2 min ago';arc.style.strokeDashoffset='0';arc.style.stroke='var(--green)';}
+  }
+  document.getElementById('stateSeg').addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b)return;
+    [...e.currentTarget.children].forEach(c=>c.classList.toggle('on',c===b));
+    setState(b.dataset.state);
+  });
+  setState('watching');
+</script>
+</body>
+</html>
