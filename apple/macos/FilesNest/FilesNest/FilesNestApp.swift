@@ -5,11 +5,18 @@ import FilesNestCore
 struct FilesNestApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model: AppModel
+    @StateObject private var settings: SettingsModel
 
     init() {
-        // Composition root: build the object graph once.
+        let defaults = UserDefaults.standard
         let engine = StubSyncEngine(credentials: KeychainStore())
-        _model = StateObject(wrappedValue: AppModel(engine: engine))
+        let appModel = AppModel(engine: engine)
+        let settingsModel = SettingsModel(urlStore: UserDefaultsServerURLStore(defaults: defaults),
+                                          credStore: KeychainStore(),
+                                          probe: ConnectionProbe())
+        settingsModel.onSaved = { appModel.restart() }
+        _model = StateObject(wrappedValue: appModel)
+        _settings = StateObject(wrappedValue: settingsModel)
     }
 
     var body: some Scene {
@@ -17,12 +24,13 @@ struct FilesNestApp: App {
             PanelView(model: model).task { model.begin() }
         }
         .menuBarExtraStyle(.window)
+
+        Settings { SettingsView(model: settings) }
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Menu-bar agent: no Dock icon, no main window.
         NSApp.setActivationPolicy(.accessory)
     }
 }
