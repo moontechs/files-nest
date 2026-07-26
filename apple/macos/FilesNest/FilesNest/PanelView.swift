@@ -7,12 +7,21 @@ struct PanelView: View {
     @State private var showingSettings = false
 
     var body: some View {
-        if showingSettings {
-            SettingsView(model: settings, onDone: { showingSettings = false })
-        } else {
-            dashboard
+        ZStack {
+            if showingSettings {
+                SettingsView(model: settings, onDone: { withAnimation(slide) { showingSettings = false } })
+                    .transition(.move(edge: .trailing))
+            } else {
+                dashboard
+                    .transition(.move(edge: .leading))
+            }
         }
+        .frame(width: 320)
+        .clipped()
+        .animation(slide, value: showingSettings)
     }
+
+    private var slide: Animation { .easeInOut(duration: 0.28) }
 
     private var dashboard: some View {
         VStack(spacing: 0) {
