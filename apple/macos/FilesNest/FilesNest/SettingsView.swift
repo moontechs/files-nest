@@ -4,12 +4,18 @@ import ServiceManagement
 
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
-    @Environment(\.dismiss) private var dismiss
+    /// Return to the dashboard (this view lives inside the menu-bar panel, not a window).
+    var onDone: () -> Void
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("FilesNest Settings").font(.title3).bold()
+            HStack {
+                Button { onDone() } label: { Label("Back", systemImage: "chevron.left") }
+                    .buttonStyle(.link)
+                Spacer()
+            }
+            Text("FilesNest Settings").font(.headline)
 
             Form {
                 TextField("Server URL", text: $model.serverURL)
@@ -33,11 +39,11 @@ struct SettingsView: View {
             Divider()
             HStack {
                 Spacer()
-                Button("Save") { model.save(); dismiss() }
+                Button("Save") { model.save(); onDone() }
                     .buttonStyle(.borderedProminent).disabled(!model.hasCredentials)
             }
         }
-        .padding(20).frame(width: 360)
+        .padding(16).frame(width: 320)
         .task { await model.load() }
     }
 

@@ -3,8 +3,18 @@ import FilesNestCore
 
 struct PanelView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var settings: SettingsModel
+    @State private var showingSettings = false
 
     var body: some View {
+        if showingSettings {
+            SettingsView(model: settings, onDone: { showingSettings = false })
+        } else {
+            dashboard
+        }
+    }
+
+    private var dashboard: some View {
         VStack(spacing: 0) {
             hero
             if case let .syncing(p) = model.status { currentItem(p) }
@@ -76,7 +86,7 @@ struct PanelView: View {
 
     private var footer: some View {
         HStack {
-            SettingsLink { Text("Settings…") }
+            Button("Settings…") { showingSettings = true }
             Spacer()
             Button("Quit") { NSApp.terminate(nil) }
         }

@@ -59,8 +59,7 @@ Two layers, matching the repo's tested-core / untestable-shell split:
 ```
 MenuBarExtra (.window)                 [app target]
   └─ PanelView  ← observes ─ AppModel (@MainActor, @Observable)   [app target]
-Settings scene (⌘,)                                                [app target]
-  └─ SettingsView ← binds ─ SettingsModel (@MainActor)            [app target]
+       └─ SettingsView (in-panel) ← binds ─ SettingsModel        [app target]
 AppModel / SettingsModel depend on Core seams:                    [FilesNestCore]
   SyncEngine (StubSyncEngine now)   ServerURLStore
   ConnectionProbe                   KeychainStore / StaticCredentialStore
@@ -164,7 +163,9 @@ public struct StaticCredentialStore: CredentialStore {
 - `Info.plist` `LSUIElement = true` (or `NSApp.setActivationPolicy(.accessory)` at
   launch) — no Dock icon, background-style agent.
 - Scene: `MenuBarExtra("FilesNest", systemImage: …) { PanelView() }
-  .menuBarExtraStyle(.window)`, plus a `Settings { SettingsView() }` scene for ⌘,.
+  .menuBarExtraStyle(.window)`. Settings lives **inside the panel** (AirBuddy-style):
+  `PanelView` swaps between the dashboard and `SettingsView` via a `showingSettings`
+  toggle, with a Back button — no separate `Settings {}` window scene.
 - Menu-bar icon reflects status (e.g. tinted/animated glyph for syncing vs error).
 
 ### 5.2 PanelView (Variant B)
@@ -178,11 +179,14 @@ state and light/dark). Renders from `AppModel.status`:
 - **Three tiles** — Backed up / Pending / Failed (counts from the engine; Backed-up
   is a lifetime figure the engine reports, Pending/Failed from the current plan/run).
 - **Actions** — Pause/Resume (toggles by state), Sync Now (calls `syncNow`).
-- **Footer** — "Settings… ⌘," opens the Settings scene; "Quit ⌘Q".
+- **Footer** — "Settings…" swaps the panel to `SettingsView`; "Quit".
 - **signedOut** collapses the hero to a "Sign in in Settings" call-to-action;
   **error** shows the message with a Retry that calls `syncNow`.
 
-### 5.3 SettingsView
+### 5.3 SettingsView (in-panel)
+
+Presented within the menu-bar panel (not a window); a Back button returns to the
+dashboard.
 
 - Fields: Server URL, Username, Password (`SecureField`), prefilled from
   `ServerURLStore` + `KeychainStore` on open.

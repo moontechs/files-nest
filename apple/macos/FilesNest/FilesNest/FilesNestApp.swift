@@ -21,11 +21,9 @@ struct FilesNestApp: App {
 
     var body: some Scene {
         MenuBarExtra("FilesNest", systemImage: "arrow.triangle.2.circlepath") {
-            PanelView(model: model).task { model.begin() }
+            PanelView(model: model, settings: settings).task { model.begin() }
         }
         .menuBarExtraStyle(.window)
-
-        Settings { SettingsView(model: settings) }
     }
 }
 

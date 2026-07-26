@@ -28,7 +28,8 @@ With **credentials saved** (see Settings below):
 - [ ] **Resume**: returns to green watching.
 - [ ] Layout matches `docs/design/mockups/20260726-menubar-panel.html` in both light and dark.
 
-## Settings (⌘, or footer "Settings…")
+## Settings (panel footer "Settings…" — shown inside the panel)
+- [ ] "Settings…" swaps the panel to the settings view; "Back" returns to the dashboard.
 - [ ] Fields prefill from saved server URL + Keychain credentials on open.
 - [ ] **Test Connection** against a reachable, correctly-authed server → green "Connected".
 - [ ] Test Connection with wrong credentials → red "401 Unauthorized".
