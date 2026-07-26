@@ -246,9 +246,9 @@ There is no separate TUSClient wrapper — that would duplicate the call stack a
 3. Diff: assets missing on server → upload queue; server records not in library → delete queue.
 4. Live Photos: JPEG and MOV resources are two separate upload records sharing `bundle_id`, addressed by distinct `ResourceKey`s (`<localIdentifier>#photo`, `<localIdentifier>#pairedVideo`). They are treated as a pair — both uploaded or both deleted as a unit. (`SyncCoordinator` must build records with these keys; until it does, the two resources still collide on `SafeID` and the `idx/local` index — see the PhotosAssetDataSource design §9/§11.)
 5. Upload queue processed sequentially. Records with `status=uploading` are resumed from HEAD offset.
-6. `ServerClientError.backendLost` during resume or upload: call `deleteUpload` to clean up the lost record, then `createUpload` to re-register, then upload from offset 0.
+6. `ServerClientError.backendLost` during resume or upload: call `createUpload` to re-register — the server resets the `backend_lost` record back to `uploading` in place (same id) with a fresh backend via `ReRegister` (`handlers.go:258`) — then upload from offset 0. **No `deleteUpload` first:** it is redundant (the lost backend is already gone) and a `DELETE` would leave a `deleted` tombstone that the planner skips, stranding a still-present asset if recovery were interrupted. A mid-recovery failure instead leaves a resumable `uploading` record. See `docs/design/20260726-synccoordinator.md` §6.
 7. Delete queue processed after all uploads complete.
-8. Sync state (`lastSyncStarted`, current position) persisted to `UserDefaults` so a crash-restart resumes from the first incomplete item, not from scratch.
+8. Only `lastSyncStarted` is persisted to `UserDefaults` (via `SyncStateStore`). No queue position is stored: because the server is the single source of truth, a crash-restart re-runs the diff — completed items already read `complete` on the server and are skipped, and `uploading` items resume from the HEAD offset — so resume is emergent, not stored. See `docs/design/20260726-synccoordinator.md` §3 (decision 3).
 
 ---
 
