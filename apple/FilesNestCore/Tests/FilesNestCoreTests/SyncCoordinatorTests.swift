@@ -97,7 +97,8 @@ struct SyncCoordinatorTests {
 
 // MARK: - Task 6: backend_lost recovery
 extension SyncCoordinatorTests {
-    // Proactive: planner sees a backend_lost record → recover before uploading.
+    // Proactive: planner sees a backend_lost record → re-register (POST) → upload.
+    // The server ReRegisters IN PLACE (same id), so no delete and no duplicate.
     @Test func backendLostRecordIsRecoveredProactively() async throws {
         let server = FakeServer(host: "sc-recover-proactive.test")
         let lostID = server.seed(localIdentifier: "A#photo", status: "backend_lost")
@@ -105,16 +106,16 @@ extension SyncCoordinatorTests {
 
         #expect(report.uploaded == [ResourceKey(localIdentifier: "A", kind: .photo)])
         #expect(report.failed.isEmpty)
-        // Original lost record deleted; a fresh record carries the completed upload.
-        #expect(server.record(id: lostID)?.status == "deleted")
-        let completed = server.all().filter { $0.status == "complete" }
-        #expect(completed.count == 1)
-        #expect(completed[0].id != lostID)
-        #expect(completed[0].offset == 250)
+        // Same record, resurrected in place (SafeID is deterministic — id is reused).
+        #expect(server.all().count == 1)
+        #expect(server.record(id: lostID)?.status == "complete")
+        #expect(server.record(id: lostID)?.offset == 250)
+        // Recovery must NOT delete — deleting would create the stranding tombstone.
+        #expect(!server.events.contains { $0.hasPrefix("DELETE") })
     }
 
     // Reactive: planner sees `uploading`, but the server has since lost the backend
-    // (HEAD returns 409). Coordinator recovers mid-flight.
+    // (HEAD returns 409). Coordinator re-registers the SAME record mid-flight.
     @Test func backendLostDuringResumeIsRecoveredReactively() async throws {
         let server = FakeServer(host: "sc-recover-reactive.test")
         let staleID = server.seed(localIdentifier: "A#photo", status: "uploading", offset: 100)
@@ -123,14 +124,16 @@ extension SyncCoordinatorTests {
 
         #expect(report.uploaded == [ResourceKey(localIdentifier: "A", kind: .photo)])
         #expect(report.failed.isEmpty)
-        #expect(server.record(id: staleID)?.status == "deleted")
-        #expect(server.all().contains { $0.status == "complete" && $0.id != staleID })
+        #expect(server.all().count == 1)
+        #expect(server.record(id: staleID)?.status == "complete")
+        #expect(server.record(id: staleID)?.offset == 250) // re-registered from offset 0, fully uploaded
     }
 
-    // Recovery that fails again → the item lands in `failed`, sync continues.
+    // Recovery that fails again → the item lands in `failed`, sync continues, and
+    // — crucially — NO `deleted` tombstone is created for the still-present asset.
     @Test func recoveryThatFailsAgainRecordsFailure() async throws {
-        // markLostOnFirstDataOp: even the fresh record created during recovery is
-        // lost on its first data op, so the single recovery attempt fails too.
+        // markLostOnFirstDataOp: even the re-registered record is lost on its first
+        // data op, so the single recovery attempt fails too.
         let server = FakeServer(host: "sc-recover-fail.test")
         server.markLostOnFirstDataOp = true
         server.seed(localIdentifier: "A#photo", status: "backend_lost")
@@ -138,6 +141,28 @@ extension SyncCoordinatorTests {
 
         #expect(report.uploaded.isEmpty)
         #expect(report.failed.map(\.key) == [ResourceKey(localIdentifier: "A", kind: .photo)])
+        // No stranding tombstone: recovery never deletes, so the record is not `deleted`.
+        #expect(server.all().allSatisfy { $0.status != "deleted" })
+    }
+
+    // No stranding across syncs: a failed recovery leaves a resumable record (not a
+    // `deleted` tombstone the planner would skip), so the NEXT sync completes it.
+    @Test func recoveryFailureLeavesResumableRecordForNextSync() async throws {
+        let server = FakeServer(host: "sc-recover-twosync.test")
+        server.markLostOnFirstDataOp = true
+        server.seed(localIdentifier: "A#photo", status: "backend_lost")
+
+        let r1 = try await makeCoordinator(server: server, library: [resource("A")]).sync(range: .all)
+        #expect(r1.failed.count == 1)
+        #expect(server.all().allSatisfy { $0.status != "deleted" }) // asset not stranded
+
+        // Server stops losing the backend; the still-present asset must complete now.
+        server.markLostOnFirstDataOp = false
+        server.backendLostIDs = []
+        let r2 = try await makeCoordinator(server: server, library: [resource("A")]).sync(range: .all)
+        #expect(r2.uploaded == [ResourceKey(localIdentifier: "A", kind: .photo)])
+        #expect(server.all().count == 1)
+        #expect(server.all().contains { $0.status == "complete" })
     }
 }
 
@@ -212,5 +237,20 @@ extension SyncCoordinatorTests {
         #expect(report.uploaded == [ResourceKey(localIdentifier: "JAN", kind: .photo)])
         #expect(report.deleted.isEmpty)
         #expect(server.record(id: febID)?.status == "complete") // untouched
+    }
+
+    // The coordinator must forward the requested range to the library (enumeration
+    // is range-scoped at the source, not just in the planner).
+    @Test func coordinatorForwardsRangeToLibrary() async throws {
+        let server = FakeServer(host: "sc-range-forward.test")
+        let lib = FakeAssetLibrary(items: [], error: nil)
+        let client = server.client()
+        let coord = SyncCoordinator(
+            client: client, library: lib,
+            uploader: AssetUploader(client: client, source: FakeAssetDataSource(totalBytes: 10, blobSize: 10)),
+            state: InMemorySyncStateStore(), now: { Date(timeIntervalSince1970: 0) })
+        let jan = date("2024-01-01T00:00:00Z")...date("2024-01-31T23:59:59Z")
+        _ = try await coord.sync(range: .dates(jan))
+        #expect(lib.requestedRanges == [.dates(jan)])
     }
 }

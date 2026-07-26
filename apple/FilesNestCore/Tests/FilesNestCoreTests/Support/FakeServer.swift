@@ -92,12 +92,31 @@ final class FakeServer: @unchecked Sendable {
         case ("POST", 1) where parts[0] == "uploads":
             let body = (try? JSONSerialization.jsonObject(with: req.httpBodyData())) as? [String: Any] ?? [:]
             let loc = body["local_identifier"] as? String ?? ""
+            // The real server keys by SafeID(localIdentifier): at most one record
+            // per localIdentifier. On conflict it branches on status (handlers.go:258).
+            if let existingID = records.first(where: { $0.value.localIdentifier == loc })?.key {
+                var existing = records[existingID]!
+                switch existing.status {
+                case "backend_lost", "deleted":
+                    // ReRegister: fresh backend, reset to uploading, offset 0, SAME id.
+                    existing.status = "uploading"
+                    existing.offset = 0
+                    existing.length = nil
+                    existing.backendID = "b-\(existingID)-r\(nextID)"; nextID += 1
+                    records[existingID] = existing
+                    backendLostIDs.remove(existingID)
+                    return resp(201, [:], try JSONSerialization.data(withJSONObject: json(existing)))
+                default:
+                    // Idempotent: still uploading / completing / complete.
+                    return resp(200, [:], try JSONSerialization.data(withJSONObject: json(existing)))
+                }
+            }
             let id = "id-\(nextID)"; nextID += 1
             let rec = Record(id: id, localIdentifier: loc, status: "uploading", backendID: "b-\(id)",
                              filename: body["filename"] as? String, bundleID: body["bundle_id"] as? String,
                              creationDate: body["creation_date"] as? String, offset: 0, length: nil)
             records[id] = rec
-            return resp(200, [:], try JSONSerialization.data(withJSONObject: json(rec)))
+            return resp(201, [:], try JSONSerialization.data(withJSONObject: json(rec)))
 
         case ("GET", 1) where parts[0] == "uploads":
             let sorted = records.values.sorted { ($0.creationDate ?? "", $0.id) < ($1.creationDate ?? "", $1.id) }
@@ -114,14 +133,14 @@ final class FakeServer: @unchecked Sendable {
         case ("HEAD", 3) where parts[0] == "uploads" && parts[2] == "data":
             let id = parts[1]
             if markLostOnFirstDataOp && !backendLostIDs.contains(id) { backendLostIDs.insert(id) }
-            if backendLostIDs.contains(id) { return lost() }
+            if backendLostIDs.contains(id) { records[id]?.status = "backend_lost"; return lost() }
             guard let r = records[id] else { return resp(404) }
             return resp(200, ["Upload-Offset": String(r.offset)])
 
         case ("PATCH", 3) where parts[0] == "uploads" && parts[2] == "data":
             let id = parts[1]
             if markLostOnFirstDataOp && !backendLostIDs.contains(id) { backendLostIDs.insert(id) }
-            if backendLostIDs.contains(id) { return lost() }
+            if backendLostIDs.contains(id) { records[id]?.status = "backend_lost"; return lost() }
             guard var r = records[id] else { return resp(404) }
             let off = Int64(req.value(forHTTPHeaderField: "Upload-Offset") ?? "0") ?? 0
             r.offset = off + req.httpBodyByteCount()
@@ -132,7 +151,7 @@ final class FakeServer: @unchecked Sendable {
         case ("PATCH", 3) where parts[0] == "uploads" && parts[2] == "status":
             let id = parts[1]
             if markLostOnFirstDataOp && !backendLostIDs.contains(id) { backendLostIDs.insert(id) }
-            if backendLostIDs.contains(id) { return lost() }
+            if backendLostIDs.contains(id) { records[id]?.status = "backend_lost"; return lost() }
             guard var r = records[id] else { return resp(404) }
             r.status = "complete"; records[id] = r
             return resp(200)

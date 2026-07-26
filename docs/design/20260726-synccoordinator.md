@@ -250,9 +250,10 @@ public struct SyncCoordinator: Sendable {
    accumulating all `UploadRecord`s.
 4. `plan = SyncPlanner.plan(library: library, server: records, range: range)`.
 5. **Uploads, sequentially, in plan order.** For each `PlannedUpload`, via one `uploadOne` helper:
-   - `.recover(uploadID)` → `client.deleteUpload(id: uploadID)` first.
    - `.create` / `.recover` → `let rec = try await client.createUpload(request)` where `request =
-     CreateUploadRequest(localIdentifier: key.encoded, filename:, creationDate:, bundleID:)`.
+     CreateUploadRequest(localIdentifier: key.encoded, filename:, creationDate:, bundleID:)`. For
+     `.recover`, the server ReRegisters the existing `backend_lost` record in place (same id, fresh
+     backend, reset to `uploading`) rather than creating a duplicate (`handlers.go:258`).
    - `.resume(uploadID)` → use the existing `uploadID` (no create).
    - Then `try await uploader.upload(assetID: key.encoded, uploadID: id)`. **`AssetUploader.upload`
      already PATCHes every blob and calls `markComplete` in `finish()`** — the coordinator does
@@ -260,8 +261,9 @@ public struct SyncCoordinator: Sendable {
    - On success → append `key` to `report.uploaded`.
    - **Error handling** around the whole create+upload+complete flow:
      - `ServerClientError.backendLost` (can surface from the HEAD offset, a data PATCH, or the
-       status PATCH — all inside `uploader.upload`) → recover **once**: `deleteUpload(id)` →
-       `createUpload` → `uploader.upload`. If recovery itself throws → record `failed`.
+       status PATCH — all inside `uploader.upload`) → recover **once**: `createUpload` →
+       `uploader.upload`. **No `deleteUpload`** (post-review correction, §6.3). If recovery itself
+       throws → record `failed`.
      - `is CancellationError` → **rethrow** (stop the sync).
      - any other error → append `FailedItem(key, reason)`; continue to the next item.
 6. **Deletes, sequentially, after all uploads.** For each `PlannedDelete`: `client.deleteUpload(id:)`;
@@ -280,6 +282,33 @@ public struct SyncCoordinator: Sendable {
 Re-running `sync` after any interruption is idempotent: `.create` only fires for keys with no server
 record; a partially-uploaded item is `uploading` on the server → `.resume` from HEAD; a finished one
 is `complete` → skipped. No client-side position is needed or kept (§3, decision 3).
+
+### 6.3 Recovery does not delete (post-review correction)
+
+The original design (and `architecture.md` step 6) had recovery call `deleteUpload` → `createUpload`
+→ upload. The Codex slice-completion review surfaced that this can **strand a still-present asset**:
+the `deleteUpload` leaves a `deleted` tombstone, and if recovery is interrupted before the re-create
+succeeds, the next sync sees that tombstone for a library asset that is still present. The planner
+skips `deleted` records (§5.1, matching the architecture idempotency table) — so the asset is never
+re-uploaded.
+
+Verified against the server: `GET /uploads` **returns `deleted` records** (the `DateIndex` key is
+status-agnostic and survives `UpdateStatus`, `store/index.go:78` / `store/uploads.go:271`), so the
+planner really would see the tombstone. And `POST /uploads` on a `backend_lost` **or** `deleted`
+record calls `ReRegister`, resetting it to `uploading` in place with a fresh backend
+(`handlers.go:258`).
+
+The fix keeps the desired "skip `deleted` unless explicitly re-syncing" behavior **unchanged** and
+removes the hazard at its source: **recovery no longer deletes.** `backend_lost` → `createUpload`
+(the server ReRegisters in place) → upload from 0. The `deleteUpload` was redundant anyway — the lost
+backend is already gone, and `ReRegister` handles `backend_lost` directly. A mid-recovery failure now
+leaves a resumable `uploading` record instead of a `deleted` tombstone, so re-diff resume (§6.2) is
+genuinely non-stranding. Proven by `recoveryFailureLeavesResumableRecordForNextSync` (two syncs) and
+the no-`DELETE` assertion in `backendLostRecordIsRecoveredProactively`.
+
+The `FakeServer` harness was correspondingly corrected to model `SafeID`-keyed create + `ReRegister`
+(the prior version minted a fresh id on every create, so recovery tests asserted a *new* id when the
+real server reuses it).
 
 ---
 
@@ -317,7 +346,7 @@ Table tests for every §5.1 row and every §5.2 case, plus:
 
 - `.create` happy path: createUpload → data PATCHes → markComplete (via uploader) → `uploaded`.
 - `.resume`: existing `uploading` record, uploader resumes from a non-zero HEAD offset.
-- `.recover`: `backend_lost` record → delete → create → upload from 0.
+- `.recover`: `backend_lost` record → create (server ReRegisters in place) → upload from 0.
 - `backendLost` injected at HEAD, at a data PATCH, and at the status PATCH — each recovers once.
 - Recovery that fails again → item lands in `failed`, sync continues.
 - Skip-and-continue: one item throws a transport error; later items still upload; report is accurate.
@@ -335,7 +364,7 @@ Round-trips a date through an injected in-memory `UserDefaults(suiteName:)`; abs
 
 | Condition | Handling |
 |---|---|
-| `ServerClientError.backendLost` (resume/upload/complete) | auto-recover once: delete → create → upload from 0 |
+| `ServerClientError.backendLost` (resume/upload/complete) | auto-recover once: create (server ReRegisters in place) → upload from 0; no delete (§6.3) |
 | recovery itself fails | `FailedItem`, continue |
 | transport / source / other `ServerClientError` | `FailedItem`, continue |
 | `CancellationError` | rethrow, stop sync, no partial report |

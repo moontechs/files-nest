@@ -64,6 +64,7 @@ public struct SyncCoordinator: Sendable {
         var records: [UploadRecord] = []
         var cursor: String? = nil
         repeat {
+            try Task.checkCancellation()
             let page = try await client.listUploads(cursor: cursor)
             records.append(contentsOf: page.items)
             cursor = page.nextCursor
@@ -79,8 +80,8 @@ public struct SyncCoordinator: Sendable {
             try await uploadWithRecovery(assetKey: assetKey, uploadID: record.id, resource: item.resource)
         case .resume(let uploadID):
             try await uploadWithRecovery(assetKey: assetKey, uploadID: uploadID, resource: item.resource)
-        case .recover(let uploadID):
-            try await recover(assetKey: assetKey, uploadID: uploadID, resource: item.resource)
+        case .recover:
+            try await recover(assetKey: assetKey, resource: item.resource)
         }
     }
 
@@ -90,13 +91,18 @@ public struct SyncCoordinator: Sendable {
         do {
             try await uploader.upload(assetID: assetKey, uploadID: uploadID)
         } catch ServerClientError.backendLost {
-            try await recover(assetKey: assetKey, uploadID: uploadID, resource: resource)
+            try await recover(assetKey: assetKey, resource: resource)
         }
     }
 
-    /// delete lost record → re-register → upload from 0. No further recovery.
-    private func recover(assetKey: String, uploadID: String, resource: AssetResource) async throws {
-        try await client.deleteUpload(id: uploadID)
+    /// Re-register via POST and upload from 0. The server resets a `backend_lost`
+    /// record back to `uploading` with a fresh backend (`ReRegister`,
+    /// `handlers.go:258`), so NO `deleteUpload` is needed. Deleting first would be
+    /// redundant (the lost backend is already gone) and would leave a `deleted`
+    /// tombstone if recovery were interrupted — which the planner skips, stranding
+    /// a still-present asset. A mid-recovery failure instead leaves a resumable
+    /// `uploading` record. No further recovery on a second backend_lost.
+    private func recover(assetKey: String, resource: AssetResource) async throws {
         let record = try await create(resource)
         try await uploader.upload(assetID: assetKey, uploadID: record.id)
     }

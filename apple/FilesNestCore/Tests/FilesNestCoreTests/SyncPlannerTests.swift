@@ -81,6 +81,14 @@ struct SyncPlannerTests {
         #expect(plan.deletes.map(\.uploadID) == ["J1"])
     }
 
+    @Test func datesRangeEndpointsAreInclusive() {
+        let start = date("2024-01-01T00:00:00Z"); let end = date("2024-01-31T23:59:59Z")
+        let onStart = rec("S", status: .complete, id: "S1", date: "2024-01-01T00:00:00Z")
+        let onEnd = rec("E", status: .complete, id: "E1", date: "2024-01-31T23:59:59Z")
+        let plan = SyncPlanner.plan(library: [], server: [onStart, onEnd], range: .dates(start...end))
+        #expect(Set(plan.deletes.map(\.uploadID)) == ["S1", "E1"])
+    }
+
     @Test func nilCreationDateNeverDeletedUnderDatesButDeletedUnderAll() {
         let jan = date("2024-01-01T00:00:00Z")...date("2024-01-31T23:59:59Z")
         let noDate = rec("NODATE", status: .complete, id: "N1", date: nil)
