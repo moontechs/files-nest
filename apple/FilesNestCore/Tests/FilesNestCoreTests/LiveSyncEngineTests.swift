@@ -216,6 +216,27 @@ import Foundation
         }
     }
 
+    @Test func signOutDuringSyncStaysSignedOut() async {
+        let started = Gate(); let release = Gate()
+        let creds = MutableCreds(.init(username: "u", password: "p"))
+        let engine = LiveSyncEngine(credentials: creds, state: InMemorySyncStateStore(),
+                                    perform: { _, _ in
+            await started.open()
+            await release.wait()             // completes normally after sign-out
+            return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 5)
+        },
+                                    refreshBackedUp: { 9 })
+        await engine.start()
+        let t = Task { await engine.syncNow() }
+        await started.wait()
+        creds.set(nil)
+        await engine.start()                 // sign-out supersedes the in-flight run
+        await release.open()
+        await t.value
+        #expect(await firstStatus(engine) == .signedOut)
+        #expect(await firstSummary(engine) == .empty)   // in-flight run's publishes are dropped
+    }
+
     @Test func signOutClearsSummary() async {
         let creds = MutableCreds(.init(username: "u", password: "p"))
         let engine = LiveSyncEngine(credentials: creds, state: InMemorySyncStateStore(),
