@@ -25,3 +25,6 @@ build/
 # ---- Local signing override (keeps DEVELOPMENT_TEAM out of the public repo) ----
 Local.xcconfig
 *.local.xcconfig
+
+# ---- Local server runtime data (created by README local-dev steps) ----
+server/data/
