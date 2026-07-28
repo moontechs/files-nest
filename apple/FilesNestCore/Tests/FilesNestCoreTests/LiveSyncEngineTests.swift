@@ -79,7 +79,7 @@ import Foundation
         let key = ResourceKey(localIdentifier: "X", kind: .photo)
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in
-            SyncReport(uploaded: [], deleted: [], failed: [FailedItem(key: key, reason: "boom")], skipped: 0)
+            SyncReport(uploaded: [], deleted: [], failed: [FailedItem(key: key, filename: "X.jpg", reason: "boom")], skipped: 0)
         })
         await engine.start()
         await engine.syncNow()

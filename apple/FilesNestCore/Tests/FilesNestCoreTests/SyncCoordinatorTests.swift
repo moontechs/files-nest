@@ -186,6 +186,7 @@ extension SyncCoordinatorTests {
         // Neither completed, but BOTH were attempted (no fail-fast) and reported.
         #expect(report.uploaded.isEmpty)
         #expect(Set(report.failed.map { $0.key.localIdentifier }) == ["A", "B"])
+        #expect(report.failed.allSatisfy { $0.filename == "IMG.jpg" })
         // Both create calls happened → two records exist server-side (proof it didn't abort after A).
         #expect(server.all().count == 2)
     }
@@ -200,6 +201,7 @@ extension SyncCoordinatorTests {
 
         #expect(report.deleted == [ResourceKey(localIdentifier: "GONE2", kind: .photo)])
         #expect(report.failed.map { $0.key.localIdentifier } == ["GONE1"])
+        #expect(report.failed.map(\.filename) == ["GONE1#photo"])
     }
 
     // Cancellation stops promptly and propagates (not swallowed into `failed`).

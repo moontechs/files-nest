@@ -16,10 +16,12 @@ public struct SyncReport: Sendable, Equatable {
 
 public struct FailedItem: Sendable, Equatable {
     public let key: ResourceKey
-    public let reason: String   // human-readable; the UI slice renders these as a list
+    public let filename: String   // human-readable; the failed-items UI renders this
+    public let reason: String
 
-    public init(key: ResourceKey, reason: String) {
+    public init(key: ResourceKey, filename: String, reason: String) {
         self.key = key
+        self.filename = filename
         self.reason = reason
     }
 }
