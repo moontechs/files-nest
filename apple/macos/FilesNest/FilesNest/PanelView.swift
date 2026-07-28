@@ -84,7 +84,9 @@ struct PanelView: View {
 
     @ViewBuilder private var failedTile: some View {
         let count = model.summary.failed.count
-        if count > 0 {
+        if isSignedOut {
+            tile("—", "Failed", .primary)
+        } else if count > 0 {
             Button { withAnimation(slide) { showingFailed = true } } label: {
                 tile("\(count)", "Failed", .orange)
             }.buttonStyle(.plain)

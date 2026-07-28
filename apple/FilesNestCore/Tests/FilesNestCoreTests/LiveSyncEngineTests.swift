@@ -195,12 +195,55 @@ import Foundation
         await t.value
         if case .paused = await firstStatus(engine) {} else { Issue.record("expected .paused") }
     }
+
+    @Test func completionWhilePausedStaysPaused() async {
+        let started = Gate(); let release = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, onProgress in
+            await started.open()
+            await release.wait()             // ignores cancellation → the sync completes normally
+            onProgress(SyncProgress(completed: 1, total: 1, currentItemName: "x", bytesRemaining: nil))
+            return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 5)
+        })
+        await engine.start()
+        let t = Task { await engine.syncNow() }
+        await started.wait()
+        await engine.pause()                 // pausedFlag set; task.cancel ignored by this perform
+        await release.open()
+        await t.value
+        if case .paused = await firstStatus(engine) {} else {
+            Issue.record("a sync completing after pause must stay .paused")
+        }
+    }
+
+    @Test func signOutClearsSummary() async {
+        let creds = MutableCreds(.init(username: "u", password: "p"))
+        let engine = LiveSyncEngine(credentials: creds, state: InMemorySyncStateStore(),
+                                    perform: { _, _ in self.emptyReport() },
+                                    refreshBackedUp: { 9 })
+        await engine.start()
+        #expect(await firstSummary(engine) == SyncSummary(backedUp: 9, failed: []))
+        creds.set(nil)
+        await engine.start()
+        #expect(await firstSummary(engine) == .empty)
+        #expect(await firstStatus(engine) == .signedOut)
+    }
 }
 
 /// Counts `perform` invocations across concurrency.
 actor Counter {
     private(set) var value = 0
     func inc() { value += 1 }
+}
+
+/// Credential store whose value can change between calls (for sign-out tests).
+final class MutableCreds: CredentialStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var creds: BasicCredentials?
+    init(_ c: BasicCredentials?) { creds = c }
+    func basicCredentials() async throws -> BasicCredentials? { read() }
+    private func read() -> BasicCredentials? { lock.lock(); defer { lock.unlock() }; return creds }
+    func set(_ c: BasicCredentials?) { lock.lock(); creds = c; lock.unlock() }
 }
 
 /// One-shot async gate: `wait()` suspends until `open()` (idempotent).

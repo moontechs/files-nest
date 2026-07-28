@@ -15,7 +15,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private let credentials: any CredentialStore
     private let state: any SyncStateStore
     private let perform: Perform
-    private let refreshBackedUp: @Sendable () async throws -> Int
+    private let refreshBackedUp: (@Sendable () async throws -> Int)?
     private let now: @Sendable () -> Date
 
     private let lock = NSLock()
@@ -30,7 +30,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     public init(credentials: any CredentialStore,
                 state: any SyncStateStore,
                 perform: @escaping Perform,
-                refreshBackedUp: @escaping @Sendable () async throws -> Int = { 0 },
+                refreshBackedUp: (@Sendable () async throws -> Int)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.credentials = credentials
         self.state = state
@@ -115,10 +115,10 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
 
     public func start() async {
         let creds = try? await credentials.basicCredentials()
-        guard creds != nil else { set(.signedOut); return }
+        guard creds != nil else { set(.signedOut); setSummary(.empty); return }   // drop stale failures
         setPaused(false)
         set(.watching(lastSync: lastSync))
-        if let count = try? await refreshBackedUp() {
+        if let refresh = refreshBackedUp, let count = try? await refresh() {
             setSummary(SyncSummary(backedUp: count, failed: []))
         }
     }
@@ -145,19 +145,27 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                                   currentItemName: nil, bytesRemaining: nil)))
 
         let task = Task { [perform] () throws -> SyncReport in
-            try await perform(.all) { [weak self] progress in self?.set(.syncing(progress)) }
+            try await perform(.all) { [weak self] progress in
+                guard let self, !self.isPausedFlag else { return }   // don't overwrite .paused with late progress
+                self.set(.syncing(progress))
+            }
         }
         storeSyncTask(task)
         defer { storeSyncTask(nil) }
+        if isPausedFlag { task.cancel() }        // pause raced ahead of the store → cancel now
 
         do {
             let report = try await task.value
             if !report.failed.isEmpty { logFailures(report.failed) }
-            // Backed up = live server count (design §Backed-up source); fall back to the
-            // report's own count if the refresh query fails.
-            let backedUp = (try? await refreshBackedUp()) ?? (report.skipped + report.uploaded.count)
+            // Backed up = live server count; fall back to the report if no refresh or it fails.
+            let backedUp: Int
+            if let refresh = refreshBackedUp, let count = try? await refresh() {
+                backedUp = count
+            } else {
+                backedUp = report.skipped + report.uploaded.count
+            }
             setSummary(SyncSummary(backedUp: backedUp, failed: report.failed))
-            set(.watching(lastSync: lastSync))
+            if !isPausedFlag { set(.watching(lastSync: lastSync)) }   // paused during the run → stay .paused
         } catch is CancellationError {
             // Paused → stay paused; a non-pause cancellation returns to idle.
             if isPausedFlag { set(.paused(pending: 0)) } else { set(.watching(lastSync: lastSync)) }
