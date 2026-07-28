@@ -37,9 +37,13 @@ struct SettingsView: View {
                 }
 
             Divider()
+            if let saveError = model.saveError {
+                Label(saveError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.red).lineLimit(2)
+            }
             HStack {
                 Spacer()
-                Button("Save") { model.save(); onDone() }
+                Button("Save") { if model.save() { onDone() } }
                     .buttonStyle(.borderedProminent).disabled(!model.hasCredentials)
             }
         }

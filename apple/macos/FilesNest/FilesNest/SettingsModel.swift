@@ -9,6 +9,7 @@ final class SettingsModel: ObservableObject {
     @Published var password = ""
     @Published var testResult: ConnectionResult?
     @Published var isTesting = false
+    @Published var saveError: String?
 
     private let urlStore: any ServerURLStore
     private let credStore: KeychainStore
@@ -39,10 +40,24 @@ final class SettingsModel: ObservableObject {
                                        credentials: .init(username: username, password: password))
     }
 
-    func save() {
-        guard let url = URL(string: serverURL), !serverURL.isEmpty else { return }
-        try? credStore.save(.init(username: username, password: password))
+    /// Persists URL + credentials. Returns `false` (and sets `saveError`) if the
+    /// credential write fails, so the caller can keep Settings open and show why —
+    /// a silently swallowed keychain error previously left the app stuck signed-out.
+    @discardableResult
+    func save() -> Bool {
+        guard let url = URL(string: serverURL), !serverURL.isEmpty else {
+            saveError = "Enter a valid server URL."
+            return false
+        }
+        do {
+            try credStore.save(.init(username: username, password: password))
+        } catch {
+            saveError = "Couldn't save credentials to the keychain: \(error)"
+            return false
+        }
         urlStore.save(url)
+        saveError = nil
         onSaved?()
+        return true
     }
 }
