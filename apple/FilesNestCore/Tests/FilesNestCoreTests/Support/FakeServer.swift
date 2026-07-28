@@ -56,7 +56,8 @@ final class FakeServer: @unchecked Sendable {
 
     func client() -> ServerClient {
         MockURLProtocol.setHandler(forHost: host) { [weak self] req in
-            try self!.handle(req)
+            guard let self else { throw URLError(.cancelled) }   // server deallocated mid-request
+            return try self.handle(req)
         }
         return ServerClient(baseURL: URL(string: "https://\(host)")!,
                             credentials: FakeCredentialStore(creds: nil),
