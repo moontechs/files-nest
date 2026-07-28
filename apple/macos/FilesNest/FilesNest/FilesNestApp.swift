@@ -8,10 +8,31 @@ struct FilesNestApp: App {
     @StateObject private var settings: SettingsModel
 
     init() {
-        let defaults = UserDefaults.standard
-        let engine = StubSyncEngine(credentials: KeychainStore())
+        let defaults   = UserDefaults.standard
+        let urlStore   = UserDefaultsServerURLStore(defaults: defaults)
+        let credStore  = KeychainStore()
+        let stateStore = UserDefaultsSyncStateStore(defaults: defaults)
+
+        let engine = LiveSyncEngine(
+            credentials: credStore,
+            state: stateStore,
+            perform: { range, onProgress in
+                // Read URL + creds at sync time so a Settings change takes effect.
+                guard let url = urlStore.load(),
+                      (try await credStore.basicCredentials()) != nil else {
+                    throw NotSignedInError()
+                }
+                let client   = ServerClient(baseURL: url, credentials: credStore)
+                let uploader = AssetUploader(client: client, source: PhotosAssetDataSource())
+                let coordinator = SyncCoordinator(client: client,
+                                                  library: PhotosAssetLibrary(),
+                                                  uploader: uploader,
+                                                  state: stateStore)
+                return try await coordinator.sync(range: range, onProgress: onProgress)
+            })
+
         let appModel = AppModel(engine: engine)
-        let settingsModel = SettingsModel(urlStore: UserDefaultsServerURLStore(defaults: defaults),
+        let settingsModel = SettingsModel(urlStore: urlStore,
                                           credStore: KeychainStore(),
                                           probe: ConnectionProbe())
         settingsModel.onSaved = { appModel.restart() }
@@ -32,3 +53,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
     }
 }
+
+/// Thrown by the sync `perform` closure when no server URL or credentials are set.
+struct NotSignedInError: Error {}

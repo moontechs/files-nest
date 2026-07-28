@@ -254,3 +254,39 @@ extension SyncCoordinatorTests {
         #expect(lib.requestedRanges == [.dates(jan)])
     }
 }
+
+// MARK: - Progress hook
+extension SyncCoordinatorTests {
+    @Test func progressFiresOncePerUploadInPlanOrder() async throws {
+        let server = FakeServer(host: "sc-progress.test")
+        let a = AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                              filename: "A.jpg", creationDate: date("2024-01-01T00:00:00Z"), bundleID: nil)
+        let b = AssetResource(key: ResourceKey(localIdentifier: "B", kind: .photo),
+                              filename: "B.jpg", creationDate: date("2024-02-01T00:00:00Z"), bundleID: nil)
+        let box = ProgressBox()
+
+        _ = try await makeCoordinator(server: server, library: [a, b])
+            .sync(range: .all, onProgress: { box.append($0) })
+
+        #expect(box.values == [
+            SyncProgress(completed: 0, total: 2, currentItemName: "A.jpg", bytesRemaining: nil),
+            SyncProgress(completed: 1, total: 2, currentItemName: "B.jpg", bytesRemaining: nil),
+        ])
+    }
+
+    @Test func progressNotFiredWhenNothingToUpload() async throws {
+        let server = FakeServer(host: "sc-progress-empty.test")
+        let box = ProgressBox()
+        _ = try await makeCoordinator(server: server, library: [])
+            .sync(range: .all, onProgress: { box.append($0) })
+        #expect(box.values.isEmpty)
+    }
+}
+
+/// Thread-safe collector for the `@Sendable` progress callback.
+final class ProgressBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _values: [SyncProgress] = []
+    func append(_ p: SyncProgress) { lock.lock(); _values.append(p); lock.unlock() }
+    var values: [SyncProgress] { lock.lock(); defer { lock.unlock() }; return _values }
+}

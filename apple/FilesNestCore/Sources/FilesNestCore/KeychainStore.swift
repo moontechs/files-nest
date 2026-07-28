@@ -65,12 +65,17 @@ public struct KeychainStore: CredentialStore {
         let password: String
     }
 
+    // NOTE: The macOS data-protection keychain (`kSecUseDataProtectionKeychain: true`)
+    // requires a keychain-access-groups entitlement, which needs a provisioning
+    // profile. This self-hosted, non-App-Store app targets the legacy file-based
+    // keychain instead, which needs no such entitlement. Trade-off: no biometric /
+    // Secure Enclave item protection (unused here) and `kSecAttrAccessible` is
+    // ignored by the file-based keychain. See TN3137.
     private var baseQuery: [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
-            kSecUseDataProtectionKeychain as String: true,
         ]
     }
 

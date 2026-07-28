@@ -22,7 +22,8 @@ public struct SyncCoordinator: Sendable {
         self.now = now
     }
 
-    public func sync(range: SyncRange) async throws -> SyncReport {
+    public func sync(range: SyncRange,
+                     onProgress: @Sendable (SyncProgress) -> Void = { _ in }) async throws -> SyncReport {
         state.saveLastSyncStarted(now())
 
         let libraryResources = try await library.resources(in: range)
@@ -33,8 +34,13 @@ public struct SyncCoordinator: Sendable {
         var deleted: [ResourceKey] = []
         var failed: [FailedItem] = []
 
-        for item in plan.uploads {
+        let uploadTotal = plan.uploads.count
+        for (index, item) in plan.uploads.enumerated() {
             try Task.checkCancellation()
+            onProgress(SyncProgress(completed: index,
+                                    total: uploadTotal,
+                                    currentItemName: item.resource.filename,
+                                    bytesRemaining: nil))
             do {
                 try await execute(item)
                 uploaded.append(item.resource.key)
