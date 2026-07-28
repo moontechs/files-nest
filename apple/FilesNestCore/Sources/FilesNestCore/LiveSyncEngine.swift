@@ -10,12 +10,22 @@ import Foundation
 /// keeping this unit headless-testable with a fake `perform`.
 ///
 /// ## Concurrency
-/// A single `NSLock` guards all mutable state. Lifecycle transitions
-/// (`pause`/`resume`/sign-out/new sync) atomically **bump `generation`** and set a
-/// terminal status under one lock hold. Every publish that belongs to a running sync
-/// is gated on its captured generation (`publish(gen:…)`), so a transition that lands
-/// mid-sync causes the run's later progress/summary/terminal publishes to be dropped
-/// rather than clobbering the new state. The lock is never held across an `await`.
+/// A single `NSLock` guards all mutable state; it is never held across an `await`.
+/// Two monotonic counters make lifecycle transitions race-free:
+///
+/// - **`generation`** gates run publishes. `beginRun` and every status transition
+///   (`pause`/`resume`/sign-out/sign-in) bump it under the lock; a running sync's
+///   progress/summary/terminal publishes go through `publish(gen:)` and are dropped
+///   once the generation moves on — so a transition landing mid-sync can't be
+///   clobbered by the superseded run.
+/// - **`lifecycleEpoch`** orders `start()` against everything else. `start()` reads
+///   credentials via an `await`, so it snapshots the epoch at entry and re-checks it
+///   (under the same lock as its apply) before publishing; `pause`/`resume`/`beginRun`
+///   and other `start()`s all bump it, so a stale `start()` decision is dropped rather
+///   than overwriting a newer sign-out/pause/resume.
+///
+/// Synchronous transitions (`pause`/`resume`/`beginRun`) do their guard **and** their
+/// state change under one lock hold, so no check-then-act window exists.
 public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     public typealias Perform =
         @Sendable (SyncRange, @Sendable (SyncProgress) -> Void) async throws -> SyncReport
@@ -29,7 +39,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private let lock = NSLock()
     private var status: SyncStatus = .signedOut
     private var summary: SyncSummary = .empty
-    private var generation: UInt64 = 0        // bumped by every lifecycle transition
+    private var generation: UInt64 = 0        // gates run publishes
+    private var lifecycleEpoch: UInt64 = 0    // orders start() against other transitions
     private var isSyncing = false
     private var syncTask: Task<SyncReport, Error>?
     private var statusConts: [UUID: AsyncStream<SyncStatus>.Continuation] = [:]
@@ -79,26 +90,6 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
 
     // MARK: - Generation-gated publishing
 
-    /// Atomically bump the generation and set a terminal status (+ optional summary),
-    /// superseding any in-flight sync. Returns the new generation and the in-flight
-    /// task to cancel *outside* the lock.
-    @discardableResult
-    private func supersede(status newStatus: SyncStatus,
-                           summary newSummary: SyncSummary? = nil) -> (gen: UInt64, task: Task<SyncReport, Error>?) {
-        lock.lock()
-        generation &+= 1
-        let gen = generation
-        status = newStatus
-        let statusListeners = Array(statusConts.values)
-        var summaryListeners: [AsyncStream<SyncSummary>.Continuation] = []
-        if let newSummary { summary = newSummary; summaryListeners = Array(summaryConts.values) }
-        let t = syncTask
-        lock.unlock()
-        for c in statusListeners { c.yield(newStatus) }
-        if let newSummary { for c in summaryListeners { c.yield(newSummary) } }
-        return (gen, t)
-    }
-
     /// Publish a status only if `gen` is still the current generation.
     private func publish(gen: UInt64, status newStatus: SyncStatus) {
         lock.lock()
@@ -119,14 +110,15 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         for c in listeners { c.yield(newSummary) }
     }
 
-    /// Claim the single sync slot: guard + generation bump + initial `.syncing(0/0)`,
-    /// all atomically so `pause`/sign-out cannot interleave between the entry check and
-    /// the first publish. Returns the run's generation, or nil if a sync can't start.
+    /// Claim the single sync slot: guard + counter bumps + initial `.syncing(0/0)`,
+    /// all atomically so no lifecycle op can interleave between the entry check and the
+    /// first publish. Returns the run's generation, or nil if a sync can't start.
     private func beginRun() -> UInt64? {
         lock.lock()
         if isSyncing { lock.unlock(); return nil }
         if case .signedOut = status { lock.unlock(); return nil }
         if case .paused = status { lock.unlock(); return nil }
+        lifecycleEpoch &+= 1
         generation &+= 1
         let gen = generation
         isSyncing = true
@@ -143,40 +135,89 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private func storeSyncTask(_ t: Task<SyncReport, Error>?) { lock.lock(); syncTask = t; lock.unlock() }
     private func currentGeneration() -> UInt64 { lock.lock(); defer { lock.unlock() }; return generation }
 
-    private var isSignedOut: Bool {
-        lock.lock(); defer { lock.unlock() }
-        if case .signedOut = status { return true }
-        return false
-    }
-
     /// Last sync = the coordinator-persisted start time (single source of truth).
     private var lastSync: Date? { state.loadLastSyncStarted() }
 
     // MARK: - SyncEngine
 
     public func start() async {
+        let myEpoch = claimLifecycleEpoch()
         let creds = try? await credentials.basicCredentials()
-        guard creds != nil else {
-            let (_, t) = supersede(status: .signedOut, summary: .empty)   // drop stale state + stop in-flight work
-            t?.cancel()
-            return
-        }
-        let (gen, _) = supersede(status: .watching(lastSync: lastSync))
-        // Live "Backed up" refresh; gated so a sign-out landing after this drops the stale value.
-        if let refresh = refreshBackedUp, let count = try? await refresh() {
+        let ls = lastSync
+        let (refreshGen, cancelTask) = applyStart(myEpoch: myEpoch, signedIn: creds != nil, lastSync: ls)
+        cancelTask?.cancel()
+        if let gen = refreshGen, let refresh = refreshBackedUp, let count = try? await refresh() {
             publish(gen: gen, summary: SyncSummary(backedUp: count, failed: []))
         }
     }
 
-    public func pause() async {
-        guard !isSignedOut else { return }
-        let (_, t) = supersede(status: .paused(pending: 0))
-        t?.cancel()                          // coordinator checks cancellation between items
+    public func pause() async { pauseLocked()?.cancel() }   // coordinator checks cancellation between items
+
+    public func resume() async { resumeLocked() }
+
+    // MARK: - Synchronous locked transitions (NSLock is illegal in async contexts)
+
+    private func claimLifecycleEpoch() -> UInt64 {
+        lock.lock(); lifecycleEpoch &+= 1; let e = lifecycleEpoch; lock.unlock(); return e
     }
 
-    public func resume() async {
-        guard !isSignedOut else { return }
-        supersede(status: .watching(lastSync: lastSync))
+    /// Final atomic apply for `start()`. Returns the generation to refresh the summary
+    /// under (nil = don't) and any in-flight task to cancel. Drops if superseded.
+    private func applyStart(myEpoch: UInt64, signedIn: Bool, lastSync ls: Date?) -> (refreshGen: UInt64?, cancel: Task<SyncReport, Error>?) {
+        lock.lock()
+        guard myEpoch == lifecycleEpoch else { lock.unlock(); return (nil, nil) }
+        if !signedIn {
+            generation &+= 1
+            status = .signedOut
+            summary = .empty
+            let scs = Array(statusConts.values)
+            let mcs = Array(summaryConts.values)
+            let t = syncTask
+            lock.unlock()
+            for c in scs { c.yield(.signedOut) }
+            for c in mcs { c.yield(.empty) }
+            return (nil, t)                              // stop any in-flight sync
+        }
+        // Signed in. Don't clobber a running sync's status — just refresh the count.
+        if isSyncing {
+            let g = generation
+            lock.unlock()
+            return (g, nil)
+        }
+        generation &+= 1
+        let g = generation
+        let s = SyncStatus.watching(lastSync: ls)
+        status = s
+        let scs = Array(statusConts.values)
+        lock.unlock()
+        for c in scs { c.yield(s) }
+        return (g, nil)
+    }
+
+    private func pauseLocked() -> Task<SyncReport, Error>? {
+        lock.lock()
+        if case .signedOut = status { lock.unlock(); return nil }   // atomic guard + transition
+        lifecycleEpoch &+= 1
+        generation &+= 1
+        status = .paused(pending: 0)
+        let scs = Array(statusConts.values)
+        let t = syncTask
+        lock.unlock()
+        for c in scs { c.yield(.paused(pending: 0)) }
+        return t
+    }
+
+    private func resumeLocked() {
+        let ls = lastSync
+        lock.lock()
+        if case .signedOut = status { lock.unlock(); return }
+        lifecycleEpoch &+= 1
+        generation &+= 1
+        let s = SyncStatus.watching(lastSync: ls)
+        status = s
+        let scs = Array(statusConts.values)
+        lock.unlock()
+        for c in scs { c.yield(s) }
     }
 
     public func syncNow() async {
