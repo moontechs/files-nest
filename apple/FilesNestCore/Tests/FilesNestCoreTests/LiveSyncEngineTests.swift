@@ -243,6 +243,32 @@ import Foundation
         #expect(await awaitStatus(engine) { $0 == .signedOut } == .signedOut)
         #expect(await awaitSummary(engine) { $0 == .empty } == .empty)
     }
+
+    @Test func startDuringSyncDoesNotStrandTheEngine() async {
+        let calls = Counter()
+        let started = Gate(); let release = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in
+            await calls.inc()
+            await started.open()
+            await release.wait()
+            return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 1)
+        })
+        await engine.start()
+        await engine.syncNow()
+        await started.wait()             // sync 1 running
+        await engine.start()             // restart (e.g. Settings save) during the active sync
+        await engine.settle()
+        await release.open()
+        _ = await awaitSummary(engine) { $0.backedUp == 1 }   // sync 1 completed → child cleared
+
+        // A subsequent syncNow must still be accepted (not permanently ignored).
+        var it = engine.statusStream().makeAsyncIterator()
+        await engine.syncNow()
+        var sawSyncing = false
+        while let s = await it.next() { if case .syncing = s { sawSyncing = true; break } }
+        #expect(sawSyncing)   // accepted, not permanently ignored (the strand bug)
+    }
 }
 
 /// Counts `perform` invocations across concurrency.

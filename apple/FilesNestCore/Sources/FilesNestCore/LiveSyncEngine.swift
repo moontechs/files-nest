@@ -78,7 +78,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         }
     }
 
-    deinit { finishCommands() }
+    deinit { syncChild?.cancel(); finishCommands() }   // stop in-flight upload work when dropped
 
     // MARK: - Streams
 
@@ -144,8 +144,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
 
     private func doStart() async {
         let creds = try? await credentials.basicCredentials()
-        generation &+= 1
         guard creds != nil else {
+            generation &+= 1                            // supersede any in-flight run
             signedIn = false
             syncChild?.cancel(); syncChild = nil
             setStatus(.signedOut)
@@ -153,7 +153,13 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
             return
         }
         signedIn = true
-        if !isSyncingStatus { setStatus(.watching(lastSync: lastSync)) }   // don't clobber a running sync
+        // Don't bump the generation while a sync is running: that would orphan its
+        // in-flight child (its `.finished` would be dropped, leaving `syncChild` set
+        // forever). Leave the run intact and just refresh the count.
+        if !isSyncingStatus {
+            generation &+= 1
+            setStatus(.watching(lastSync: lastSync))
+        }
         if let refresh = refreshBackedUp, let count = try? await refresh() {
             setSummary(SyncSummary(backedUp: count, failed: currentSummary.failed))
         }
