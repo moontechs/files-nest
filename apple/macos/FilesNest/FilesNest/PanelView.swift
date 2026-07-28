@@ -32,7 +32,7 @@ struct PanelView: View {
     private var dashboard: some View {
         VStack(spacing: 0) {
             hero
-            if case let .syncing(p) = model.status { currentItem(p) }
+            if case let .syncing(p) = model.status, p.total > 0 { currentItem(p) }
             tiles
             actions
             Divider()
@@ -168,7 +168,7 @@ struct PanelView: View {
         switch model.status {
         case .signedOut: return "Add your server and credentials"
         case .watching(let last): return last.map { "Last sync \($0.formatted(.relative(presentation: .named)))" } ?? "Watching for new items"
-        case .syncing(let p): return "\(p.completed) of \(p.total)"
+        case .syncing(let p): return p.total == 0 ? "Scanning library…" : "\(p.completed) of \(p.total)"
         case .paused(let n): return "\(n) items waiting"
         case .error(let m): return m
         }
