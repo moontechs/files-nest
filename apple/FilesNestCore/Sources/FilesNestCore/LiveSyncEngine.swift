@@ -35,6 +35,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         case progress(gen: UInt64, SyncProgress)
         case finished(gen: UInt64, SyncReport)
         case failed(gen: UInt64, message: String)
+        case summaryRefreshed(gen: UInt64, backedUp: Int)   // result of an off-consumer server count
         case barrier(@Sendable () -> Void)   // test-only: resumes once all prior commands are processed
     }
 
@@ -128,9 +129,11 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         case .progress(let gen, let p):
             if gen == generation { setStatus(.syncing(p)) }
         case .finished(let gen, let report):
-            if gen == generation { await finishSync(report) }
+            if gen == generation { finishSync(report) }
         case .failed(let gen, let message):
             if gen == generation { syncChild = nil; setStatus(.error(message: message)) }
+        case .summaryRefreshed(let gen, let backedUp):
+            if gen == generation { setSummary(SyncSummary(backedUp: backedUp, failed: currentSummary.failed)) }
         case .barrier(let ack):
             ack()
         }
@@ -160,9 +163,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
             generation &+= 1
             setStatus(.watching(lastSync: lastSync))
         }
-        if let refresh = refreshBackedUp, let count = try? await refresh() {
-            setSummary(SyncSummary(backedUp: count, failed: currentSummary.failed))
-        }
+        scheduleBackedUpRefresh(gen: generation)   // off-consumer; never blocks the queue
     }
 
     private func doPause() {
@@ -173,7 +174,9 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     }
 
     private func doResume() {
-        if case .signedOut = currentStatus { return }
+        // Only meaningful from `.paused` — where there is no active child to strand. Bumping the
+        // generation during an active sync would orphan its in-flight child.
+        guard case .paused = currentStatus else { return }
         generation &+= 1
         setStatus(.watching(lastSync: lastSync))
     }
@@ -196,18 +199,23 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         }
     }
 
-    private func finishSync(_ report: SyncReport) async {
+    private func finishSync(_ report: SyncReport) {
         syncChild = nil
         if !report.failed.isEmpty { logFailures(report.failed) }
-        // Backed up = live server count; fall back to the report if no refresh or it fails.
-        let backedUp: Int
-        if let refresh = refreshBackedUp, let count = try? await refresh() {
-            backedUp = count
-        } else {
-            backedUp = report.skipped + report.uploaded.count
-        }
-        setSummary(SyncSummary(backedUp: backedUp, failed: report.failed))
+        // Immediate summary from the report (skipped+uploaded == the completed count for an .all
+        // sync); a background refresh reconciles it to the live server count.
+        setSummary(SyncSummary(backedUp: report.skipped + report.uploaded.count, failed: report.failed))
         setStatus(.watching(lastSync: lastSync))
+        scheduleBackedUpRefresh(gen: generation)
+    }
+
+    /// Runs `refreshBackedUp` OFF the consumer (network-backed; must not block the command
+    /// queue) and reports the result via `.summaryRefreshed`, gated by generation.
+    private func scheduleBackedUpRefresh(gen: UInt64) {
+        guard let refresh = refreshBackedUp else { return }
+        Task { [submit] in
+            if let count = try? await refresh() { submit(.summaryRefreshed(gen: gen, backedUp: count)) }
+        }
     }
 
     // MARK: - Published snapshot

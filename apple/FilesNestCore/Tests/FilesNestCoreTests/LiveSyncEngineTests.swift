@@ -74,8 +74,7 @@ import Foundation
                                     refreshBackedUp: { 42 })
         await engine.start()
         await engine.syncNow()
-        let sum = await awaitSummary(engine) { !$0.failed.isEmpty }
-        #expect(sum.backedUp == 42)          // live server count, not skipped+uploaded
+        let sum = await awaitSummary(engine) { $0.backedUp == 42 }   // refreshed to live server count
         #expect(sum.failed == [f])
     }
 
