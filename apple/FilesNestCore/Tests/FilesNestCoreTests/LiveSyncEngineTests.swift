@@ -149,12 +149,51 @@ import Foundation
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in
             SyncReport(uploaded: [uploaded], deleted: [], failed: [f], skipped: 3)
-        })
+        },
+                                    refreshBackedUp: { 42 })
         await engine.start()
         await engine.syncNow()
         let summary = await firstSummary(engine)
-        #expect(summary.backedUp == 4)          // skipped 3 + uploaded 1
+        #expect(summary.backedUp == 42)         // live server count, not skipped+uploaded
         #expect(summary.failed == [f])
+    }
+
+    @Test func startRefreshesBackedUpFromServer() async {
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in self.emptyReport() },
+                                    refreshBackedUp: { 7 })
+        await engine.start()
+        #expect(await firstSummary(engine) == SyncSummary(backedUp: 7, failed: []))
+    }
+
+    @Test func syncBackedUpFallsBackToReportWhenRefreshFails() async {
+        struct Boom: Error {}
+        let uploaded = ResourceKey(localIdentifier: "A", kind: .photo)
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in
+            SyncReport(uploaded: [uploaded], deleted: [], failed: [], skipped: 3)
+        },
+                                    refreshBackedUp: { throw Boom() })
+        await engine.start()
+        await engine.syncNow()
+        #expect(await firstSummary(engine) == SyncSummary(backedUp: 4, failed: []))  // 3 + 1 fallback
+    }
+
+    @Test func pauseCancelsInFlightSync() async {
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, onProgress in
+            onProgress(SyncProgress(completed: 0, total: 100, currentItemName: "x", bytesRemaining: nil))
+            while true { try Task.checkCancellation(); await Task.yield() }
+        })
+        await engine.start()
+        let t = Task { await engine.syncNow() }
+        var it = engine.statusStream().makeAsyncIterator()
+        while true {
+            if case .syncing(let p)? = await it.next(), p.total == 100 { break }
+        }
+        await engine.pause()
+        await t.value
+        if case .paused = await firstStatus(engine) {} else { Issue.record("expected .paused") }
     }
 }
 

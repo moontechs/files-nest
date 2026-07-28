@@ -15,11 +15,14 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private let credentials: any CredentialStore
     private let state: any SyncStateStore
     private let perform: Perform
+    private let refreshBackedUp: @Sendable () async throws -> Int
     private let now: @Sendable () -> Date
 
     private let lock = NSLock()
     private var status: SyncStatus = .signedOut
     private var isSyncing = false
+    private var pausedFlag = false
+    private var syncTask: Task<SyncReport, Error>?
     private var continuations: [UUID: AsyncStream<SyncStatus>.Continuation] = [:]
     private var summary: SyncSummary = .empty
     private var summaryContinuations: [UUID: AsyncStream<SyncSummary>.Continuation] = [:]
@@ -27,10 +30,12 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     public init(credentials: any CredentialStore,
                 state: any SyncStateStore,
                 perform: @escaping Perform,
+                refreshBackedUp: @escaping @Sendable () async throws -> Int = { 0 },
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.credentials = credentials
         self.state = state
         self.perform = perform
+        self.refreshBackedUp = refreshBackedUp
         self.now = now
     }
 
@@ -100,21 +105,34 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
 
     private func endSyncing() { lock.lock(); isSyncing = false; lock.unlock() }
 
+    private func storeSyncTask(_ t: Task<SyncReport, Error>?) { lock.lock(); syncTask = t; lock.unlock() }
+    private func cancelSyncTask() { lock.lock(); let t = syncTask; lock.unlock(); t?.cancel() }
+    private func setPaused(_ v: Bool) { lock.lock(); pausedFlag = v; lock.unlock() }
+    private var isPausedFlag: Bool { lock.lock(); defer { lock.unlock() }; return pausedFlag }
+
     /// Last sync = the coordinator-persisted start time (single source of truth).
     private var lastSync: Date? { state.loadLastSyncStarted() }
 
     public func start() async {
         let creds = try? await credentials.basicCredentials()
-        set(creds == nil ? .signedOut : .watching(lastSync: lastSync))
+        guard creds != nil else { set(.signedOut); return }
+        setPaused(false)
+        set(.watching(lastSync: lastSync))
+        if let count = try? await refreshBackedUp() {
+            setSummary(SyncSummary(backedUp: count, failed: []))
+        }
     }
 
     public func pause() async {
         guard !isSignedOut else { return }
+        setPaused(true)
         set(.paused(pending: 0))
+        cancelSyncTask()                 // stop any in-flight sync (coordinator checks cancellation)
     }
 
     public func resume() async {
         guard !isSignedOut else { return }
+        setPaused(false)
         set(.watching(lastSync: lastSync))
     }
 
@@ -125,16 +143,24 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
 
         set(.syncing(SyncProgress(completed: 0, total: 0,
                                   currentItemName: nil, bytesRemaining: nil)))
+
+        let task = Task { [perform] () throws -> SyncReport in
+            try await perform(.all) { [weak self] progress in self?.set(.syncing(progress)) }
+        }
+        storeSyncTask(task)
+        defer { storeSyncTask(nil) }
+
         do {
-            let report = try await perform(.all) { [weak self] progress in
-                self?.set(.syncing(progress))
-            }
+            let report = try await task.value
             if !report.failed.isEmpty { logFailures(report.failed) }
-            setSummary(SyncSummary(backedUp: report.skipped + report.uploaded.count,
-                                   failed: report.failed))
+            // Backed up = live server count (design §Backed-up source); fall back to the
+            // report's own count if the refresh query fails.
+            let backedUp = (try? await refreshBackedUp()) ?? (report.skipped + report.uploaded.count)
+            setSummary(SyncSummary(backedUp: backedUp, failed: report.failed))
             set(.watching(lastSync: lastSync))
         } catch is CancellationError {
-            set(.watching(lastSync: lastSync))       // cancellation is not an error
+            // Paused → stay paused; a non-pause cancellation returns to idle.
+            if isPausedFlag { set(.paused(pending: 0)) } else { set(.watching(lastSync: lastSync)) }
         } catch {
             set(.error(message: String(describing: error)))
         }
