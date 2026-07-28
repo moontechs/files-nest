@@ -13,6 +13,8 @@ public final class StubSyncEngine: SyncEngine, @unchecked Sendable {
     private var status: SyncStatus = .signedOut
     private var lastSync: Date?
     private var continuations: [UUID: AsyncStream<SyncStatus>.Continuation] = [:]
+    private var summary: SyncSummary = .empty
+    private var summaryContinuations: [UUID: AsyncStream<SyncSummary>.Continuation] = [:]
 
     public init(credentials: any CredentialStore = StaticCredentialStore(nil),
                 autoComplete: Bool = true,
@@ -42,6 +44,28 @@ public final class StubSyncEngine: SyncEngine, @unchecked Sendable {
         let conts = Array(continuations.values)
         lock.unlock()
         for c in conts { c.yield(newStatus) }
+    }
+
+    public func summaryStream() -> AsyncStream<SyncSummary> {
+        AsyncStream { continuation in
+            let id = UUID()
+            lock.lock()
+            continuation.yield(summary)
+            summaryContinuations[id] = continuation
+            lock.unlock()
+            continuation.onTermination = { [weak self] _ in
+                guard let self else { return }
+                self.lock.lock(); self.summaryContinuations[id] = nil; self.lock.unlock()
+            }
+        }
+    }
+
+    private func setSummary(_ newSummary: SyncSummary) {
+        lock.lock()
+        summary = newSummary
+        let conts = Array(summaryContinuations.values)
+        lock.unlock()
+        for c in conts { c.yield(newSummary) }
     }
 
     private var isSignedOut: Bool {
@@ -90,5 +114,6 @@ public final class StubSyncEngine: SyncEngine, @unchecked Sendable {
                                       bytesRemaining: Int64(total - i) * 17_000_000)))
         }
         set(.watching(lastSync: stampLastSync()))
+        setSummary(SyncSummary(backedUp: 1_240, failed: []))
     }
 }

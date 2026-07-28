@@ -21,6 +21,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private var status: SyncStatus = .signedOut
     private var isSyncing = false
     private var continuations: [UUID: AsyncStream<SyncStatus>.Continuation] = [:]
+    private var summary: SyncSummary = .empty
+    private var summaryContinuations: [UUID: AsyncStream<SyncSummary>.Continuation] = [:]
 
     public init(credentials: any CredentialStore,
                 state: any SyncStateStore,
@@ -52,6 +54,28 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         let conts = Array(continuations.values)
         lock.unlock()
         for c in conts { c.yield(newStatus) }
+    }
+
+    public func summaryStream() -> AsyncStream<SyncSummary> {
+        AsyncStream { continuation in
+            let id = UUID()
+            lock.lock()
+            continuation.yield(summary)         // current summary first
+            summaryContinuations[id] = continuation
+            lock.unlock()
+            continuation.onTermination = { [weak self] _ in
+                guard let self else { return }
+                self.lock.lock(); self.summaryContinuations[id] = nil; self.lock.unlock()
+            }
+        }
+    }
+
+    private func setSummary(_ newSummary: SyncSummary) {
+        lock.lock()
+        summary = newSummary
+        let conts = Array(summaryContinuations.values)
+        lock.unlock()
+        for c in conts { c.yield(newSummary) }
     }
 
     private var isSignedOut: Bool {
@@ -106,6 +130,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 self?.set(.syncing(progress))
             }
             if !report.failed.isEmpty { logFailures(report.failed) }
+            setSummary(SyncSummary(backedUp: report.skipped + report.uploaded.count,
+                                   failed: report.failed))
             set(.watching(lastSync: lastSync))
         } catch is CancellationError {
             set(.watching(lastSync: lastSync))       // cancellation is not an error

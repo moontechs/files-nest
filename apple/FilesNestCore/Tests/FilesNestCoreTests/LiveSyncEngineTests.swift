@@ -130,6 +130,32 @@ import Foundation
         await engine.resume()
         #expect(await firstStatus(engine) == .watching(lastSync: nil))
     }
+
+    func firstSummary(_ engine: any SyncEngine) async -> SyncSummary {
+        var it = engine.summaryStream().makeAsyncIterator()
+        return await it.next()!
+    }
+
+    @Test func summaryStartsEmpty() async {
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in self.emptyReport() })
+        #expect(await firstSummary(engine) == .empty)
+    }
+
+    @Test func summaryPublishedAfterSync() async {
+        let uploaded = ResourceKey(localIdentifier: "A", kind: .photo)
+        let f = FailedItem(key: ResourceKey(localIdentifier: "B", kind: .photo),
+                           filename: "B.jpg", reason: "boom")
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in
+            SyncReport(uploaded: [uploaded], deleted: [], failed: [f], skipped: 3)
+        })
+        await engine.start()
+        await engine.syncNow()
+        let summary = await firstSummary(engine)
+        #expect(summary.backedUp == 4)          // skipped 3 + uploaded 1
+        #expect(summary.failed == [f])
+    }
 }
 
 /// Counts `perform` invocations across concurrency.
