@@ -156,14 +156,15 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
             return
         }
         signedIn = true
-        // Don't bump the generation while a sync is running: that would orphan its
-        // in-flight child (its `.finished` would be dropped, leaving `syncChild` set
-        // forever). Leave the run intact and just refresh the count.
+        // While a sync is running, leave it (and its generation) intact — bumping would orphan
+        // the in-flight child, and scheduling a second same-generation refresh could land stale
+        // after the sync's own post-completion refresh (Codex round 7). The running sync refreshes
+        // the count when it finishes. Only reconcile here when idle.
         if !isSyncingStatus {
             generation &+= 1
             setStatus(.watching(lastSync: lastSync))
+            scheduleBackedUpRefresh(gen: generation)   // off-consumer; never blocks the queue
         }
-        scheduleBackedUpRefresh(gen: generation)   // off-consumer; never blocks the queue
     }
 
     private func doPause() {
