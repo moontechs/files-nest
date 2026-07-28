@@ -5,8 +5,10 @@ import FilesNestCore
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var status: SyncStatus = .signedOut
+    @Published private(set) var summary: SyncSummary = .empty
     let engine: any SyncEngine
     private var streamTask: Task<Void, Never>?
+    private var summaryTask: Task<Void, Never>?
 
     init(engine: any SyncEngine) { self.engine = engine }
 
@@ -15,6 +17,9 @@ final class AppModel: ObservableObject {
         guard streamTask == nil else { return }
         streamTask = Task { [engine] in
             for await s in engine.statusStream() { self.status = s }
+        }
+        summaryTask = Task { [engine] in
+            for await s in engine.summaryStream() { self.summary = s }
         }
         Task { await engine.start() }
     }
