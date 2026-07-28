@@ -28,10 +28,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		C0F1600000000000000000A1 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		E2720EA13012B051008077F7 /* FilesNest.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FilesNest.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2720EAE3012B051008077F7 /* FilesNestTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FilesNestTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2720EB83012B051008077F7 /* FilesNestUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FilesNestUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		C0F1600000000000000000A1 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -204,7 +204,7 @@
 			mainGroup = E2720E983012B051008077F7;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				FADE000000000000000000B1 /* XCLocalSwiftPackageReference "FilesNestCore" */,
+				FADE000000000000000000B1 /* XCLocalSwiftPackageReference "../../FilesNestCore" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = E2720EA23012B051008077F7 /* Products */;
@@ -584,7 +584,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		FADE000000000000000000B1 /* XCLocalSwiftPackageReference "FilesNestCore" */ = {
+		FADE000000000000000000B1 /* XCLocalSwiftPackageReference "../../FilesNestCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../FilesNestCore;
 		};
