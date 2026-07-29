@@ -65,7 +65,8 @@ public struct SyncCoordinator: Sendable {
             } catch {
                 failed.append(FailedItem(key: del.key,
                                          filename: del.key.encoded,
-                                         reason: String(describing: error)))
+                                         reason: String(describing: error),
+                                         kind: .delete))
             }
         }
 

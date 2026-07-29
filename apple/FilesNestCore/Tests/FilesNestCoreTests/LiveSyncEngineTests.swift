@@ -91,7 +91,19 @@ import Foundation
         await engine.syncNow()
         let sum = await awaitSummary(engine) { $0.backedUp == 4 && !$0.failed.isEmpty }   // 3 skipped + 1 uploaded
         #expect(sum.failed == [f])
-        #expect(sum.pending == 1)              // pending == failed.count, straight from the report
+        #expect(sum.pending == 1)              // pending == upload-failure count, straight from the report
+    }
+
+    @Test func pendingAfterSyncCountsUploadFailuresOnly() async {
+        let up = FailedItem(key: ResourceKey(localIdentifier: "U", kind: .photo), filename: "U.jpg", reason: "x", kind: .upload)
+        let del = FailedItem(key: ResourceKey(localIdentifier: "D", kind: .photo), filename: "D", reason: "y", kind: .delete)
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in SyncReport(uploaded: [], deleted: [], failed: [up, del], skipped: 2) })
+        await engine.start()
+        await engine.syncNow()
+        let sum = await awaitSummary(engine) { $0.failed.count == 2 }
+        #expect(sum.pending == 1)              // only the upload failure — a failed delete isn't pending upload
+        #expect(sum.backedUp == 2)             // skipped(2) + uploaded(0)
     }
 
     @Test func assessFailureFallsBackToWatching() async {
@@ -286,6 +298,26 @@ import Foundation
         _ = await awaitStatus(engine) { if case .syncing(let p) = $0 { return p.completed == 3 }; return false }
         await engine.pause()
         #expect(await awaitStatus(engine, isPaused) == .paused(pending: 7))   // 10 - 3 remaining
+        await release.open()
+    }
+
+    @Test func doublePausePreservesRemaining() async {
+        let started = Gate(); let release = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, onProgress in
+            onProgress(SyncProgress(completed: 3, total: 10, currentItemName: "x", bytesRemaining: nil))
+            await started.open()
+            await release.wait()
+            return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 0)
+        })
+        await engine.start()
+        await engine.syncNow()
+        _ = await awaitStatus(engine) { if case .syncing(let p) = $0 { return p.completed == 3 }; return false }
+        await engine.pause()
+        #expect(await awaitStatus(engine, isPaused) == .paused(pending: 7))
+        await engine.pause()                  // second pause must not recompute/zero the remaining
+        await engine.settle()
+        #expect(await awaitStatus(engine, isPaused) == .paused(pending: 7))
         await release.open()
     }
 

@@ -14,14 +14,18 @@ public struct SyncReport: Sendable, Equatable {
     }
 }
 
+public enum FailureKind: Sendable, Equatable { case upload, delete }
+
 public struct FailedItem: Sendable, Equatable {
     public let key: ResourceKey
     public let filename: String   // human-readable; the failed-items UI renders this
     public let reason: String
+    public let kind: FailureKind  // upload vs delete — only upload failures count as at-rest Pending
 
-    public init(key: ResourceKey, filename: String, reason: String) {
+    public init(key: ResourceKey, filename: String, reason: String, kind: FailureKind = .upload) {
         self.key = key
         self.filename = filename
         self.reason = reason
+        self.kind = kind
     }
 }

@@ -194,12 +194,14 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private func doPause() {
         log("cmd pause (status=\(currentStatus))")
         if case .signedOut = currentStatus { return }
+        if case .paused = currentStatus { return }    // already paused; don't recompute/zero the remaining
         generation &+= 1
         syncChild?.cancel(); syncChild = nil          // coordinator checks cancellation between items
         assessChild?.cancel(); assessChild = nil      // pausing during a count cancels it
         // Preserve the not-yet-uploaded count so "Paused" shows remaining work, not 0.
         let remaining = lastProgress.map { max(0, $0.total - $0.completed) } ?? 0
         setStatus(.paused(pending: remaining))
+        lastProgress = nil                            // cleared on this non-syncing transition (invariant)
     }
 
     private func doResume() {
@@ -240,10 +242,12 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         lastProgress = nil                         // so a later idle Pause shows 0, not stale remaining
         if !report.failed.isEmpty { logFailures(report.failed) }
         // Summary straight from the report: after an `.all` sync everything uploaded except
-        // failures, so backedUp = skipped + uploaded and pending = failed.count. No re-scan
-        // (a launch count already gave the exact numbers; warm launch recounts).
+        // failures. Pending counts only UPLOAD failures (a failed delete is server cruft, not a
+        // resource awaiting upload) so it stays consistent with assess's plan.uploads.count. No
+        // re-scan (a launch count already gave the exact numbers; warm launch recounts).
+        let pendingUploads = report.failed.filter { $0.kind == .upload }.count
         setSummary(SyncSummary(backedUp: report.skipped + report.uploaded.count,
-                               pending: report.failed.count, failed: report.failed))
+                               pending: pendingUploads, failed: report.failed))
         setStatus(.watching(lastSync: lastSync))
     }
 
