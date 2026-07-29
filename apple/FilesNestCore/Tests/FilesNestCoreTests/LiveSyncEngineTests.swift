@@ -56,39 +56,83 @@ import Foundation
         #expect(await awaitSummary(engine) { _ in true } == .empty)
     }
 
-    @Test func startRefreshesBackedUpFromServer() async {
+    @Test func startCountsThenAssesses() async {
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in self.emptyReport() },
-                                    refreshBackedUp: { 7 })
+                                    assess: { progress in
+                                        progress(3, 10); progress(10, 10)
+                                        return Assessment(backedUp: 5, pending: 7, resourceTotal: 12)
+                                    })
         await engine.start()
-        #expect(await awaitSummary(engine) { $0.backedUp == 7 } == SyncSummary(backedUp: 7, pending: nil, failed: []))
+        let sum = await awaitSummary(engine) { $0.pending == 7 }
+        #expect(sum.backedUp == 5)
+        #expect(isWatching(await awaitStatus(engine, isWatching)))
     }
 
-    @Test func summaryPublishedAfterSync() async {
+    @Test func cachedAssessmentSeedsBeforeCounting() async {
+        let gate = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in self.emptyReport() },
+                                    assess: { _ in await gate.wait(); return Assessment(backedUp: 1, pending: 1, resourceTotal: 1) },
+                                    cachedAssessment: { Assessment(backedUp: 9, pending: 4, resourceTotal: 20) })
+        await engine.start()
+        #expect(await awaitSummary(engine) { $0.pending == 4 }.backedUp == 9)   // seeded before assess returns
+        await gate.open()
+    }
+
+    @Test func summaryReflectsReportAfterSync() async {
         let uploaded = ResourceKey(localIdentifier: "A", kind: .photo)
         let f = FailedItem(key: ResourceKey(localIdentifier: "B", kind: .photo), filename: "B.jpg", reason: "boom")
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in
             SyncReport(uploaded: [uploaded], deleted: [], failed: [f], skipped: 3)
-        },
-                                    refreshBackedUp: { 42 })
+        })
         await engine.start()
         await engine.syncNow()
-        let sum = await awaitSummary(engine) { $0.backedUp == 42 && !$0.failed.isEmpty }   // post-sync refresh
+        let sum = await awaitSummary(engine) { $0.backedUp == 4 && !$0.failed.isEmpty }   // 3 skipped + 1 uploaded
         #expect(sum.failed == [f])
+        #expect(sum.pending == 1)              // pending == failed.count, straight from the report
     }
 
-    @Test func syncBackedUpFallsBackToReportWhenRefreshFails() async {
+    @Test func assessFailureFallsBackToWatching() async {
         struct Boom: Error {}
-        let uploaded = ResourceKey(localIdentifier: "A", kind: .photo)
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
-                                    perform: { _, _ in
-            SyncReport(uploaded: [uploaded], deleted: [], failed: [], skipped: 3)
-        },
-                                    refreshBackedUp: { throw Boom() })
+                                    perform: { _, _ in self.emptyReport() },
+                                    assess: { _ in throw Boom() })
         await engine.start()
-        await engine.syncNow()
-        #expect(await awaitSummary(engine) { $0.backedUp == 4 } == SyncSummary(backedUp: 4, pending: 0, failed: []))  // 3+1; pending from report (0 failed)
+        #expect(isWatching(await awaitStatus(engine, isWatching)))
+        #expect(await awaitSummary(engine) { _ in true } == .empty)   // no cache → stays empty
+    }
+
+    @Test func syncNowDuringCountingSupersedesTheCount() async {
+        let counting = Gate(); let release = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in self.emptyReport() },
+                                    assess: { _ in await counting.open(); await release.wait()
+                                                    return Assessment(backedUp: 0, pending: 99, resourceTotal: 0) })
+        await engine.start()
+        await counting.wait()                       // assess is running
+        await engine.syncNow()                      // cancels the count, starts a sync
+        _ = await awaitStatus(engine, isWatching)   // empty-report sync completes → watching
+        await release.open()
+        await engine.settle()                       // process (and drop) the stale assessFinished
+        #expect(await awaitSummary(engine) { _ in true }.pending != 99)   // stale assessed dropped by the gate
+    }
+
+    @Test func startWhileCountingDoesNotRestartAssess() async {
+        let counting = Gate(); let release = Gate()
+        let assessRuns = Counter()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in self.emptyReport() },
+                                    assess: { _ in await assessRuns.inc(); await counting.open(); await release.wait()
+                                                    return Assessment(backedUp: 0, pending: 0, resourceTotal: 0) })
+        await engine.start()
+        await counting.wait()
+        await engine.start()                        // re-entry while counting: no duplicate assess
+        await engine.settle()
+        await release.open()
+        await engine.settle()
+        #expect(await assessRuns.value == 1)
     }
 
     // MARK: - sync status flow
@@ -219,9 +263,9 @@ import Foundation
             await release.wait()
             return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 0)
         },
-                                    refreshBackedUp: { 10 })
+                                    assess: { _ in Assessment(backedUp: 10, pending: 0, resourceTotal: 10) })
         await engine.start()
-        _ = await awaitSummary(engine) { $0.backedUp == 10 }   // base from the start refresh
+        _ = await awaitSummary(engine) { $0.backedUp == 10 }   // base from the launch count
         await engine.syncNow()
         await started.wait()
         #expect(await awaitSummary(engine) { $0.backedUp == 12 }.backedUp == 12)   // 10 base + 2 completed
@@ -297,7 +341,7 @@ import Foundation
             await release.wait()
             return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 5)
         },
-                                    refreshBackedUp: { 9 })
+                                    assess: { _ in Assessment(backedUp: 9, pending: 0, resourceTotal: 9) })
         await engine.start()
         await engine.syncNow()
         await started.wait()
@@ -314,9 +358,9 @@ import Foundation
         let creds = MutableCreds(.init(username: "u", password: "p"))
         let engine = LiveSyncEngine(credentials: creds, state: InMemorySyncStateStore(),
                                     perform: { _, _ in self.emptyReport() },
-                                    refreshBackedUp: { 9 })
+                                    assess: { _ in Assessment(backedUp: 9, pending: 2, resourceTotal: 11) })
         await engine.start()
-        #expect(await awaitSummary(engine) { $0.backedUp == 9 } == SyncSummary(backedUp: 9, pending: nil, failed: []))
+        #expect(await awaitSummary(engine) { $0.backedUp == 9 } == SyncSummary(backedUp: 9, pending: 2, failed: []))
         creds.set(nil)
         await engine.start()
         #expect(await awaitStatus(engine) { $0 == .signedOut } == .signedOut)
@@ -369,15 +413,19 @@ import Foundation
             credentials: creds(true),
             state: InMemorySyncStateStore(),
             perform: { range, onProgress in try await coordinator.sync(range: range, onProgress: onProgress) },
-            refreshBackedUp: {
-                var count = 0
+            assess: { progress in
+                let scan = try await lib.resources(in: .all, onProgress: progress.report)
+                var records: [UploadRecord] = []
                 var cursor: String? = nil
                 repeat {
                     let page = try await client.listUploads(cursor: cursor)
-                    count += page.items.filter { $0.status == .complete }.count
+                    records += page.items
                     cursor = page.nextCursor
                 } while cursor != nil
-                return count
+                let plan = SyncPlanner.plan(library: scan, server: records, range: .all)
+                return Assessment(backedUp: records.filter { $0.status == .complete }.count,
+                                  pending: plan.uploads.count,
+                                  resourceTotal: scan.count)
             })
 
         await engine.start()

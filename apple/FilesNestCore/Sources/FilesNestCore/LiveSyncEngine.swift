@@ -35,20 +35,23 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         case progress(gen: UInt64, SyncProgress)
         case finished(gen: UInt64, SyncReport)
         case failed(gen: UInt64, message: String)
-        case summaryRefreshed(gen: UInt64, backedUp: Int)   // off-consumer server count
+        case counting(gen: UInt64, done: Int, total: Int)   // off-consumer scan progress
+        case assessFinished(gen: UInt64, Assessment?)       // nil = scan failed → leave .counting, keep summary
         case barrier(@Sendable () -> Void)   // test-only: resumes once all prior commands are processed
     }
 
     private let credentials: any CredentialStore
     private let state: any SyncStateStore
     private let perform: Perform
-    private let refreshBackedUp: (@Sendable () async throws -> Int)?
+    private let assess: (@Sendable (_ progress: AssessProgress) async throws -> Assessment)?
+    private let cachedAssessment: (@Sendable () -> Assessment?)?
     private let now: @Sendable () -> Date
 
     // Consumer-only state (mutated exclusively by the single consumer task).
     private var generation: UInt64 = 0
     private var signedIn = false
     private var syncChild: Task<Void, Never>?
+    private var assessChild: Task<Void, Never>?   // cancellable launch-count child (mirrors syncChild)
     private var lastProgress: SyncProgress?   // latest progress of the running sync, for pause's pending count
     private var syncBaseBackedUp = 0          // backed-up count at the current sync's start, for a live climb
 
@@ -65,12 +68,14 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     public init(credentials: any CredentialStore,
                 state: any SyncStateStore,
                 perform: @escaping Perform,
-                refreshBackedUp: (@Sendable () async throws -> Int)? = nil,
+                assess: (@Sendable (_ progress: AssessProgress) async throws -> Assessment)? = nil,
+                cachedAssessment: (@Sendable () -> Assessment?)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.credentials = credentials
         self.state = state
         self.perform = perform
-        self.refreshBackedUp = refreshBackedUp
+        self.assess = assess
+        self.cachedAssessment = cachedAssessment
         self.now = now
 
         let (stream, continuation) = AsyncStream.makeStream(of: Command.self)
@@ -81,7 +86,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         }
     }
 
-    deinit { syncChild?.cancel(); finishCommands() }   // stop in-flight upload work when dropped
+    deinit { syncChild?.cancel(); assessChild?.cancel(); finishCommands() }   // stop in-flight work when dropped
 
     // MARK: - Streams
 
@@ -141,8 +146,14 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
             if gen == generation { finishSync(report) }
         case .failed(let gen, let message):
             if gen == generation { syncChild = nil; lastProgress = nil; setStatus(.error(message: message)) }
-        case .summaryRefreshed(let gen, let backedUp):
-            if gen == generation { setSummary(SyncSummary(backedUp: backedUp, pending: currentSummary.pending, failed: currentSummary.failed)) }
+        case .counting(let gen, let done, let total):
+            if gen == generation { setStatus(.counting(done: done, total: total)) }
+        case .assessFinished(let gen, let a):
+            if gen == generation {
+                assessChild = nil
+                if let a { setSummary(SyncSummary(backedUp: a.backedUp, pending: a.pending, failed: currentSummary.failed)) }
+                setStatus(.watching(lastSync: lastSync))
+            }
         case .barrier(let ack):
             ack()
         }
@@ -160,21 +171,23 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
             generation &+= 1                            // supersede any in-flight run
             signedIn = false
             syncChild?.cancel(); syncChild = nil
+            assessChild?.cancel(); assessChild = nil
             lastProgress = nil                          // so a later idle Pause shows 0, not stale remaining
             setStatus(.signedOut)
             setSummary(.empty)                          // drop stale failures
             return
         }
         signedIn = true
-        // While a sync is running, leave it (and its generation) intact — bumping would orphan
-        // the in-flight child, and scheduling a second same-generation refresh could land stale
-        // after the sync's own post-completion refresh (Codex round 7). The running sync refreshes
-        // the count when it finishes. Only reconcile here when idle.
-        if !isSyncingStatus {
+        // While a sync or count is running, leave it (and its generation) intact — bumping would
+        // orphan the in-flight child. Only reconcile here when idle; the count refreshes the
+        // exact backlog off the consumer.
+        if !isSyncingStatus && !isCountingStatus {
             generation &+= 1
             lastProgress = nil                         // reconciling to idle; drop any paused-run remaining
-            setStatus(.watching(lastSync: lastSync))
-            scheduleBackedUpRefresh(gen: generation)   // off-consumer; never blocks the queue
+            if let cached = cachedAssessment?() {      // warm launch: show last-known instantly
+                setSummary(SyncSummary(backedUp: cached.backedUp, pending: cached.pending, failed: currentSummary.failed))
+            }
+            beginCounting(gen: generation)             // off-consumer scan → exact pending
         }
     }
 
@@ -183,6 +196,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         if case .signedOut = currentStatus { return }
         generation &+= 1
         syncChild?.cancel(); syncChild = nil          // coordinator checks cancellation between items
+        assessChild?.cancel(); assessChild = nil      // pausing during a count cancels it
         // Preserve the not-yet-uploaded count so "Paused" shows remaining work, not 0.
         let remaining = lastProgress.map { max(0, $0.total - $0.completed) } ?? 0
         setStatus(.paused(pending: remaining))
@@ -194,6 +208,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         // generation during an active sync would orphan its in-flight child.
         guard case .paused = currentStatus else { return }
         generation &+= 1
+        assessChild?.cancel(); assessChild = nil      // defensive; no count is in flight while paused
         lastProgress = nil                            // resumed work is a fresh run; no stale remaining
         setStatus(.watching(lastSync: lastSync))
     }
@@ -203,6 +218,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         guard signedIn, syncChild == nil else { return }
         if case .paused = currentStatus { return }
         generation &+= 1
+        assessChild?.cancel(); assessChild = nil      // syncNow supersedes an in-flight count
         let gen = generation
         lastProgress = nil
         syncBaseBackedUp = currentSummary.backedUp   // baseline for the live backed-up climb
@@ -223,20 +239,30 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         syncChild = nil
         lastProgress = nil                         // so a later idle Pause shows 0, not stale remaining
         if !report.failed.isEmpty { logFailures(report.failed) }
-        // Immediate summary from the report (skipped+uploaded == the completed count for an .all
-        // sync); a background refresh reconciles it to the live server count.
+        // Summary straight from the report: after an `.all` sync everything uploaded except
+        // failures, so backedUp = skipped + uploaded and pending = failed.count. No re-scan
+        // (a launch count already gave the exact numbers; warm launch recounts).
         setSummary(SyncSummary(backedUp: report.skipped + report.uploaded.count,
                                pending: report.failed.count, failed: report.failed))
         setStatus(.watching(lastSync: lastSync))
-        scheduleBackedUpRefresh(gen: generation)
     }
 
-    /// Runs `refreshBackedUp` OFF the consumer (network-backed; must not block the command
-    /// queue) and reports the result via `.summaryRefreshed`, gated by generation.
-    private func scheduleBackedUpRefresh(gen: UInt64) {
-        guard let refresh = refreshBackedUp else { return }
-        Task { [submit] in
-            if let count = try? await refresh() { submit(.summaryRefreshed(gen: gen, backedUp: count)) }
+    /// Runs `assess` OFF the consumer (PhotoKit scan + server diff; must not block the command
+    /// queue). Reports scan progress via `.counting` and the result via `.assessFinished`, both
+    /// generation-gated. `nil` result = the scan failed → the handler settles to `.watching`.
+    private func beginCounting(gen: UInt64) {
+        guard let assess else { setStatus(.watching(lastSync: lastSync)); return }
+        setStatus(.counting(done: 0, total: 0))
+        assessChild = Task { [assess, submit] in
+            do {
+                let progress = AssessProgress { done, total in submit(.counting(gen: gen, done: done, total: total)) }
+                let a = try await assess(progress)
+                submit(.assessFinished(gen: gen, a))
+            } catch is CancellationError {
+                // Superseded (pause/syncNow/sign-out) already set the terminal status.
+            } catch {
+                submit(.assessFinished(gen: gen, nil))
+            }
         }
     }
 
@@ -264,6 +290,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private var currentStatus: SyncStatus { fanoutLock.lock(); defer { fanoutLock.unlock() }; return status }
     private var currentSummary: SyncSummary { fanoutLock.lock(); defer { fanoutLock.unlock() }; return summary }
     private var isSyncingStatus: Bool { if case .syncing = currentStatus { return true }; return false }
+    private var isCountingStatus: Bool { if case .counting = currentStatus { return true }; return false }
 
     /// Last sync = the coordinator-persisted start time (single source of truth).
     private var lastSync: Date? { state.loadLastSyncStarted() }

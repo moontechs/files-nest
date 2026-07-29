@@ -13,3 +13,13 @@ public struct Assessment: Sendable, Equatable, Codable {
         self.resourceTotal = resourceTotal
     }
 }
+
+/// Escaping progress sink handed to an `assess` pass so it can forward scan progress
+/// (assets enumerated of the asset count) to `AssetLibrary.resources(in:onProgress:)`.
+/// A wrapper (not a bare closure param) because a closure literal's function-type
+/// parameter is non-escaping and can't be forwarded to the library's escaping hook.
+public struct AssessProgress: Sendable {
+    public let report: @Sendable (_ done: Int, _ total: Int) -> Void
+    public init(_ report: @escaping @Sendable (_ done: Int, _ total: Int) -> Void) { self.report = report }
+    public func callAsFunction(_ done: Int, _ total: Int) { report(done, total) }
+}
