@@ -5,12 +5,14 @@ import Foundation
 /// diff (the continuous-watching slice); the panel shows pending only live during a sync.
 public struct SyncSummary: Sendable, Equatable {
     public let backedUp: Int          // library resources confirmed complete on the server
+    public let pending: Int?          // exact at-rest backlog; nil = never counted
     public let failed: [FailedItem]   // items that failed in the last sync (empty = none)
 
-    public init(backedUp: Int, failed: [FailedItem]) {
+    public init(backedUp: Int, pending: Int?, failed: [FailedItem]) {
         self.backedUp = backedUp
+        self.pending = pending
         self.failed = failed
     }
 
-    public static let empty = SyncSummary(backedUp: 0, failed: [])
+    public static let empty = SyncSummary(backedUp: 0, pending: nil, failed: [])
 }

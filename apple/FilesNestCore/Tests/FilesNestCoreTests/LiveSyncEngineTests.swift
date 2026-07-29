@@ -61,7 +61,7 @@ import Foundation
                                     perform: { _, _ in self.emptyReport() },
                                     refreshBackedUp: { 7 })
         await engine.start()
-        #expect(await awaitSummary(engine) { $0.backedUp == 7 } == SyncSummary(backedUp: 7, failed: []))
+        #expect(await awaitSummary(engine) { $0.backedUp == 7 } == SyncSummary(backedUp: 7, pending: nil, failed: []))
     }
 
     @Test func summaryPublishedAfterSync() async {
@@ -88,7 +88,7 @@ import Foundation
                                     refreshBackedUp: { throw Boom() })
         await engine.start()
         await engine.syncNow()
-        #expect(await awaitSummary(engine) { $0.backedUp == 4 } == SyncSummary(backedUp: 4, failed: []))  // 3+1
+        #expect(await awaitSummary(engine) { $0.backedUp == 4 } == SyncSummary(backedUp: 4, pending: 0, failed: []))  // 3+1; pending from report (0 failed)
     }
 
     // MARK: - sync status flow
@@ -316,7 +316,7 @@ import Foundation
                                     perform: { _, _ in self.emptyReport() },
                                     refreshBackedUp: { 9 })
         await engine.start()
-        #expect(await awaitSummary(engine) { $0.backedUp == 9 } == SyncSummary(backedUp: 9, failed: []))
+        #expect(await awaitSummary(engine) { $0.backedUp == 9 } == SyncSummary(backedUp: 9, pending: nil, failed: []))
         creds.set(nil)
         await engine.start()
         #expect(await awaitStatus(engine) { $0 == .signedOut } == .signedOut)

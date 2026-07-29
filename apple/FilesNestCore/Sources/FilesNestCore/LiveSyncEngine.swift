@@ -133,7 +133,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 lastProgress = p
                 // Live climb: each completed upload is one more file on the server. Reconciled
                 // to the true server count by the post-completion refresh.
-                setSummary(SyncSummary(backedUp: syncBaseBackedUp + p.completed, failed: currentSummary.failed))
+                setSummary(SyncSummary(backedUp: syncBaseBackedUp + p.completed,
+                                       pending: currentSummary.pending, failed: currentSummary.failed))
                 setStatus(.syncing(p))
             }
         case .finished(let gen, let report):
@@ -141,7 +142,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         case .failed(let gen, let message):
             if gen == generation { syncChild = nil; lastProgress = nil; setStatus(.error(message: message)) }
         case .summaryRefreshed(let gen, let backedUp):
-            if gen == generation { setSummary(SyncSummary(backedUp: backedUp, failed: currentSummary.failed)) }
+            if gen == generation { setSummary(SyncSummary(backedUp: backedUp, pending: currentSummary.pending, failed: currentSummary.failed)) }
         case .barrier(let ack):
             ack()
         }
@@ -224,7 +225,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         if !report.failed.isEmpty { logFailures(report.failed) }
         // Immediate summary from the report (skipped+uploaded == the completed count for an .all
         // sync); a background refresh reconciles it to the live server count.
-        setSummary(SyncSummary(backedUp: report.skipped + report.uploaded.count, failed: report.failed))
+        setSummary(SyncSummary(backedUp: report.skipped + report.uploaded.count,
+                               pending: report.failed.count, failed: report.failed))
         setStatus(.watching(lastSync: lastSync))
         scheduleBackedUpRefresh(gen: generation)
     }
