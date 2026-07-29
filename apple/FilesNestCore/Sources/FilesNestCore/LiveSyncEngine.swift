@@ -171,6 +171,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         // the count when it finishes. Only reconcile here when idle.
         if !isSyncingStatus {
             generation &+= 1
+            lastProgress = nil                         // reconciling to idle; drop any paused-run remaining
             setStatus(.watching(lastSync: lastSync))
             scheduleBackedUpRefresh(gen: generation)   // off-consumer; never blocks the queue
         }

@@ -245,6 +245,29 @@ import Foundation
         await release.open()
     }
 
+    @Test func restartWhilePausedClearsRemaining() async {
+        // A Settings save (appModel.restart -> start) from a paused state reconciles to watching;
+        // a later idle Pause must show 0, not the stale paused remaining.
+        let started = Gate(); let release = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, onProgress in
+            onProgress(SyncProgress(completed: 3, total: 10, currentItemName: "x", bytesRemaining: nil))
+            await started.open()
+            await release.wait()
+            return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 0)
+        })
+        await engine.start()
+        await engine.syncNow()
+        await started.wait()
+        await engine.pause()
+        #expect(await awaitStatus(engine, isPaused) == .paused(pending: 7))
+        await release.open()
+        await engine.start()             // restart reconciles the paused run to watching
+        _ = await awaitStatus(engine) { if case .watching = $0 { return true }; return false }
+        await engine.pause()
+        #expect(await awaitStatus(engine, isPaused) == .paused(pending: 0))   // no stale remaining
+    }
+
     @Test func completionAfterPauseIsDropped() async {
         // perform ignores cancellation and completes; its result must not revive the sync.
         let started = Gate(); let release = Gate()
