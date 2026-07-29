@@ -148,6 +148,7 @@ struct ThumbnailView: View {
 - Video / Live-Photo indicator overlay.
 - Disk-persistent thumbnail cache.
 - Thumbnails in any other surface.
+- Hard-cancelling the underlying `PHImageManager` request when the item changes / row scrolls away (Codex note): the `!Task.isCancelled` guard already prevents stale UI writes; cancelling the request too (via `requestID` + `cancelImageRequest`) is a future perf improvement, not a correctness fix.
 
 ---
 
