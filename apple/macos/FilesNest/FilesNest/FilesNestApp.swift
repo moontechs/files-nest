@@ -30,22 +30,32 @@ struct FilesNestApp: App {
                                                   state: stateStore)
                 return try await coordinator.sync(range: range, onProgress: onProgress)
             },
-            refreshBackedUp: {
-                // Live "Backed up" = count of completed upload records on the server (per-resource).
+            assess: { progress in
+                // Full library scan (drives the determinate "Counting…" state) + server diff →
+                // exact at-rest Pending via SyncPlanner. Cached so a warm launch is instant.
+                let scan = try await PhotosAssetLibrary().resources(in: .all, onProgress: progress.report)
                 guard let url = urlStore.load(),
                       (try await credStore.basicCredentials()) != nil else {
-                    return 0
+                    // Signed out: no server to diff against — everything local is pending.
+                    let a = Assessment(backedUp: 0, pending: scan.count, resourceTotal: scan.count)
+                    stateStore.saveAssessment(a); return a
                 }
                 let client = ServerClient(baseURL: url, credentials: credStore)
-                var count = 0
+                var records: [UploadRecord] = []
                 var cursor: String? = nil
                 repeat {
                     let page = try await client.listUploads(cursor: cursor)
-                    count += page.items.filter { $0.status == .complete }.count
+                    records += page.items
                     cursor = page.nextCursor
                 } while cursor != nil
-                return count
-            })
+                let plan = SyncPlanner.plan(library: scan, server: records, range: .all)
+                let a = Assessment(backedUp: records.filter { $0.status == .complete }.count,
+                                   pending: plan.uploads.count,
+                                   resourceTotal: scan.count)
+                stateStore.saveAssessment(a)
+                return a
+            },
+            cachedAssessment: { stateStore.loadAssessment() })
 
         let appModel = AppModel(engine: engine)
         let settingsModel = SettingsModel(urlStore: urlStore,
