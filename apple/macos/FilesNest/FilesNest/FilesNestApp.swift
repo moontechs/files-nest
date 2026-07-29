@@ -48,14 +48,21 @@ struct FilesNestApp: App {
                     return (backedUp: 0, libraryTotal: libraryTotal)
                 }
                 let client = ServerClient(baseURL: url, credentials: credStore)
-                var count = 0
+                // Count DISTINCT backed-up assets (not resources): a record's localIdentifier is an
+                // encoded ResourceKey, and a Live Photo has two complete resources for one asset.
+                // Matching libraryTotal's asset units keeps the pending estimate honest.
+                var assets = Set<String>()
                 var cursor: String? = nil
                 repeat {
                     let page = try await client.listUploads(cursor: cursor)
-                    count += page.items.filter { $0.status == .complete }.count
+                    for rec in page.items where rec.status == .complete {
+                        if let key = try? ResourceKey(parsing: rec.localIdentifier) {
+                            assets.insert(key.localIdentifier)
+                        }
+                    }
                     cursor = page.nextCursor
                 } while cursor != nil
-                return (backedUp: count, libraryTotal: libraryTotal)
+                return (backedUp: assets.count, libraryTotal: libraryTotal)
             })
 
         let appModel = AppModel(engine: engine)

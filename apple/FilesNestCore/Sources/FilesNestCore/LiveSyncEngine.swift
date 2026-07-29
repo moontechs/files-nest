@@ -140,11 +140,12 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         case .finished(let gen, let report):
             if gen == generation { finishSync(report) }
         case .failed(let gen, let message):
-            if gen == generation { syncChild = nil; setStatus(.error(message: message)) }
+            if gen == generation { syncChild = nil; lastProgress = nil; setStatus(.error(message: message)) }
         case .summaryRefreshed(let gen, let backedUp, let libraryTotal):
-            if gen == generation {
-                setSummary(SyncSummary(backedUp: backedUp, failed: currentSummary.failed, libraryTotal: libraryTotal))
-            }
+            // libraryTotal is generation-independent (just the local library size), so apply it
+            // even if the run was superseded; only the backed-up count is generation-gated.
+            let bu = (gen == generation) ? backedUp : currentSummary.backedUp
+            setSummary(SyncSummary(backedUp: bu, failed: currentSummary.failed, libraryTotal: libraryTotal))
         case .barrier(let ack):
             ack()
         }
@@ -220,6 +221,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
 
     private func finishSync(_ report: SyncReport) {
         syncChild = nil
+        lastProgress = nil                         // so a later idle Pause shows 0, not stale remaining
         if !report.failed.isEmpty { logFailures(report.failed) }
         // Immediate summary from the report (skipped+uploaded == the completed count for an .all
         // sync); a background refresh reconciles it to the live server count.

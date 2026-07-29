@@ -363,9 +363,18 @@ import Foundation
         #expect(sum.failed.isEmpty)
         #expect(isWatching(await awaitStatus(engine, isWatching)))
 
-        // Re-sync: nothing new to upload; count stays 2 (idempotent re-diff).
+        // Re-sync actually runs (re-issues server requests) and is idempotent: subscribe first,
+        // observe a real .syncing → .watching cycle, and confirm the count stays 2.
+        var it = engine.statusStream().makeAsyncIterator()
+        let eventsBefore = server.events.count
         await engine.syncNow()
-        #expect(await awaitSummary(engine) { $0.backedUp == 2 }.backedUp == 2)
+        var sawSyncing = false
+        while let s = await it.next() {
+            if case .syncing = s { sawSyncing = true }
+            else if sawSyncing, case .watching = s { break }
+        }
+        #expect(server.events.count > eventsBefore)                 // the re-sync hit the server
+        #expect(await awaitSummary(engine) { _ in true }.backedUp == 2)
     }
 }
 
