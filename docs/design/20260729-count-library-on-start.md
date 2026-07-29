@@ -217,7 +217,7 @@ Cold launch → "Counting…" ticks `done` toward the asset total, then Pending 
 
 1. **Determinate progress on the sync's own scan.** `resources(in:onProgress:)` now supports it; `SyncCoordinator` passes `nil` for now to keep "Scanning library…" distinct from launch "Counting…". Cheap to wire later.
 2. **Live idle updates:** `PHPhotoLibraryChangeObserver` to keep the count fresh while the app sits open, + an auto-sync scheduler on change. This is the next slice; it also removes warm-launch cache staleness.
-3. **Double-scan avoidance:** Sync Now right after launch counting re-scans (~63s) instead of reusing the assess scan/plan. A future unification of the assess plan with `SyncCoordinator`'s plan.
+3. **Double-scan avoidance:** ~~Sync Now right after launch counting re-scans~~ **Done in this slice** via `CachingAssetLibrary` — a TTL-memoized (`60s`) `AssetLibrary` decorator shared by the assess pass and `SyncCoordinator`, so a Sync Now within the window reuses the launch count's scan. The TTL is a stopgap: the observer slice (§9.2) replaces it with change-based invalidation (`CachingAssetLibrary.invalidate()` already exists for that). Remaining gap: a photo taken within the TTL window won't appear until it expires.
 4. **`resourceTotal` display** (e.g. "63,201 of 70,444 backed up") — cached but not shown yet.
 
 ---

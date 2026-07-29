@@ -12,6 +12,9 @@ struct FilesNestApp: App {
         let urlStore   = UserDefaultsServerURLStore(defaults: defaults)
         let credStore  = KeychainStore()
         let stateStore = UserDefaultsSyncStateStore(defaults: defaults)
+        // Shared, TTL-memoized scan so a Sync Now right after the launch count reuses that
+        // scan instead of paying a second full enumeration. (Observer-invalidated later.)
+        let library    = CachingAssetLibrary(wrapping: PhotosAssetLibrary())
 
         let engine = LiveSyncEngine(
             credentials: credStore,
@@ -25,7 +28,7 @@ struct FilesNestApp: App {
                 let client   = ServerClient(baseURL: url, credentials: credStore)
                 let uploader = AssetUploader(client: client, source: PhotosAssetDataSource())
                 let coordinator = SyncCoordinator(client: client,
-                                                  library: PhotosAssetLibrary(),
+                                                  library: library,   // shares the launch count's cached scan
                                                   uploader: uploader,
                                                   state: stateStore)
                 return try await coordinator.sync(range: range, onProgress: onProgress)
@@ -33,7 +36,7 @@ struct FilesNestApp: App {
             assess: { progress in
                 // Full library scan (drives the determinate "Counting…" state) + server diff →
                 // exact at-rest Pending via SyncPlanner. Cached so a warm launch is instant.
-                let scan = try await PhotosAssetLibrary().resources(in: .all, onProgress: progress.report)
+                let scan = try await library.resources(in: .all, onProgress: progress.report)
                 guard let url = urlStore.load(),
                       (try await credStore.basicCredentials()) != nil else {
                     // Signed out: no server to diff against — everything local is pending.
