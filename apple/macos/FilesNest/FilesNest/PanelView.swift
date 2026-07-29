@@ -46,10 +46,14 @@ struct PanelView: View {
         VStack(spacing: 8) {
             ZStack {
                 Circle().stroke(.quaternary, lineWidth: 6).frame(width: 74, height: 74)
-                Circle().trim(from: 0, to: ringFraction)
-                    .stroke(ringColor, style: .init(lineWidth: 6, lineCap: .round))
-                    .rotationEffect(.degrees(-90)).frame(width: 74, height: 74)
-                Text(glyph).font(.system(size: 24))
+                if isScanning {
+                    ProgressView().controlSize(.large)   // indeterminate: enumeration has no known total yet
+                } else {
+                    Circle().trim(from: 0, to: ringFraction)
+                        .stroke(ringColor, style: .init(lineWidth: 6, lineCap: .round))
+                        .rotationEffect(.degrees(-90)).frame(width: 74, height: 74)
+                    Text(glyph).font(.system(size: 24))
+                }
             }
             Text(title).font(.headline)
             Text(subtitle).font(.caption).foregroundStyle(.secondary)
@@ -129,8 +133,17 @@ struct PanelView: View {
     private var isPaused: Bool { if case .paused = model.status { return true }; return false }
     private var isSignedOut: Bool { if case .signedOut = model.status { return true }; return false }
     private var pending: Int {
-        if case let .syncing(p) = model.status { return max(0, p.total - p.completed) }
-        return 0
+        switch model.status {
+        case .syncing(let p): return max(0, p.total - p.completed)
+        case .paused(let n): return n              // remaining work while paused
+        default: return 0
+        }
+    }
+
+    /// Enumeration in progress: `.syncing` before a total is known.
+    private var isScanning: Bool {
+        if case .syncing(let p) = model.status { return p.total == 0 }
+        return false
     }
 
     private var ringFraction: CGFloat {

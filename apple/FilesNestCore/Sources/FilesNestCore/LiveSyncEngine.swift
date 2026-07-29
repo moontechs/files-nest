@@ -49,6 +49,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private var generation: UInt64 = 0
     private var signedIn = false
     private var syncChild: Task<Void, Never>?
+    private var lastProgress: SyncProgress?   // latest progress of the running sync, for pause's pending count
 
     // Published snapshot + stream registries (read from arbitrary threads → fanoutLock).
     private let fanoutLock = NSLock()
@@ -127,7 +128,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         case .resume:  doResume()
         case .syncNow: doSyncNow()
         case .progress(let gen, let p):
-            if gen == generation { setStatus(.syncing(p)) }
+            if gen == generation { lastProgress = p; setStatus(.syncing(p)) }
         case .finished(let gen, let report):
             if gen == generation { finishSync(report) }
         case .failed(let gen, let message):
@@ -171,7 +172,9 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         if case .signedOut = currentStatus { return }
         generation &+= 1
         syncChild?.cancel(); syncChild = nil          // coordinator checks cancellation between items
-        setStatus(.paused(pending: 0))
+        // Preserve the not-yet-uploaded count so "Paused" shows remaining work, not 0.
+        let remaining = lastProgress.map { max(0, $0.total - $0.completed) } ?? 0
+        setStatus(.paused(pending: remaining))
     }
 
     private func doResume() {
@@ -187,6 +190,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         if case .paused = currentStatus { return }
         generation &+= 1
         let gen = generation
+        lastProgress = nil
         setStatus(.syncing(SyncProgress(completed: 0, total: 0, currentItemName: nil, bytesRemaining: nil)))
         syncChild = Task { [perform, submit] in
             do {

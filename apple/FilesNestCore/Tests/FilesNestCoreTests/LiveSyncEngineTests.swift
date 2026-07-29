@@ -188,6 +188,23 @@ import Foundation
         #expect(isPaused(await awaitStatus(engine, isPaused)))
     }
 
+    @Test func pausePreservesRemainingCount() async {
+        let started = Gate(); let release = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, onProgress in
+            onProgress(SyncProgress(completed: 3, total: 10, currentItemName: "x", bytesRemaining: nil))
+            await started.open()
+            await release.wait()
+            return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 0)
+        })
+        await engine.start()
+        await engine.syncNow()
+        _ = await awaitStatus(engine) { if case .syncing(let p) = $0 { return p.completed == 3 }; return false }
+        await engine.pause()
+        #expect(await awaitStatus(engine, isPaused) == .paused(pending: 7))   // 10 - 3 remaining
+        await release.open()
+    }
+
     @Test func completionAfterPauseIsDropped() async {
         // perform ignores cancellation and completes; its result must not revive the sync.
         let started = Gate(); let release = Gate()
