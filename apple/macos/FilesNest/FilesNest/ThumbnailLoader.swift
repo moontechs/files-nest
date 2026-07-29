@@ -8,7 +8,8 @@ final class ThumbnailLoader: @unchecked Sendable {
     private let manager = PHImageManager.default()
 
     func thumbnail(for id: String, size: CGSize) async -> NSImage? {
-        if let hit = cache.object(forKey: id as NSString) { return hit }
+        let cacheKey = "\(id)@\(Int(size.width))x\(Int(size.height))" as NSString
+        if let hit = cache.object(forKey: cacheKey) { return hit }
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else {
             return nil
         }
@@ -21,10 +22,11 @@ final class ThumbnailLoader: @unchecked Sendable {
         return await withCheckedContinuation { (cont: CheckedContinuation<NSImage?, Never>) in
             let resumed = ResumeOnce()
             manager.requestImage(for: asset, targetSize: size, contentMode: .aspectFill, options: options) { image, info in
-                // `.opportunistic` may call back twice (degraded then full). Cache the latest image;
-                // resume the continuation once, on the first non-degraded result.
-                if let image { self.cache.setObject(image, forKey: id as NSString) }
+                // `.opportunistic` may call back twice (degraded then full). Cache only the final
+                // (non-degraded) image so a concurrent caller never gets stuck with a low-res one;
+                // resume the continuation once, on that final result.
                 let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                if let image, !isDegraded { self.cache.setObject(image, forKey: cacheKey) }
                 if !isDegraded, resumed.tryResume() { cont.resume(returning: image) }
             }
         }

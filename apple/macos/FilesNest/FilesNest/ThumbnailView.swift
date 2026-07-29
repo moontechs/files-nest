@@ -22,7 +22,9 @@ struct ThumbnailView: View {
         .task(id: id) {
             image = nil
             guard let id else { return }
-            image = await loader.thumbnail(for: id, size: CGSize(width: size * 2, height: size * 2))
+            let loaded = await loader.thumbnail(for: id, size: CGSize(width: size * 2, height: size * 2))
+            guard !Task.isCancelled else { return }   // item changed mid-load; don't overwrite with the stale image
+            image = loaded
         }
     }
 }

@@ -21,7 +21,7 @@ struct FailedItemsView: View {
                 Text("No failures").font(.caption).foregroundStyle(.secondary)
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
+                    LazyVStack(alignment: .leading, spacing: 10) {   // only visible rows load thumbnails
                         ForEach(items, id: \.key.encoded) { item in
                             HStack(spacing: 10) {
                                 ThumbnailView(id: item.key.localIdentifier, size: 34, loader: thumbnails)
