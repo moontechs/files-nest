@@ -188,6 +188,24 @@ import Foundation
         #expect(isPaused(await awaitStatus(engine, isPaused)))
     }
 
+    @Test func backedUpClimbsDuringSync() async {
+        let started = Gate(); let release = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, onProgress in
+            onProgress(SyncProgress(completed: 2, total: 5, currentItemName: "x", bytesRemaining: nil))
+            await started.open()
+            await release.wait()
+            return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 0)
+        },
+                                    refreshBackedUp: { 10 })
+        await engine.start()
+        _ = await awaitSummary(engine) { $0.backedUp == 10 }   // base from the start refresh
+        await engine.syncNow()
+        await started.wait()
+        #expect(await awaitSummary(engine) { $0.backedUp == 12 }.backedUp == 12)   // 10 base + 2 completed
+        await release.open()
+    }
+
     @Test func pausePreservesRemainingCount() async {
         let started = Gate(); let release = Gate()
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),

@@ -50,6 +50,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private var signedIn = false
     private var syncChild: Task<Void, Never>?
     private var lastProgress: SyncProgress?   // latest progress of the running sync, for pause's pending count
+    private var syncBaseBackedUp = 0          // backed-up count at the current sync's start, for a live climb
 
     // Published snapshot + stream registries (read from arbitrary threads → fanoutLock).
     private let fanoutLock = NSLock()
@@ -128,7 +129,13 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         case .resume:  doResume()
         case .syncNow: doSyncNow()
         case .progress(let gen, let p):
-            if gen == generation { lastProgress = p; setStatus(.syncing(p)) }
+            if gen == generation {
+                lastProgress = p
+                // Live climb: each completed upload is one more file on the server. Reconciled
+                // to the true server count by the post-completion refresh.
+                setSummary(SyncSummary(backedUp: syncBaseBackedUp + p.completed, failed: currentSummary.failed))
+                setStatus(.syncing(p))
+            }
         case .finished(let gen, let report):
             if gen == generation { finishSync(report) }
         case .failed(let gen, let message):
@@ -191,6 +198,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         generation &+= 1
         let gen = generation
         lastProgress = nil
+        syncBaseBackedUp = currentSummary.backedUp   // baseline for the live backed-up climb
         setStatus(.syncing(SyncProgress(completed: 0, total: 0, currentItemName: nil, bytesRemaining: nil)))
         syncChild = Task { [perform, submit] in
             do {
