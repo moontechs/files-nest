@@ -1,17 +1,8 @@
 import SwiftUI
-import Photos
 import FilesNestCore
 
 @main
 struct FilesNestApp: App {
-    /// Cheap local library size — a plain `PHAsset` count (no per-resource enumeration).
-    /// Returns 0 until Photos access is granted. Used for the at-rest pending estimate.
-    static func libraryAssetCount() -> Int {
-        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        guard status == .authorized || status == .limited else { return 0 }
-        return PHAsset.fetchAssets(with: nil).count
-    }
-
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model: AppModel
     @StateObject private var settings: SettingsModel
@@ -39,30 +30,21 @@ struct FilesNestApp: App {
                                                   state: stateStore)
                 return try await coordinator.sync(range: range, onProgress: onProgress)
             },
-            refreshCounts: {
-                // Cheap local library size (asset count, not the expensive per-resource scan).
-                let libraryTotal = Self.libraryAssetCount()
-                // Live "Backed up" = count of completed uploads on the server.
+            refreshBackedUp: {
+                // Live "Backed up" = count of completed upload records on the server (per-resource).
                 guard let url = urlStore.load(),
                       (try await credStore.basicCredentials()) != nil else {
-                    return (backedUp: 0, libraryTotal: libraryTotal)
+                    return 0
                 }
                 let client = ServerClient(baseURL: url, credentials: credStore)
-                // Count DISTINCT backed-up assets (not resources): a record's localIdentifier is an
-                // encoded ResourceKey, and a Live Photo has two complete resources for one asset.
-                // Matching libraryTotal's asset units keeps the pending estimate honest.
-                var assets = Set<String>()
+                var count = 0
                 var cursor: String? = nil
                 repeat {
                     let page = try await client.listUploads(cursor: cursor)
-                    for rec in page.items where rec.status == .complete {
-                        if let key = try? ResourceKey(parsing: rec.localIdentifier) {
-                            assets.insert(key.localIdentifier)
-                        }
-                    }
+                    count += page.items.filter { $0.status == .complete }.count
                     cursor = page.nextCursor
                 } while cursor != nil
-                return (backedUp: assets.count, libraryTotal: libraryTotal)
+                return count
             })
 
         let appModel = AppModel(engine: engine)

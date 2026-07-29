@@ -105,9 +105,7 @@ struct PanelView: View {
         guard !isSignedOut else { return "—" }
         switch model.status {
         case .syncing, .paused: return "\(pending)"                 // exact for the active run
-        default:                                                    // at rest: estimate from library total
-            guard let total = model.summary.libraryTotal else { return "—" }
-            return "~\(max(0, total - model.summary.backedUp))"
+        default: return "—"                                         // at rest: unknown without change-watching
         }
     }
 
@@ -145,9 +143,7 @@ struct PanelView: View {
         switch model.status {
         case .syncing(let p): return max(0, p.total - p.completed)
         case .paused(let n): return n              // remaining work while paused
-        default:                                   // at rest: estimate from the library total
-            guard let total = model.summary.libraryTotal else { return 0 }
-            return max(0, total - model.summary.backedUp)
+        default: return 0                          // at rest: unknown without change-watching
         }
     }
 
@@ -195,9 +191,7 @@ struct PanelView: View {
         case .signedOut: return "Add your server and credentials"
         case .watching(let last): return last.map { "Last sync \($0.formatted(.relative(presentation: .named)))" } ?? "Watching for new items"
         case .syncing(let p):
-            if p.total == 0 {
-                return model.summary.libraryTotal.map { "Scanning ~\($0) photos…" } ?? "Scanning library…"
-            }
+            if p.total == 0 { return "Scanning library…" }
             return "\(p.completed) of \(p.total)"
         case .paused(let n): return "\(n) items waiting"
         case .error(let m): return m
