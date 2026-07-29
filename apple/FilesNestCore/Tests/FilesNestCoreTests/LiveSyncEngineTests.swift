@@ -188,6 +188,86 @@ import Foundation
         #expect(isPaused(await awaitStatus(engine, isPaused)))
     }
 
+    @Test func resumeThenSyncNowStartsNewSyncAfterPause() async {
+        let started = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in
+            await started.open()
+            while true { try Task.checkCancellation(); await Task.yield() }   // runs until cancelled
+        })
+        await engine.start()
+        await engine.syncNow()
+        await started.wait()                                   // first sync running
+        await engine.pause()
+        #expect(isPaused(await awaitStatus(engine, isPaused)))
+        await engine.resume()
+        #expect(await awaitStatus(engine, isWatching) == .watching(lastSync: nil))
+        // Sync Now after resume must start a new sync (status → syncing), not be ignored.
+        var it = engine.statusStream().makeAsyncIterator()
+        await engine.syncNow()
+        var sawSyncing = false
+        while let s = await it.next() { if case .syncing = s { sawSyncing = true; break } }
+        #expect(sawSyncing)
+    }
+
+    @Test func backedUpClimbsDuringSync() async {
+        let started = Gate(); let release = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, onProgress in
+            onProgress(SyncProgress(completed: 2, total: 5, currentItemName: "x", bytesRemaining: nil))
+            await started.open()
+            await release.wait()
+            return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 0)
+        },
+                                    refreshBackedUp: { 10 })
+        await engine.start()
+        _ = await awaitSummary(engine) { $0.backedUp == 10 }   // base from the start refresh
+        await engine.syncNow()
+        await started.wait()
+        #expect(await awaitSummary(engine) { $0.backedUp == 12 }.backedUp == 12)   // 10 base + 2 completed
+        await release.open()
+    }
+
+    @Test func pausePreservesRemainingCount() async {
+        let started = Gate(); let release = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, onProgress in
+            onProgress(SyncProgress(completed: 3, total: 10, currentItemName: "x", bytesRemaining: nil))
+            await started.open()
+            await release.wait()
+            return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 0)
+        })
+        await engine.start()
+        await engine.syncNow()
+        _ = await awaitStatus(engine) { if case .syncing(let p) = $0 { return p.completed == 3 }; return false }
+        await engine.pause()
+        #expect(await awaitStatus(engine, isPaused) == .paused(pending: 7))   // 10 - 3 remaining
+        await release.open()
+    }
+
+    @Test func restartWhilePausedClearsRemaining() async {
+        // A Settings save (appModel.restart -> start) from a paused state reconciles to watching;
+        // a later idle Pause must show 0, not the stale paused remaining.
+        let started = Gate(); let release = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, onProgress in
+            onProgress(SyncProgress(completed: 3, total: 10, currentItemName: "x", bytesRemaining: nil))
+            await started.open()
+            await release.wait()
+            return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 0)
+        })
+        await engine.start()
+        await engine.syncNow()
+        await started.wait()
+        await engine.pause()
+        #expect(await awaitStatus(engine, isPaused) == .paused(pending: 7))
+        await release.open()
+        await engine.start()             // restart reconciles the paused run to watching
+        _ = await awaitStatus(engine) { if case .watching = $0 { return true }; return false }
+        await engine.pause()
+        #expect(await awaitStatus(engine, isPaused) == .paused(pending: 0))   // no stale remaining
+    }
+
     @Test func completionAfterPauseIsDropped() async {
         // perform ignores cancellation and completes; its result must not revive the sync.
         let started = Gate(); let release = Gate()
@@ -267,6 +347,57 @@ import Foundation
         var sawSyncing = false
         while let s = await it.next() { if case .syncing = s { sawSyncing = true; break } }
         #expect(sawSyncing)   // accepted, not permanently ignored (the strand bug)
+    }
+
+    // MARK: - Integration: engine driving a real SyncCoordinator (no UI, no PhotoKit)
+
+    /// End-to-end through the real coordinator/uploader/ServerClient (via the in-memory
+    /// FakeServer + FakeAssetLibrary): a sync uploads the library, tiles reflect the server
+    /// count, and a re-sync is idempotent. Replaces most of the manual click-through.
+    @Test func integrationRealCoordinatorSyncUpdatesTilesAndIsIdempotent() async {
+        let server = FakeServer(host: "engine-int.test")
+        let a = AssetResource(key: ResourceKey(localIdentifier: "IA", kind: .photo),
+                              filename: "IA.jpg", creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)
+        let b = AssetResource(key: ResourceKey(localIdentifier: "IB", kind: .photo),
+                              filename: "IB.jpg", creationDate: Date(timeIntervalSince1970: 2), bundleID: nil)
+        let lib = FakeAssetLibrary(items: [a, b], error: nil)
+        let client = server.client()
+        let uploader = AssetUploader(client: client, source: FakeAssetDataSource(totalBytes: 200, blobSize: 100))
+        let coordinator = SyncCoordinator(client: client, library: lib, uploader: uploader,
+                                          state: InMemorySyncStateStore())
+        let engine = LiveSyncEngine(
+            credentials: creds(true),
+            state: InMemorySyncStateStore(),
+            perform: { range, onProgress in try await coordinator.sync(range: range, onProgress: onProgress) },
+            refreshBackedUp: {
+                var count = 0
+                var cursor: String? = nil
+                repeat {
+                    let page = try await client.listUploads(cursor: cursor)
+                    count += page.items.filter { $0.status == .complete }.count
+                    cursor = page.nextCursor
+                } while cursor != nil
+                return count
+            })
+
+        await engine.start()
+        await engine.syncNow()
+        let sum = await awaitSummary(engine) { $0.backedUp == 2 }   // both uploaded & complete on the server
+        #expect(sum.failed.isEmpty)
+        #expect(isWatching(await awaitStatus(engine, isWatching)))
+
+        // Re-sync actually runs (re-issues server requests) and is idempotent: subscribe first,
+        // observe a real .syncing → .watching cycle, and confirm the count stays 2.
+        var it = engine.statusStream().makeAsyncIterator()
+        let eventsBefore = server.events.count
+        await engine.syncNow()
+        var sawSyncing = false
+        while let s = await it.next() {
+            if case .syncing = s { sawSyncing = true }
+            else if sawSyncing, case .watching = s { break }
+        }
+        #expect(server.events.count > eventsBefore)                 // the re-sync hit the server
+        #expect(await awaitSummary(engine) { _ in true }.backedUp == 2)
     }
 }
 

@@ -3,17 +3,13 @@ import Foundation
 final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = (URLRequest) throws -> (HTTPURLResponse, Data)
 
-    /// Legacy single handler. Suites using it must not run concurrently with
-    /// each other — prefer `setHandler(forHost:)`.
-    nonisolated(unsafe) static var handler: Handler?
-
-    /// Per-host handlers.
+    /// Per-host handlers — the only routing mechanism.
     ///
     /// `.serialized` orders tests only WITHIN a suite; separate suites still run
-    /// in parallel, so a single shared handler is overwritten across suites.
-    /// Observed concretely: running the full suite made ServerClientNetworkTests
-    /// and AssetUploaderTests fail with 500s and empty bodies while each passed
-    /// in isolation. Keying by host gives every suite its own stub.
+    /// in parallel. A single shared static handler was both overwritten across
+    /// suites (500s/empty bodies) and an unsynchronized read/write data race.
+    /// Keying by host under `lock` gives every suite its own stub with no shared
+    /// mutable state. Every request's host must have a registered handler.
     nonisolated(unsafe) private static var hostHandlers: [String: Handler] = [:]
     private static let lock = NSLock()
 
@@ -29,8 +25,8 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
 
     private static func handler(forHost host: String?) -> Handler? {
         lock.lock(); defer { lock.unlock() }
-        if let host, let scoped = hostHandlers[host] { return scoped }
-        return handler
+        guard let host else { return nil }
+        return hostHandlers[host]
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }

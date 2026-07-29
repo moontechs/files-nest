@@ -35,7 +35,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         case progress(gen: UInt64, SyncProgress)
         case finished(gen: UInt64, SyncReport)
         case failed(gen: UInt64, message: String)
-        case summaryRefreshed(gen: UInt64, backedUp: Int)   // result of an off-consumer server count
+        case summaryRefreshed(gen: UInt64, backedUp: Int)   // off-consumer server count
         case barrier(@Sendable () -> Void)   // test-only: resumes once all prior commands are processed
     }
 
@@ -49,6 +49,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private var generation: UInt64 = 0
     private var signedIn = false
     private var syncChild: Task<Void, Never>?
+    private var lastProgress: SyncProgress?   // latest progress of the running sync, for pause's pending count
+    private var syncBaseBackedUp = 0          // backed-up count at the current sync's start, for a live climb
 
     // Published snapshot + stream registries (read from arbitrary threads → fanoutLock).
     private let fanoutLock = NSLock()
@@ -127,11 +129,17 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         case .resume:  doResume()
         case .syncNow: doSyncNow()
         case .progress(let gen, let p):
-            if gen == generation { setStatus(.syncing(p)) }
+            if gen == generation {
+                lastProgress = p
+                // Live climb: each completed upload is one more file on the server. Reconciled
+                // to the true server count by the post-completion refresh.
+                setSummary(SyncSummary(backedUp: syncBaseBackedUp + p.completed, failed: currentSummary.failed))
+                setStatus(.syncing(p))
+            }
         case .finished(let gen, let report):
             if gen == generation { finishSync(report) }
         case .failed(let gen, let message):
-            if gen == generation { syncChild = nil; setStatus(.error(message: message)) }
+            if gen == generation { syncChild = nil; lastProgress = nil; setStatus(.error(message: message)) }
         case .summaryRefreshed(let gen, let backedUp):
             if gen == generation { setSummary(SyncSummary(backedUp: backedUp, failed: currentSummary.failed)) }
         case .barrier(let ack):
@@ -151,6 +159,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
             generation &+= 1                            // supersede any in-flight run
             signedIn = false
             syncChild?.cancel(); syncChild = nil
+            lastProgress = nil                          // so a later idle Pause shows 0, not stale remaining
             setStatus(.signedOut)
             setSummary(.empty)                          // drop stale failures
             return
@@ -162,31 +171,40 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         // the count when it finishes. Only reconcile here when idle.
         if !isSyncingStatus {
             generation &+= 1
+            lastProgress = nil                         // reconciling to idle; drop any paused-run remaining
             setStatus(.watching(lastSync: lastSync))
             scheduleBackedUpRefresh(gen: generation)   // off-consumer; never blocks the queue
         }
     }
 
     private func doPause() {
+        log("cmd pause (status=\(currentStatus))")
         if case .signedOut = currentStatus { return }
         generation &+= 1
         syncChild?.cancel(); syncChild = nil          // coordinator checks cancellation between items
-        setStatus(.paused(pending: 0))
+        // Preserve the not-yet-uploaded count so "Paused" shows remaining work, not 0.
+        let remaining = lastProgress.map { max(0, $0.total - $0.completed) } ?? 0
+        setStatus(.paused(pending: remaining))
     }
 
     private func doResume() {
+        log("cmd resume (status=\(currentStatus))")
         // Only meaningful from `.paused` — where there is no active child to strand. Bumping the
         // generation during an active sync would orphan its in-flight child.
         guard case .paused = currentStatus else { return }
         generation &+= 1
+        lastProgress = nil                            // resumed work is a fresh run; no stale remaining
         setStatus(.watching(lastSync: lastSync))
     }
 
     private func doSyncNow() {
+        log("cmd syncNow (signedIn=\(signedIn) syncChild=\(syncChild != nil) status=\(currentStatus))")
         guard signedIn, syncChild == nil else { return }
         if case .paused = currentStatus { return }
         generation &+= 1
         let gen = generation
+        lastProgress = nil
+        syncBaseBackedUp = currentSummary.backedUp   // baseline for the live backed-up climb
         setStatus(.syncing(SyncProgress(completed: 0, total: 0, currentItemName: nil, bytesRemaining: nil)))
         syncChild = Task { [perform, submit] in
             do {
@@ -202,6 +220,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
 
     private func finishSync(_ report: SyncReport) {
         syncChild = nil
+        lastProgress = nil                         // so a later idle Pause shows 0, not stale remaining
         if !report.failed.isEmpty { logFailures(report.failed) }
         // Immediate summary from the report (skipped+uploaded == the completed count for an .all
         // sync); a background refresh reconciles it to the live server count.
@@ -222,13 +241,22 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     // MARK: - Published snapshot
 
     private func setStatus(_ s: SyncStatus) {
+        log("status → \(s)")
         fanoutLock.lock(); status = s; let cs = Array(statusConts.values); fanoutLock.unlock()
         for c in cs { c.yield(s) }
     }
 
     private func setSummary(_ s: SyncSummary) {
+        log("summary → backedUp=\(s.backedUp) failed=\(s.failed.count)")
         fanoutLock.lock(); summary = s; let cs = Array(summaryConts.values); fanoutLock.unlock()
         for c in cs { c.yield(s) }
+    }
+
+    /// DEBUG-only trace of engine transitions (visible in the Xcode console).
+    private func log(_ message: @autoclosure () -> String) {
+        #if DEBUG
+        print("🟣 FN engine: \(message())")
+        #endif
     }
 
     private var currentStatus: SyncStatus { fanoutLock.lock(); defer { fanoutLock.unlock() }; return status }

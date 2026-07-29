@@ -31,9 +31,11 @@ struct FilesNestApp: App {
                 return try await coordinator.sync(range: range, onProgress: onProgress)
             },
             refreshBackedUp: {
-                // Live "Backed up" = count of completed uploads on the server.
+                // Live "Backed up" = count of completed upload records on the server (per-resource).
                 guard let url = urlStore.load(),
-                      (try await credStore.basicCredentials()) != nil else { return 0 }
+                      (try await credStore.basicCredentials()) != nil else {
+                    return 0
+                }
                 let client = ServerClient(baseURL: url, credentials: credStore)
                 var count = 0
                 var cursor: String? = nil
@@ -64,7 +66,7 @@ struct FilesNestApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.accessory)   // menu-bar agent, no Dock icon
     }
 }
 

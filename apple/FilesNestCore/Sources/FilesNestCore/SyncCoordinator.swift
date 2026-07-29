@@ -35,9 +35,11 @@ public struct SyncCoordinator: Sendable {
         var failed: [FailedItem] = []
 
         let uploadTotal = plan.uploads.count
-        for (index, item) in plan.uploads.enumerated() {
+        for item in plan.uploads {
             try Task.checkCancellation()
-            onProgress(SyncProgress(completed: index,
+            // `completed` is successful uploads so far (not attempts), so a live "backed up"
+            // count derived from it never credits a failed item.
+            onProgress(SyncProgress(completed: uploaded.count,
                                     total: uploadTotal,
                                     currentItemName: item.resource.filename,
                                     bytesRemaining: nil))

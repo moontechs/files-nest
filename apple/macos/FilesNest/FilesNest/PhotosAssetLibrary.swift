@@ -16,34 +16,52 @@ nonisolated struct PhotosAssetLibrary: AssetLibrary {
     func resources(in range: SyncRange) async throws -> [AssetResource] {
         try await ensureAuthorized()
 
-        // Enumerating a large library is heavy, synchronous PhotoKit work. Run it on a GCD
-        // queue rather than the Swift concurrency cooperative pool, so a 70k-asset scan can't
-        // starve other async work (status/progress delivery) while it runs.
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let options = PHFetchOptions()
-                options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
-                if case .dates(let r) = range {
-                    options.predicate = NSPredicate(format: "creationDate >= %@ AND creationDate <= %@",
-                                                    r.lowerBound as NSDate, r.upperBound as NSDate)
-                }
-
-                let assets = PHAsset.fetchAssets(with: options)
-                var out: [AssetResource] = []
-                assets.enumerateObjects { asset, _, _ in
-                    let isLive = asset.mediaSubtypes.contains(.photoLive)
-                    let created = asset.creationDate ?? .distantPast   // non-optional key field (design §3.4)
-                    for resource in PHAssetResource.assetResources(for: asset) {
-                        guard let kind = Self.mapType(resource.type) else { continue }   // skip unaddressed types
-                        out.append(AssetResource(
-                            key: ResourceKey(localIdentifier: asset.localIdentifier, kind: kind),
-                            filename: resource.originalFilename,
-                            creationDate: created,
-                            bundleID: isLive ? asset.localIdentifier : nil))
+        // Enumerating a large library is heavy, synchronous PhotoKit work (a
+        // `PHAssetResource.assetResources(for:)` lookup per asset). Run it on a GCD queue
+        // off the cooperative pool, and make it cancellable so Pause / sign-out during the
+        // scan stop it promptly instead of churning to completion.
+        let cancel = CancelFlag()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[AssetResource], Error>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    #if DEBUG
+                    let clock = Date()
+                    print("🟢 FN library: enumeration start (range=\(range))")
+                    #endif
+                    let options = PHFetchOptions()
+                    options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
+                    if case .dates(let r) = range {
+                        options.predicate = NSPredicate(format: "creationDate >= %@ AND creationDate <= %@",
+                                                        r.lowerBound as NSDate, r.upperBound as NSDate)
                     }
+
+                    let assets = PHAsset.fetchAssets(with: options)
+                    var out: [AssetResource] = []
+                    assets.enumerateObjects { asset, _, stop in
+                        if cancel.isSet { stop.pointee = true; return }   // Pause/sign-out cancelled the scan
+                        let isLive = asset.mediaSubtypes.contains(.photoLive)
+                        let created = asset.creationDate ?? .distantPast   // non-optional key field (design §3.4)
+                        for resource in PHAssetResource.assetResources(for: asset) {
+                            guard let kind = Self.mapType(resource.type) else { continue }   // skip unaddressed types
+                            out.append(AssetResource(
+                                key: ResourceKey(localIdentifier: asset.localIdentifier, kind: kind),
+                                filename: resource.originalFilename,
+                                creationDate: created,
+                                bundleID: isLive ? asset.localIdentifier : nil))
+                        }
+                    }
+                    if cancel.isSet {
+                        continuation.resume(throwing: CancellationError())
+                        return
+                    }
+                    #if DEBUG
+                    print("🟢 FN library: enumerated \(out.count) resources from \(assets.count) assets in \(String(format: "%.2f", -clock.timeIntervalSinceNow))s")
+                    #endif
+                    continuation.resume(returning: out)
                 }
-                continuation.resume(returning: out)
             }
+        } onCancel: {
+            cancel.set()
         }
     }
 
@@ -71,4 +89,12 @@ nonisolated struct PhotosAssetLibrary: AssetLibrary {
         default:              return nil
         }
     }
+}
+
+/// Thread-safe one-shot cancel flag for the off-cooperative-thread enumeration.
+private final class CancelFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
+    func set() { lock.lock(); value = true; lock.unlock() }
 }

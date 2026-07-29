@@ -46,10 +46,14 @@ struct PanelView: View {
         VStack(spacing: 8) {
             ZStack {
                 Circle().stroke(.quaternary, lineWidth: 6).frame(width: 74, height: 74)
-                Circle().trim(from: 0, to: ringFraction)
-                    .stroke(ringColor, style: .init(lineWidth: 6, lineCap: .round))
-                    .rotationEffect(.degrees(-90)).frame(width: 74, height: 74)
-                Text(glyph).font(.system(size: 24))
+                if isScanning {
+                    ProgressView().controlSize(.large)   // indeterminate: enumeration has no known total yet
+                } else {
+                    Circle().trim(from: 0, to: ringFraction)
+                        .stroke(ringColor, style: .init(lineWidth: 6, lineCap: .round))
+                        .rotationEffect(.degrees(-90)).frame(width: 74, height: 74)
+                    Text(glyph).font(.system(size: 24))
+                }
             }
             Text(title).font(.headline)
             Text(subtitle).font(.caption).foregroundStyle(.secondary)
@@ -96,7 +100,14 @@ struct PanelView: View {
     }
 
     private var backedUpText: String { isSignedOut ? "—" : "\(model.summary.backedUp)" }
-    private var pendingText: String { isSignedOut ? "—" : "\(pending)" }
+
+    private var pendingText: String {
+        guard !isSignedOut else { return "—" }
+        switch model.status {
+        case .syncing, .paused: return "\(pending)"                 // exact for the active run
+        default: return "—"                                         // at rest: unknown without change-watching
+        }
+    }
 
     private func tile(_ v: String, _ k: String, _ color: Color) -> some View {
         VStack(spacing: 1) {
@@ -129,8 +140,17 @@ struct PanelView: View {
     private var isPaused: Bool { if case .paused = model.status { return true }; return false }
     private var isSignedOut: Bool { if case .signedOut = model.status { return true }; return false }
     private var pending: Int {
-        if case let .syncing(p) = model.status { return max(0, p.total - p.completed) }
-        return 0
+        switch model.status {
+        case .syncing(let p): return max(0, p.total - p.completed)
+        case .paused(let n): return n              // remaining work while paused
+        default: return 0                          // at rest: unknown without change-watching
+        }
+    }
+
+    /// Enumeration in progress: `.syncing` before a total is known.
+    private var isScanning: Bool {
+        if case .syncing(let p) = model.status { return p.total == 0 }
+        return false
     }
 
     private var ringFraction: CGFloat {
@@ -170,7 +190,9 @@ struct PanelView: View {
         switch model.status {
         case .signedOut: return "Add your server and credentials"
         case .watching(let last): return last.map { "Last sync \($0.formatted(.relative(presentation: .named)))" } ?? "Watching for new items"
-        case .syncing(let p): return p.total == 0 ? "Scanning library…" : "\(p.completed) of \(p.total)"
+        case .syncing(let p):
+            if p.total == 0 { return "Scanning library…" }
+            return "\(p.completed) of \(p.total)"
         case .paused(let n): return "\(n) items waiting"
         case .error(let m): return m
         }
