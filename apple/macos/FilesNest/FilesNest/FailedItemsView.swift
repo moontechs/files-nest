@@ -5,6 +5,7 @@ import FilesNestCore
 /// Mirrors SettingsView's in-panel navigation (Back button, 320-wide).
 struct FailedItemsView: View {
     let items: [FailedItem]
+    let thumbnails: ThumbnailLoader
     var onDone: () -> Void
 
     var body: some View {
@@ -22,11 +23,14 @@ struct FailedItemsView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach(items, id: \.key.encoded) { item in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.filename).font(.caption).bold().lineLimit(1)
-                                Text(item.reason).font(.caption2)
-                                    .foregroundStyle(.secondary).lineLimit(2)
-                            }.frame(maxWidth: .infinity, alignment: .leading)
+                            HStack(spacing: 10) {
+                                ThumbnailView(id: item.key.localIdentifier, size: 34, loader: thumbnails)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.filename).font(.caption).bold().lineLimit(1)
+                                    Text(item.reason).font(.caption2)
+                                        .foregroundStyle(.secondary).lineLimit(2)
+                                }.frame(maxWidth: .infinity, alignment: .leading)
+                            }
                         }
                     }
                 }.frame(maxHeight: 220)

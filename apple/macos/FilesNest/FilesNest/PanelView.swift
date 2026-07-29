@@ -4,6 +4,7 @@ import FilesNestCore
 struct PanelView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: SettingsModel
+    let thumbnails: ThumbnailLoader
     @State private var showingSettings = false
     @State private var showingFailed = false
 
@@ -14,6 +15,7 @@ struct PanelView: View {
                     .transition(.move(edge: .trailing))
             } else if showingFailed {
                 FailedItemsView(items: model.summary.failed,
+                                thumbnails: thumbnails,
                                 onDone: { withAnimation(slide) { showingFailed = false } })
                     .transition(.move(edge: .trailing))
             } else {
@@ -63,10 +65,7 @@ struct PanelView: View {
 
     private func currentItem(_ p: SyncProgress) -> some View {
         HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(LinearGradient(colors: [.blue.opacity(0.5), .purple.opacity(0.5)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-                .frame(width: 34, height: 34)
+            ThumbnailView(id: p.currentItemID, size: 34, loader: thumbnails)
             VStack(alignment: .leading, spacing: 2) {
                 Text(p.currentItemName ?? "…").font(.caption).bold().lineLimit(1)
                 Text("Uploading · \(p.completed) of \(p.total)")
