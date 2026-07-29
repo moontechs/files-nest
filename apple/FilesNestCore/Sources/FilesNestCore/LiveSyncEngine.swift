@@ -176,6 +176,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     }
 
     private func doPause() {
+        log("cmd pause (status=\(currentStatus))")
         if case .signedOut = currentStatus { return }
         generation &+= 1
         syncChild?.cancel(); syncChild = nil          // coordinator checks cancellation between items
@@ -185,6 +186,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     }
 
     private func doResume() {
+        log("cmd resume (status=\(currentStatus))")
         // Only meaningful from `.paused` — where there is no active child to strand. Bumping the
         // generation during an active sync would orphan its in-flight child.
         guard case .paused = currentStatus else { return }
@@ -193,6 +195,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     }
 
     private func doSyncNow() {
+        log("cmd syncNow (signedIn=\(signedIn) syncChild=\(syncChild != nil) status=\(currentStatus))")
         guard signedIn, syncChild == nil else { return }
         if case .paused = currentStatus { return }
         generation &+= 1

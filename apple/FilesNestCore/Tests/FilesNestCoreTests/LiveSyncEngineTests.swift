@@ -188,6 +188,27 @@ import Foundation
         #expect(isPaused(await awaitStatus(engine, isPaused)))
     }
 
+    @Test func resumeThenSyncNowStartsNewSyncAfterPause() async {
+        let calls = Counter()
+        let started = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in
+            await calls.inc()
+            await started.open()
+            while true { try Task.checkCancellation(); await Task.yield() }   // runs until cancelled
+        })
+        await engine.start()
+        await engine.syncNow()
+        await started.wait()                                   // first sync running
+        await engine.pause()
+        #expect(isPaused(await awaitStatus(engine, isPaused)))
+        await engine.resume()
+        #expect(await awaitStatus(engine, isWatching) == .watching(lastSync: nil))
+        await engine.syncNow()                                 // must start a NEW sync
+        _ = await awaitStatus(engine) { if case .syncing = $0 { return true }; return false }
+        #expect(await calls.value == 2)                        // second sync actually ran
+    }
+
     @Test func backedUpClimbsDuringSync() async {
         let started = Gate(); let release = Gate()
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
