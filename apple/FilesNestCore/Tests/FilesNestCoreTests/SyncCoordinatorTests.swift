@@ -271,8 +271,8 @@ extension SyncCoordinatorTests {
             .sync(range: .all, onProgress: { box.append($0) })
 
         #expect(box.values == [
-            SyncProgress(completed: 0, total: 2, currentItemName: "A.jpg", bytesRemaining: nil),
-            SyncProgress(completed: 1, total: 2, currentItemName: "B.jpg", bytesRemaining: nil),
+            SyncProgress(completed: 0, total: 2, currentItemName: "A.jpg", bytesRemaining: nil, currentItemID: "A"),
+            SyncProgress(completed: 1, total: 2, currentItemName: "B.jpg", bytesRemaining: nil, currentItemID: "B"),
         ])
     }
 

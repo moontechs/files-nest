@@ -6,6 +6,7 @@ struct FilesNestApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model: AppModel
     @StateObject private var settings: SettingsModel
+    private let thumbnails = ThumbnailLoader()
 
     init() {
         let defaults   = UserDefaults.standard
@@ -71,7 +72,7 @@ struct FilesNestApp: App {
 
     var body: some Scene {
         MenuBarExtra("FilesNest", systemImage: "arrow.triangle.2.circlepath") {
-            PanelView(model: model, settings: settings).task { model.begin() }
+            PanelView(model: model, settings: settings, thumbnails: thumbnails).task { model.begin() }
         }
         .menuBarExtraStyle(.window)
     }
