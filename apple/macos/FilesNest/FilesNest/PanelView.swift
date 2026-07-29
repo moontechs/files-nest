@@ -46,8 +46,8 @@ struct PanelView: View {
         VStack(spacing: 8) {
             ZStack {
                 Circle().stroke(.quaternary, lineWidth: 6).frame(width: 74, height: 74)
-                if isScanning {
-                    ProgressView().controlSize(.large)   // indeterminate: enumeration has no known total yet
+                if showsIndeterminateSpinner {
+                    ProgressView().controlSize(.large)   // indeterminate: no known total yet
                 } else {
                     Circle().trim(from: 0, to: ringFraction)
                         .stroke(ringColor, style: .init(lineWidth: 6, lineCap: .round))
@@ -105,7 +105,7 @@ struct PanelView: View {
         guard !isSignedOut else { return "—" }
         switch model.status {
         case .syncing, .paused: return "\(pending)"                 // exact for the active run
-        default: return "—"                                         // at rest: unknown without change-watching
+        default: return model.summary.pending.map { "\($0)" } ?? "—"   // exact at-rest count, or — until first assess
         }
     }
 
@@ -120,7 +120,7 @@ struct PanelView: View {
     private var actions: some View {
         HStack(spacing: 8) {
             Button(isPaused ? "Resume" : "Pause") { isPaused ? model.resume() : model.pause() }
-                .disabled(isSignedOut)
+                .disabled(isSignedOut || isCounting)   // a count isn't pausable work
             Button("Sync Now") { model.syncNow() }.buttonStyle(.borderedProminent)
                 .disabled(isSignedOut)
         }.padding(.horizontal, 12).padding(.bottom, 4)
@@ -143,26 +143,32 @@ struct PanelView: View {
         switch model.status {
         case .syncing(let p): return max(0, p.total - p.completed)
         case .paused(let n): return n              // remaining work while paused
-        default: return 0                          // at rest: unknown without change-watching
+        default: return model.summary.pending ?? 0 // at rest: exact assessed count (0 until first count)
         }
     }
 
-    /// Enumeration in progress: `.syncing` before a total is known.
-    private var isScanning: Bool {
-        if case .syncing(let p) = model.status { return p.total == 0 }
-        return false
+    private var isCounting: Bool { if case .counting = model.status { return true }; return false }
+
+    /// Enumeration in progress with no known total yet: `.syncing` or `.counting` at total 0.
+    private var showsIndeterminateSpinner: Bool {
+        switch model.status {
+        case .syncing(let p): return p.total == 0
+        case .counting(_, let total): return total == 0
+        default: return false
+        }
     }
 
     private var ringFraction: CGFloat {
         switch model.status {
         case .syncing(let p): return CGFloat(p.fraction)
+        case .counting(let done, let total): return total > 0 ? CGFloat(done) / CGFloat(total) : 0
         case .watching: return 1
         default: return 0
         }
     }
     private var ringColor: Color {
         switch model.status {
-        case .syncing: return .blue
+        case .syncing, .counting: return .blue
         case .paused: return .orange
         case .error: return .red
         default: return .green
@@ -170,7 +176,7 @@ struct PanelView: View {
     }
     private var glyph: String {
         switch model.status {
-        case .syncing: return ""
+        case .syncing, .counting: return ""
         case .paused: return "⏸"
         case .error: return "✕"
         case .signedOut: return "→"
@@ -180,6 +186,7 @@ struct PanelView: View {
     private var title: String {
         switch model.status {
         case .signedOut: return "Sign in in Settings"
+        case .counting: return "Counting…"
         case .watching: return "Up to date"
         case .syncing: return "Syncing…"
         case .paused: return "Paused"
@@ -189,6 +196,8 @@ struct PanelView: View {
     private var subtitle: String {
         switch model.status {
         case .signedOut: return "Add your server and credentials"
+        case .counting(let done, let total):
+            return total > 0 ? "\(done.formatted()) of \(total.formatted())" : "Scanning library…"
         case .watching(let last): return last.map { "Last sync \($0.formatted(.relative(presentation: .named)))" } ?? "Watching for new items"
         case .syncing(let p):
             if p.total == 0 { return "Scanning library…" }

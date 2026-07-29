@@ -17,4 +17,9 @@ struct SyncStatusTests {
         #expect(SyncStatus.watching(lastSync: nil) == .watching(lastSync: nil))
         #expect(SyncStatus.paused(pending: 2) != .paused(pending: 3))
     }
+
+    @Test func countingEquatable() {
+        #expect(SyncStatus.counting(done: 3, total: 10) == .counting(done: 3, total: 10))
+        #expect(SyncStatus.counting(done: 3, total: 10) != .counting(done: 4, total: 10))
+    }
 }

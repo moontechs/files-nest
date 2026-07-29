@@ -17,9 +17,11 @@ final class FakeAssetLibrary: AssetLibrary, @unchecked Sendable {
 
     var requestedRanges: [SyncRange] { lock.lock(); defer { lock.unlock() }; return _requestedRanges }
 
-    func resources(in range: SyncRange) async throws -> [AssetResource] {
+    func resources(in range: SyncRange,
+                   onProgress: (@Sendable (Int, Int) -> Void)?) async throws -> [AssetResource] {
         recordRange(range)               // sync helper: NSLock must not be held across an await
         if let error { throw error }
+        onProgress?(items.count, items.count)
         return items
     }
 

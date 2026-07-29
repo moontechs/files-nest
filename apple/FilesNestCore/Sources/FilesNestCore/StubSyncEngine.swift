@@ -114,6 +114,6 @@ public final class StubSyncEngine: SyncEngine, @unchecked Sendable {
                                       bytesRemaining: Int64(total - i) * 17_000_000)))
         }
         set(.watching(lastSync: stampLastSync()))
-        setSummary(SyncSummary(backedUp: 1_240, failed: []))
+        setSummary(SyncSummary(backedUp: 1_240, pending: 900, failed: []))
     }
 }
