@@ -45,7 +45,7 @@ import Foundation
 /// cannot see it either, for the churn reason above. That gap is known and
 /// unclosed; `footprintSmokeCheck` would still catch a gross whole-asset buffer.
 ///
-/// Serialized: shares `MockURLProtocol.handler`, and `phys_footprint` is
+/// Serialized: reuses one per-host handler (`Self.host`), and `phys_footprint` is
 /// process-wide so parallel tests contaminate the readings.
 @Suite(.serialized)
 struct MemoryGateTests {

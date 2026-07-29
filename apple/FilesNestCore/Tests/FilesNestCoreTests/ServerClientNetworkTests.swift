@@ -2,8 +2,8 @@ import Testing
 import Foundation
 @testable import FilesNestCore
 
-/// Serialized: these tests share `MockURLProtocol.handler` (static), and Swift
-/// Testing runs tests in parallel by default.
+/// Serialized: every test registers the same per-host handler (`h.test`), and Swift
+/// Testing runs a suite's tests in parallel by default.
 @Suite(.serialized)
 struct ServerClientNetworkTests {
 
@@ -16,7 +16,7 @@ struct ServerClientNetworkTests {
     @Test func createUploadPostsBodyAndDecodes() async throws {
         nonisolated(unsafe) var captured: URLRequest?
         nonisolated(unsafe) var bodyData: Data?
-        MockURLProtocol.handler = { req in
+        MockURLProtocol.setHandler(forHost: "h.test") { req in
             captured = req
             bodyData = req.httpBodyStreamData()
             return MockURLProtocol.respond(status: 201,
@@ -36,7 +36,7 @@ struct ServerClientNetworkTests {
     }
 
     @Test func listUploadsDecodesPageAndCursor() async throws {
-        MockURLProtocol.handler = { req in
+        MockURLProtocol.setHandler(forHost: "h.test") { req in
             MockURLProtocol.respond(status: 200,
                 body: #"{"items":[{"id":"a","local_identifier":"l","status":"complete","backend_id":"b"}],"next_cursor":"c2"}"#.data(using: .utf8)!,
                 for: req.url!)
@@ -48,7 +48,7 @@ struct ServerClientNetworkTests {
     }
 
     @Test func listUploadsTreatsEmptyCursorAsNil() async throws {
-        MockURLProtocol.handler = { req in
+        MockURLProtocol.setHandler(forHost: "h.test") { req in
             MockURLProtocol.respond(status: 200,
                 body: #"{"items":[],"next_cursor":""}"#.data(using: .utf8)!, for: req.url!)
         }
@@ -59,7 +59,7 @@ struct ServerClientNetworkTests {
 
     @Test func listUploadsHandlesNullItems() async throws {
         // Go marshals a nil slice as null.
-        MockURLProtocol.handler = { req in
+        MockURLProtocol.setHandler(forHost: "h.test") { req in
             MockURLProtocol.respond(status: 200,
                 body: #"{"items":null,"next_cursor":""}"#.data(using: .utf8)!, for: req.url!)
         }
@@ -69,7 +69,7 @@ struct ServerClientNetworkTests {
     }
 
     @Test func getUpload404MapsNotFound() async throws {
-        MockURLProtocol.handler = { req in
+        MockURLProtocol.setHandler(forHost: "h.test") { req in
             MockURLProtocol.respond(status: 404,
                 body: #"{"error":"upload not found"}"#.data(using: .utf8)!, for: req.url!)
         }
@@ -83,7 +83,7 @@ struct ServerClientNetworkTests {
 
     @Test func headParsesOffsetAndLength() async throws {
         nonisolated(unsafe) var captured: URLRequest?
-        MockURLProtocol.handler = { req in
+        MockURLProtocol.setHandler(forHost: "h.test") { req in
             captured = req
             return MockURLProtocol.respond(status: 200,
                 headers: ["Upload-Offset": "500", "Upload-Length": "2048", "Tus-Resumable": "1.0.0"],
@@ -97,7 +97,7 @@ struct ServerClientNetworkTests {
     }
 
     @Test func headDeferredLengthIsNil() async throws {
-        MockURLProtocol.handler = { req in
+        MockURLProtocol.setHandler(forHost: "h.test") { req in
             MockURLProtocol.respond(status: 200,
                 headers: ["Upload-Offset": "0", "Upload-Defer-Length": "1", "Tus-Resumable": "1.0.0"],
                 for: req.url!)
@@ -108,7 +108,7 @@ struct ServerClientNetworkTests {
     }
 
     @Test func head409BackendLostMapsTyped() async throws {
-        MockURLProtocol.handler = { req in
+        MockURLProtocol.setHandler(forHost: "h.test") { req in
             MockURLProtocol.respond(status: 409,
                 body: #"{"error":"backend_lost"}"#.data(using: .utf8)!, for: req.url!)
         }
@@ -120,7 +120,7 @@ struct ServerClientNetworkTests {
 
     @Test func patchSendsTusHeadersAndReturnsNewOffset() async throws {
         nonisolated(unsafe) var captured: URLRequest?
-        MockURLProtocol.handler = { req in
+        MockURLProtocol.setHandler(forHost: "h.test") { req in
             captured = req
             return MockURLProtocol.respond(status: 204, headers: ["Upload-Offset": "1024"], for: req.url!)
         }
@@ -136,7 +136,7 @@ struct ServerClientNetworkTests {
 
     @Test func patchFinalChunkDeclaresUploadLength() async throws {
         nonisolated(unsafe) var captured: URLRequest?
-        MockURLProtocol.handler = { req in
+        MockURLProtocol.setHandler(forHost: "h.test") { req in
             captured = req
             return MockURLProtocol.respond(status: 204, headers: ["Upload-Offset": "2048"], for: req.url!)
         }
@@ -146,7 +146,7 @@ struct ServerClientNetworkTests {
     }
 
     @Test func patch409OffsetMismatchMapsTyped() async throws {
-        MockURLProtocol.handler = { req in
+        MockURLProtocol.setHandler(forHost: "h.test") { req in
             MockURLProtocol.respond(status: 409,
                 body: #"{"error":"offset mismatch: client=5, server=10"}"#.data(using: .utf8)!,
                 for: req.url!)
@@ -162,7 +162,7 @@ struct ServerClientNetworkTests {
     @Test func markCompletePatchesStatus() async throws {
         nonisolated(unsafe) var captured: URLRequest?
         nonisolated(unsafe) var bodyData: Data?
-        MockURLProtocol.handler = { req in
+        MockURLProtocol.setHandler(forHost: "h.test") { req in
             captured = req
             bodyData = req.httpBodyStreamData()
             // The Go handler returns 204 No Content on a successful transition.
@@ -176,7 +176,7 @@ struct ServerClientNetworkTests {
     }
 
     @Test func markCompleteBackendLostThrows() async throws {
-        MockURLProtocol.handler = { req in
+        MockURLProtocol.setHandler(forHost: "h.test") { req in
             MockURLProtocol.respond(status: 409,
                 body: #"{"error":"backend_lost"}"#.data(using: .utf8)!, for: req.url!)
         }
@@ -188,7 +188,7 @@ struct ServerClientNetworkTests {
 
     @Test func deleteUploadSendsDelete() async throws {
         nonisolated(unsafe) var captured: URLRequest?
-        MockURLProtocol.handler = { req in
+        MockURLProtocol.setHandler(forHost: "h.test") { req in
             captured = req
             return MockURLProtocol.respond(status: 204, for: req.url!)
         }

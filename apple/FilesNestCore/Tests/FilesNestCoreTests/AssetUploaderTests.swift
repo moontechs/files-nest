@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import FilesNestCore
 
-/// Serialized: shares the static `MockURLProtocol.handler`.
+/// Serialized: all tests register the same per-host handler (`Self.host`).
 @Suite(.serialized)
 struct AssetUploaderTests {
 
