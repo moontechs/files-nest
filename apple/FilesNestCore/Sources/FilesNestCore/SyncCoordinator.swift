@@ -42,7 +42,8 @@ public struct SyncCoordinator: Sendable {
             onProgress(SyncProgress(completed: uploaded.count,
                                     total: uploadTotal,
                                     currentItemName: item.resource.filename,
-                                    bytesRemaining: nil))
+                                    bytesRemaining: nil,
+                                    currentItemID: item.resource.key.localIdentifier))
             do {
                 try await execute(item)
                 uploaded.append(item.resource.key)

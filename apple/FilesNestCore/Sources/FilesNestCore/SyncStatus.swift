@@ -4,12 +4,15 @@ public struct SyncProgress: Sendable, Equatable {
     public let completed: Int
     public let total: Int
     public let currentItemName: String?
+    public let currentItemID: String?     // PHAsset local identifier, for the thumbnail
     public let bytesRemaining: Int64?
 
-    public init(completed: Int, total: Int, currentItemName: String?, bytesRemaining: Int64?) {
+    public init(completed: Int, total: Int, currentItemName: String?,
+                bytesRemaining: Int64?, currentItemID: String? = nil) {
         self.completed = completed
         self.total = total
         self.currentItemName = currentItemName
+        self.currentItemID = currentItemID
         self.bytesRemaining = bytesRemaining
     }
 
