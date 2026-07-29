@@ -100,7 +100,16 @@ struct PanelView: View {
     }
 
     private var backedUpText: String { isSignedOut ? "—" : "\(model.summary.backedUp)" }
-    private var pendingText: String { isSignedOut ? "—" : "\(pending)" }
+
+    private var pendingText: String {
+        guard !isSignedOut else { return "—" }
+        switch model.status {
+        case .syncing, .paused: return "\(pending)"                 // exact for the active run
+        default:                                                    // at rest: estimate from library total
+            guard let total = model.summary.libraryTotal else { return "—" }
+            return "~\(max(0, total - model.summary.backedUp))"
+        }
+    }
 
     private func tile(_ v: String, _ k: String, _ color: Color) -> some View {
         VStack(spacing: 1) {
@@ -136,7 +145,9 @@ struct PanelView: View {
         switch model.status {
         case .syncing(let p): return max(0, p.total - p.completed)
         case .paused(let n): return n              // remaining work while paused
-        default: return 0
+        default:                                   // at rest: estimate from the library total
+            guard let total = model.summary.libraryTotal else { return 0 }
+            return max(0, total - model.summary.backedUp)
         }
     }
 
@@ -183,7 +194,11 @@ struct PanelView: View {
         switch model.status {
         case .signedOut: return "Add your server and credentials"
         case .watching(let last): return last.map { "Last sync \($0.formatted(.relative(presentation: .named)))" } ?? "Watching for new items"
-        case .syncing(let p): return p.total == 0 ? "Scanning library…" : "\(p.completed) of \(p.total)"
+        case .syncing(let p):
+            if p.total == 0 {
+                return model.summary.libraryTotal.map { "Scanning ~\($0) photos…" } ?? "Scanning library…"
+            }
+            return "\(p.completed) of \(p.total)"
         case .paused(let n): return "\(n) items waiting"
         case .error(let m): return m
         }

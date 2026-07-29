@@ -35,14 +35,14 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         case progress(gen: UInt64, SyncProgress)
         case finished(gen: UInt64, SyncReport)
         case failed(gen: UInt64, message: String)
-        case summaryRefreshed(gen: UInt64, backedUp: Int)   // result of an off-consumer server count
+        case summaryRefreshed(gen: UInt64, backedUp: Int, libraryTotal: Int)   // off-consumer counts
         case barrier(@Sendable () -> Void)   // test-only: resumes once all prior commands are processed
     }
 
     private let credentials: any CredentialStore
     private let state: any SyncStateStore
     private let perform: Perform
-    private let refreshBackedUp: (@Sendable () async throws -> Int)?
+    private let refreshCounts: (@Sendable () async throws -> (backedUp: Int, libraryTotal: Int))?
     private let now: @Sendable () -> Date
 
     // Consumer-only state (mutated exclusively by the single consumer task).
@@ -65,12 +65,12 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     public init(credentials: any CredentialStore,
                 state: any SyncStateStore,
                 perform: @escaping Perform,
-                refreshBackedUp: (@Sendable () async throws -> Int)? = nil,
+                refreshCounts: (@Sendable () async throws -> (backedUp: Int, libraryTotal: Int))? = nil,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.credentials = credentials
         self.state = state
         self.perform = perform
-        self.refreshBackedUp = refreshBackedUp
+        self.refreshCounts = refreshCounts
         self.now = now
 
         let (stream, continuation) = AsyncStream.makeStream(of: Command.self)
@@ -133,15 +133,18 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 lastProgress = p
                 // Live climb: each completed upload is one more file on the server. Reconciled
                 // to the true server count by the post-completion refresh.
-                setSummary(SyncSummary(backedUp: syncBaseBackedUp + p.completed, failed: currentSummary.failed))
+                setSummary(SyncSummary(backedUp: syncBaseBackedUp + p.completed,
+                                       failed: currentSummary.failed, libraryTotal: currentSummary.libraryTotal))
                 setStatus(.syncing(p))
             }
         case .finished(let gen, let report):
             if gen == generation { finishSync(report) }
         case .failed(let gen, let message):
             if gen == generation { syncChild = nil; setStatus(.error(message: message)) }
-        case .summaryRefreshed(let gen, let backedUp):
-            if gen == generation { setSummary(SyncSummary(backedUp: backedUp, failed: currentSummary.failed)) }
+        case .summaryRefreshed(let gen, let backedUp, let libraryTotal):
+            if gen == generation {
+                setSummary(SyncSummary(backedUp: backedUp, failed: currentSummary.failed, libraryTotal: libraryTotal))
+            }
         case .barrier(let ack):
             ack()
         }
@@ -171,7 +174,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         if !isSyncingStatus {
             generation &+= 1
             setStatus(.watching(lastSync: lastSync))
-            scheduleBackedUpRefresh(gen: generation)   // off-consumer; never blocks the queue
+            scheduleCountsRefresh(gen: generation)     // off-consumer; never blocks the queue
         }
     }
 
@@ -220,17 +223,20 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         if !report.failed.isEmpty { logFailures(report.failed) }
         // Immediate summary from the report (skipped+uploaded == the completed count for an .all
         // sync); a background refresh reconciles it to the live server count.
-        setSummary(SyncSummary(backedUp: report.skipped + report.uploaded.count, failed: report.failed))
+        setSummary(SyncSummary(backedUp: report.skipped + report.uploaded.count,
+                               failed: report.failed, libraryTotal: currentSummary.libraryTotal))
         setStatus(.watching(lastSync: lastSync))
-        scheduleBackedUpRefresh(gen: generation)
+        scheduleCountsRefresh(gen: generation)
     }
 
     /// Runs `refreshBackedUp` OFF the consumer (network-backed; must not block the command
     /// queue) and reports the result via `.summaryRefreshed`, gated by generation.
-    private func scheduleBackedUpRefresh(gen: UInt64) {
-        guard let refresh = refreshBackedUp else { return }
+    private func scheduleCountsRefresh(gen: UInt64) {
+        guard let refresh = refreshCounts else { return }
         Task { [submit] in
-            if let count = try? await refresh() { submit(.summaryRefreshed(gen: gen, backedUp: count)) }
+            if let counts = try? await refresh() {
+                submit(.summaryRefreshed(gen: gen, backedUp: counts.backedUp, libraryTotal: counts.libraryTotal))
+            }
         }
     }
 

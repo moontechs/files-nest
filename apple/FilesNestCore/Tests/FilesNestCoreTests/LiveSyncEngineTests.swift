@@ -59,9 +59,9 @@ import Foundation
     @Test func startRefreshesBackedUpFromServer() async {
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in self.emptyReport() },
-                                    refreshBackedUp: { 7 })
+                                    refreshCounts: { (backedUp: 7, libraryTotal: 70) })
         await engine.start()
-        #expect(await awaitSummary(engine) { $0.backedUp == 7 } == SyncSummary(backedUp: 7, failed: []))
+        #expect(await awaitSummary(engine) { $0.backedUp == 7 } == SyncSummary(backedUp: 7, failed: [], libraryTotal: 70))
     }
 
     @Test func summaryPublishedAfterSync() async {
@@ -71,7 +71,7 @@ import Foundation
                                     perform: { _, _ in
             SyncReport(uploaded: [uploaded], deleted: [], failed: [f], skipped: 3)
         },
-                                    refreshBackedUp: { 42 })
+                                    refreshCounts: { (backedUp: 42, libraryTotal: 100) })
         await engine.start()
         await engine.syncNow()
         let sum = await awaitSummary(engine) { $0.backedUp == 42 && !$0.failed.isEmpty }   // post-sync refresh
@@ -85,7 +85,7 @@ import Foundation
                                     perform: { _, _ in
             SyncReport(uploaded: [uploaded], deleted: [], failed: [], skipped: 3)
         },
-                                    refreshBackedUp: { throw Boom() })
+                                    refreshCounts: { throw Boom() })
         await engine.start()
         await engine.syncNow()
         #expect(await awaitSummary(engine) { $0.backedUp == 4 } == SyncSummary(backedUp: 4, failed: []))  // 3+1
@@ -219,7 +219,7 @@ import Foundation
             await release.wait()
             return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 0)
         },
-                                    refreshBackedUp: { 10 })
+                                    refreshCounts: { (backedUp: 10, libraryTotal: 50) })
         await engine.start()
         _ = await awaitSummary(engine) { $0.backedUp == 10 }   // base from the start refresh
         await engine.syncNow()
@@ -274,7 +274,7 @@ import Foundation
             await release.wait()
             return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 5)
         },
-                                    refreshBackedUp: { 9 })
+                                    refreshCounts: { (backedUp: 9, libraryTotal: 30) })
         await engine.start()
         await engine.syncNow()
         await started.wait()
@@ -291,9 +291,9 @@ import Foundation
         let creds = MutableCreds(.init(username: "u", password: "p"))
         let engine = LiveSyncEngine(credentials: creds, state: InMemorySyncStateStore(),
                                     perform: { _, _ in self.emptyReport() },
-                                    refreshBackedUp: { 9 })
+                                    refreshCounts: { (backedUp: 9, libraryTotal: 30) })
         await engine.start()
-        #expect(await awaitSummary(engine) { $0.backedUp == 9 } == SyncSummary(backedUp: 9, failed: []))
+        #expect(await awaitSummary(engine) { $0.backedUp == 9 } == SyncSummary(backedUp: 9, failed: [], libraryTotal: 30))
         creds.set(nil)
         await engine.start()
         #expect(await awaitStatus(engine) { $0 == .signedOut } == .signedOut)
@@ -346,7 +346,7 @@ import Foundation
             credentials: creds(true),
             state: InMemorySyncStateStore(),
             perform: { range, onProgress in try await coordinator.sync(range: range, onProgress: onProgress) },
-            refreshBackedUp: {
+            refreshCounts: {
                 var count = 0
                 var cursor: String? = nil
                 repeat {
@@ -354,7 +354,7 @@ import Foundation
                     count += page.items.filter { $0.status == .complete }.count
                     cursor = page.nextCursor
                 } while cursor != nil
-                return count
+                return (backedUp: count, libraryTotal: 2)
             })
 
         await engine.start()

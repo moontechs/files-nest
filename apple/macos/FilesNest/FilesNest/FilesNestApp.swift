@@ -1,8 +1,17 @@
 import SwiftUI
+import Photos
 import FilesNestCore
 
 @main
 struct FilesNestApp: App {
+    /// Cheap local library size — a plain `PHAsset` count (no per-resource enumeration).
+    /// Returns 0 until Photos access is granted. Used for the at-rest pending estimate.
+    static func libraryAssetCount() -> Int {
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard status == .authorized || status == .limited else { return 0 }
+        return PHAsset.fetchAssets(with: nil).count
+    }
+
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model: AppModel
     @StateObject private var settings: SettingsModel
@@ -30,10 +39,14 @@ struct FilesNestApp: App {
                                                   state: stateStore)
                 return try await coordinator.sync(range: range, onProgress: onProgress)
             },
-            refreshBackedUp: {
+            refreshCounts: {
+                // Cheap local library size (asset count, not the expensive per-resource scan).
+                let libraryTotal = Self.libraryAssetCount()
                 // Live "Backed up" = count of completed uploads on the server.
                 guard let url = urlStore.load(),
-                      (try await credStore.basicCredentials()) != nil else { return 0 }
+                      (try await credStore.basicCredentials()) != nil else {
+                    return (backedUp: 0, libraryTotal: libraryTotal)
+                }
                 let client = ServerClient(baseURL: url, credentials: credStore)
                 var count = 0
                 var cursor: String? = nil
@@ -42,7 +55,7 @@ struct FilesNestApp: App {
                     count += page.items.filter { $0.status == .complete }.count
                     cursor = page.nextCursor
                 } while cursor != nil
-                return count
+                return (backedUp: count, libraryTotal: libraryTotal)
             })
 
         let appModel = AppModel(engine: engine)
