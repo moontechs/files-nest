@@ -6,6 +6,8 @@ import Foundation
 public protocol SyncStateStore: Sendable {
     func loadLastSyncStarted() -> Date?
     func saveLastSyncStarted(_ date: Date)
+    func loadAssessment() -> Assessment?
+    func saveAssessment(_ assessment: Assessment)
 }
 
 /// App-side implementation. Inject a dedicated `UserDefaults(suiteName:)` in
@@ -13,6 +15,7 @@ public protocol SyncStateStore: Sendable {
 public final class UserDefaultsSyncStateStore: SyncStateStore, @unchecked Sendable {
     private let defaults: UserDefaults
     private let key = "com.filesnest.sync.lastSyncStarted"
+    private let assessmentKey = "com.filesnest.sync.assessment"
 
     public init(defaults: UserDefaults) { self.defaults = defaults }
 
@@ -23,5 +26,14 @@ public final class UserDefaultsSyncStateStore: SyncStateStore, @unchecked Sendab
 
     public func saveLastSyncStarted(_ date: Date) {
         defaults.set(ISO8601DateFormatter().string(from: date), forKey: key)
+    }
+
+    public func loadAssessment() -> Assessment? {
+        guard let data = defaults.data(forKey: assessmentKey) else { return nil }
+        return try? JSONDecoder().decode(Assessment.self, from: data)
+    }
+
+    public func saveAssessment(_ assessment: Assessment) {
+        if let data = try? JSONEncoder().encode(assessment) { defaults.set(data, forKey: assessmentKey) }
     }
 }
