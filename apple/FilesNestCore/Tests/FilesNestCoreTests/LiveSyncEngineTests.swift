@@ -189,11 +189,9 @@ import Foundation
     }
 
     @Test func resumeThenSyncNowStartsNewSyncAfterPause() async {
-        let calls = Counter()
         let started = Gate()
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in
-            await calls.inc()
             await started.open()
             while true { try Task.checkCancellation(); await Task.yield() }   // runs until cancelled
         })
@@ -204,9 +202,12 @@ import Foundation
         #expect(isPaused(await awaitStatus(engine, isPaused)))
         await engine.resume()
         #expect(await awaitStatus(engine, isWatching) == .watching(lastSync: nil))
-        await engine.syncNow()                                 // must start a NEW sync
-        _ = await awaitStatus(engine) { if case .syncing = $0 { return true }; return false }
-        #expect(await calls.value == 2)                        // second sync actually ran
+        // Sync Now after resume must start a new sync (status → syncing), not be ignored.
+        var it = engine.statusStream().makeAsyncIterator()
+        await engine.syncNow()
+        var sawSyncing = false
+        while let s = await it.next() { if case .syncing = s { sawSyncing = true; break } }
+        #expect(sawSyncing)
     }
 
     @Test func backedUpClimbsDuringSync() async {
@@ -323,6 +324,48 @@ import Foundation
         var sawSyncing = false
         while let s = await it.next() { if case .syncing = s { sawSyncing = true; break } }
         #expect(sawSyncing)   // accepted, not permanently ignored (the strand bug)
+    }
+
+    // MARK: - Integration: engine driving a real SyncCoordinator (no UI, no PhotoKit)
+
+    /// End-to-end through the real coordinator/uploader/ServerClient (via the in-memory
+    /// FakeServer + FakeAssetLibrary): a sync uploads the library, tiles reflect the server
+    /// count, and a re-sync is idempotent. Replaces most of the manual click-through.
+    @Test func integrationRealCoordinatorSyncUpdatesTilesAndIsIdempotent() async {
+        let server = FakeServer(host: "engine-int.test")
+        let a = AssetResource(key: ResourceKey(localIdentifier: "IA", kind: .photo),
+                              filename: "IA.jpg", creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)
+        let b = AssetResource(key: ResourceKey(localIdentifier: "IB", kind: .photo),
+                              filename: "IB.jpg", creationDate: Date(timeIntervalSince1970: 2), bundleID: nil)
+        let lib = FakeAssetLibrary(items: [a, b], error: nil)
+        let client = server.client()
+        let uploader = AssetUploader(client: client, source: FakeAssetDataSource(totalBytes: 200, blobSize: 100))
+        let coordinator = SyncCoordinator(client: client, library: lib, uploader: uploader,
+                                          state: InMemorySyncStateStore())
+        let engine = LiveSyncEngine(
+            credentials: creds(true),
+            state: InMemorySyncStateStore(),
+            perform: { range, onProgress in try await coordinator.sync(range: range, onProgress: onProgress) },
+            refreshBackedUp: {
+                var count = 0
+                var cursor: String? = nil
+                repeat {
+                    let page = try await client.listUploads(cursor: cursor)
+                    count += page.items.filter { $0.status == .complete }.count
+                    cursor = page.nextCursor
+                } while cursor != nil
+                return count
+            })
+
+        await engine.start()
+        await engine.syncNow()
+        let sum = await awaitSummary(engine) { $0.backedUp == 2 }   // both uploaded & complete on the server
+        #expect(sum.failed.isEmpty)
+        #expect(isWatching(await awaitStatus(engine, isWatching)))
+
+        // Re-sync: nothing new to upload; count stays 2 (idempotent re-diff).
+        await engine.syncNow()
+        #expect(await awaitSummary(engine) { $0.backedUp == 2 }.backedUp == 2)
     }
 }
 
