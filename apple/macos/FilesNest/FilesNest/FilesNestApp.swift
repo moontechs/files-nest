@@ -29,6 +29,20 @@ struct FilesNestApp: App {
                                                   uploader: uploader,
                                                   state: stateStore)
                 return try await coordinator.sync(range: range, onProgress: onProgress)
+            },
+            refreshBackedUp: {
+                // Live "Backed up" = count of completed uploads on the server.
+                guard let url = urlStore.load(),
+                      (try await credStore.basicCredentials()) != nil else { return 0 }
+                let client = ServerClient(baseURL: url, credentials: credStore)
+                var count = 0
+                var cursor: String? = nil
+                repeat {
+                    let page = try await client.listUploads(cursor: cursor)
+                    count += page.items.filter { $0.status == .complete }.count
+                    cursor = page.nextCursor
+                } while cursor != nil
+                return count
             })
 
         let appModel = AppModel(engine: engine)

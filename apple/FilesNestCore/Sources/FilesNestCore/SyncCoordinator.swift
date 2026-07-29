@@ -47,7 +47,9 @@ public struct SyncCoordinator: Sendable {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                failed.append(FailedItem(key: item.resource.key, reason: String(describing: error)))
+                failed.append(FailedItem(key: item.resource.key,
+                                         filename: item.resource.filename,
+                                         reason: String(describing: error)))
             }
         }
 
@@ -59,7 +61,9 @@ public struct SyncCoordinator: Sendable {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                failed.append(FailedItem(key: del.key, reason: String(describing: error)))
+                failed.append(FailedItem(key: del.key,
+                                         filename: del.key.encoded,
+                                         reason: String(describing: error)))
             }
         }
 

@@ -16,28 +16,35 @@ nonisolated struct PhotosAssetLibrary: AssetLibrary {
     func resources(in range: SyncRange) async throws -> [AssetResource] {
         try await ensureAuthorized()
 
-        let options = PHFetchOptions()
-        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
-        if case .dates(let r) = range {
-            options.predicate = NSPredicate(format: "creationDate >= %@ AND creationDate <= %@",
-                                            r.lowerBound as NSDate, r.upperBound as NSDate)
-        }
+        // Enumerating a large library is heavy, synchronous PhotoKit work. Run it on a GCD
+        // queue rather than the Swift concurrency cooperative pool, so a 70k-asset scan can't
+        // starve other async work (status/progress delivery) while it runs.
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let options = PHFetchOptions()
+                options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
+                if case .dates(let r) = range {
+                    options.predicate = NSPredicate(format: "creationDate >= %@ AND creationDate <= %@",
+                                                    r.lowerBound as NSDate, r.upperBound as NSDate)
+                }
 
-        let assets = PHAsset.fetchAssets(with: options)
-        var out: [AssetResource] = []
-        assets.enumerateObjects { asset, _, _ in
-            let isLive = asset.mediaSubtypes.contains(.photoLive)
-            let created = asset.creationDate ?? .distantPast   // non-optional key field (design §3.4)
-            for resource in PHAssetResource.assetResources(for: asset) {
-                guard let kind = Self.mapType(resource.type) else { continue }   // skip unaddressed types
-                out.append(AssetResource(
-                    key: ResourceKey(localIdentifier: asset.localIdentifier, kind: kind),
-                    filename: resource.originalFilename,
-                    creationDate: created,
-                    bundleID: isLive ? asset.localIdentifier : nil))
+                let assets = PHAsset.fetchAssets(with: options)
+                var out: [AssetResource] = []
+                assets.enumerateObjects { asset, _, _ in
+                    let isLive = asset.mediaSubtypes.contains(.photoLive)
+                    let created = asset.creationDate ?? .distantPast   // non-optional key field (design §3.4)
+                    for resource in PHAssetResource.assetResources(for: asset) {
+                        guard let kind = Self.mapType(resource.type) else { continue }   // skip unaddressed types
+                        out.append(AssetResource(
+                            key: ResourceKey(localIdentifier: asset.localIdentifier, kind: kind),
+                            filename: resource.originalFilename,
+                            creationDate: created,
+                            bundleID: isLive ? asset.localIdentifier : nil))
+                    }
+                }
+                continuation.resume(returning: out)
             }
         }
-        return out
     }
 
     private func ensureAuthorized() async throws {

@@ -5,11 +5,16 @@ struct PanelView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: SettingsModel
     @State private var showingSettings = false
+    @State private var showingFailed = false
 
     var body: some View {
         ZStack {
             if showingSettings {
                 SettingsView(model: settings, onDone: { withAnimation(slide) { showingSettings = false } })
+                    .transition(.move(edge: .trailing))
+            } else if showingFailed {
+                FailedItemsView(items: model.summary.failed,
+                                onDone: { withAnimation(slide) { showingFailed = false } })
                     .transition(.move(edge: .trailing))
             } else {
                 dashboard
@@ -19,6 +24,7 @@ struct PanelView: View {
         .frame(width: 320)
         .clipped()
         .animation(slide, value: showingSettings)
+        .animation(slide, value: showingFailed)
     }
 
     private var slide: Animation { .easeInOut(duration: 0.28) }
@@ -26,7 +32,7 @@ struct PanelView: View {
     private var dashboard: some View {
         VStack(spacing: 0) {
             hero
-            if case let .syncing(p) = model.status { currentItem(p) }
+            if case let .syncing(p) = model.status, p.total > 0 { currentItem(p) }
             tiles
             actions
             Divider()
@@ -70,11 +76,27 @@ struct PanelView: View {
 
     private var tiles: some View {
         HStack(spacing: 8) {
-            tile("1,240", "Backed up", .primary)
-            tile("\(pending)", "Pending", pending > 0 ? .orange : .primary)
-            tile("0", "Failed", .primary)
+            tile(backedUpText, "Backed up", .primary)
+            tile(pendingText, "Pending", pending > 0 ? .orange : .primary)
+            failedTile
         }.padding(.horizontal, 12).padding(.bottom, 8)
     }
+
+    @ViewBuilder private var failedTile: some View {
+        let count = model.summary.failed.count
+        if isSignedOut {
+            tile("—", "Failed", .primary)
+        } else if count > 0 {
+            Button { withAnimation(slide) { showingFailed = true } } label: {
+                tile("\(count)", "Failed", .orange)
+            }.buttonStyle(.plain)
+        } else {
+            tile("0", "Failed", .primary)
+        }
+    }
+
+    private var backedUpText: String { isSignedOut ? "—" : "\(model.summary.backedUp)" }
+    private var pendingText: String { isSignedOut ? "—" : "\(pending)" }
 
     private func tile(_ v: String, _ k: String, _ color: Color) -> some View {
         VStack(spacing: 1) {
@@ -106,7 +128,10 @@ struct PanelView: View {
     // MARK: derived
     private var isPaused: Bool { if case .paused = model.status { return true }; return false }
     private var isSignedOut: Bool { if case .signedOut = model.status { return true }; return false }
-    private var pending: Int { if case let .paused(p) = model.status { return p }; return 3 }
+    private var pending: Int {
+        if case let .syncing(p) = model.status { return max(0, p.total - p.completed) }
+        return 0
+    }
 
     private var ringFraction: CGFloat {
         switch model.status {
@@ -145,7 +170,7 @@ struct PanelView: View {
         switch model.status {
         case .signedOut: return "Add your server and credentials"
         case .watching(let last): return last.map { "Last sync \($0.formatted(.relative(presentation: .named)))" } ?? "Watching for new items"
-        case .syncing(let p): return "\(p.completed) of \(p.total)"
+        case .syncing(let p): return p.total == 0 ? "Scanning library…" : "\(p.completed) of \(p.total)"
         case .paused(let n): return "\(n) items waiting"
         case .error(let m): return m
         }

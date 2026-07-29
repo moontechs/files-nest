@@ -6,6 +6,9 @@ public protocol SyncEngine: Sendable {
     /// The current status followed by every change. Each call returns an
     /// independent stream whose first element is the current status.
     func statusStream() -> AsyncStream<SyncStatus>
+    /// The current summary followed by every change. Each call returns an
+    /// independent stream whose first element is the current summary.
+    func summaryStream() -> AsyncStream<SyncSummary>
     func start() async     // reconcile signed-in/out from credentials, begin watching
     func pause() async
     func resume() async

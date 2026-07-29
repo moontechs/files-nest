@@ -8,114 +8,238 @@ import Foundation
 /// PhotoKit-free by construction: the app's composition root builds the real
 /// `SyncCoordinator` (+ PhotoKit adapters) into the injected `perform` closure,
 /// keeping this unit headless-testable with a fake `perform`.
+///
+/// ## Concurrency — serial command loop
+/// `start`/`pause`/`resume`/`syncNow` do not touch state directly; they enqueue a
+/// `Command`. A single consumer task drains the queue and processes commands **one at
+/// a time, awaits included** — so lifecycle transitions can never interleave, which is
+/// what earlier lock/generation gating could not guarantee (`start()` suspends in the
+/// keychain read; the sync suspends for a long time). Only the consumer mutates engine
+/// state, so no lock is needed for that logic.
+///
+/// The long-running sync must not block the consumer (or `pause` couldn't interrupt it),
+/// so `syncNow` launches a cancellable **child task** that reports back via internal
+/// commands (`progress`/`finished`/`failed`). Those carry the run's `generation`; the
+/// consumer applies them only if the generation still matches, so results from a run
+/// that was paused/superseded are dropped. `generation` is consumer-only state.
+///
+/// A separate `fanoutLock` guards only the published `status`/`summary` snapshot and the
+/// stream continuation registries, since `statusStream()`/`summaryStream()` are called
+/// from other threads. It is never held across an `await`.
 public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     public typealias Perform =
         @Sendable (SyncRange, @Sendable (SyncProgress) -> Void) async throws -> SyncReport
 
+    private enum Command: Sendable {
+        case start, pause, resume, syncNow
+        case progress(gen: UInt64, SyncProgress)
+        case finished(gen: UInt64, SyncReport)
+        case failed(gen: UInt64, message: String)
+        case summaryRefreshed(gen: UInt64, backedUp: Int)   // result of an off-consumer server count
+        case barrier(@Sendable () -> Void)   // test-only: resumes once all prior commands are processed
+    }
+
     private let credentials: any CredentialStore
     private let state: any SyncStateStore
     private let perform: Perform
+    private let refreshBackedUp: (@Sendable () async throws -> Int)?
     private let now: @Sendable () -> Date
 
-    private let lock = NSLock()
+    // Consumer-only state (mutated exclusively by the single consumer task).
+    private var generation: UInt64 = 0
+    private var signedIn = false
+    private var syncChild: Task<Void, Never>?
+
+    // Published snapshot + stream registries (read from arbitrary threads → fanoutLock).
+    private let fanoutLock = NSLock()
     private var status: SyncStatus = .signedOut
-    private var isSyncing = false
-    private var continuations: [UUID: AsyncStream<SyncStatus>.Continuation] = [:]
+    private var summary: SyncSummary = .empty
+    private var statusConts: [UUID: AsyncStream<SyncStatus>.Continuation] = [:]
+    private var summaryConts: [UUID: AsyncStream<SyncSummary>.Continuation] = [:]
+
+    private let submit: @Sendable (Command) -> Void
+    private let finishCommands: @Sendable () -> Void
 
     public init(credentials: any CredentialStore,
                 state: any SyncStateStore,
                 perform: @escaping Perform,
+                refreshBackedUp: (@Sendable () async throws -> Int)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.credentials = credentials
         self.state = state
         self.perform = perform
+        self.refreshBackedUp = refreshBackedUp
         self.now = now
+
+        let (stream, continuation) = AsyncStream.makeStream(of: Command.self)
+        self.submit = { continuation.yield($0) }
+        self.finishCommands = { continuation.finish() }
+        Task { [weak self] in
+            for await command in stream { await self?.handle(command) }
+        }
     }
+
+    deinit { syncChild?.cancel(); finishCommands() }   // stop in-flight upload work when dropped
+
+    // MARK: - Streams
 
     public func statusStream() -> AsyncStream<SyncStatus> {
         AsyncStream { continuation in
             let id = UUID()
-            lock.lock()
+            fanoutLock.lock()
             continuation.yield(status)          // current status first
-            continuations[id] = continuation
-            lock.unlock()
+            statusConts[id] = continuation
+            fanoutLock.unlock()
             continuation.onTermination = { [weak self] _ in
                 guard let self else { return }
-                self.lock.lock(); self.continuations[id] = nil; self.lock.unlock()
+                self.fanoutLock.lock(); self.statusConts[id] = nil; self.fanoutLock.unlock()
             }
         }
     }
 
-    private func set(_ newStatus: SyncStatus) {
-        lock.lock()
-        status = newStatus
-        let conts = Array(continuations.values)
-        lock.unlock()
-        for c in conts { c.yield(newStatus) }
+    public func summaryStream() -> AsyncStream<SyncSummary> {
+        AsyncStream { continuation in
+            let id = UUID()
+            fanoutLock.lock()
+            continuation.yield(summary)         // current summary first
+            summaryConts[id] = continuation
+            fanoutLock.unlock()
+            continuation.onTermination = { [weak self] _ in
+                guard let self else { return }
+                self.fanoutLock.lock(); self.summaryConts[id] = nil; self.fanoutLock.unlock()
+            }
+        }
     }
 
-    private var isSignedOut: Bool {
-        lock.lock(); defer { lock.unlock() }
-        if case .signedOut = status { return true }
-        return false
+    // MARK: - SyncEngine (enqueue only)
+
+    public func start() async  { submit(.start) }
+    public func pause() async  { submit(.pause) }
+    public func resume() async { submit(.resume) }
+    public func syncNow() async { submit(.syncNow) }
+
+    // MARK: - Consumer (single task; no interleaving)
+
+    private func handle(_ command: Command) async {
+        switch command {
+        case .start:   await doStart()
+        case .pause:   doPause()
+        case .resume:  doResume()
+        case .syncNow: doSyncNow()
+        case .progress(let gen, let p):
+            if gen == generation { setStatus(.syncing(p)) }
+        case .finished(let gen, let report):
+            if gen == generation { finishSync(report) }
+        case .failed(let gen, let message):
+            if gen == generation { syncChild = nil; setStatus(.error(message: message)) }
+        case .summaryRefreshed(let gen, let backedUp):
+            if gen == generation { setSummary(SyncSummary(backedUp: backedUp, failed: currentSummary.failed)) }
+        case .barrier(let ack):
+            ack()
+        }
     }
 
-    private var isPaused: Bool {
-        lock.lock(); defer { lock.unlock() }
-        if case .paused = status { return true }
-        return false
+    /// Test-only synchronization: returns once every command enqueued before it has been
+    /// processed by the consumer (FIFO). Does not wait for an in-flight sync to *complete*.
+    func settle() async {
+        await withCheckedContinuation { c in submit(.barrier({ c.resume() })) }
     }
 
-    /// Atomically claim the single sync slot. Returns false if one is already running.
-    private func beginSyncing() -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        if isSyncing { return false }
-        isSyncing = true
-        return true
+    private func doStart() async {
+        let creds = try? await credentials.basicCredentials()
+        guard creds != nil else {
+            generation &+= 1                            // supersede any in-flight run
+            signedIn = false
+            syncChild?.cancel(); syncChild = nil
+            setStatus(.signedOut)
+            setSummary(.empty)                          // drop stale failures
+            return
+        }
+        signedIn = true
+        // While a sync is running, leave it (and its generation) intact — bumping would orphan
+        // the in-flight child, and scheduling a second same-generation refresh could land stale
+        // after the sync's own post-completion refresh (Codex round 7). The running sync refreshes
+        // the count when it finishes. Only reconcile here when idle.
+        if !isSyncingStatus {
+            generation &+= 1
+            setStatus(.watching(lastSync: lastSync))
+            scheduleBackedUpRefresh(gen: generation)   // off-consumer; never blocks the queue
+        }
     }
 
-    private func endSyncing() { lock.lock(); isSyncing = false; lock.unlock() }
+    private func doPause() {
+        if case .signedOut = currentStatus { return }
+        generation &+= 1
+        syncChild?.cancel(); syncChild = nil          // coordinator checks cancellation between items
+        setStatus(.paused(pending: 0))
+    }
+
+    private func doResume() {
+        // Only meaningful from `.paused` — where there is no active child to strand. Bumping the
+        // generation during an active sync would orphan its in-flight child.
+        guard case .paused = currentStatus else { return }
+        generation &+= 1
+        setStatus(.watching(lastSync: lastSync))
+    }
+
+    private func doSyncNow() {
+        guard signedIn, syncChild == nil else { return }
+        if case .paused = currentStatus { return }
+        generation &+= 1
+        let gen = generation
+        setStatus(.syncing(SyncProgress(completed: 0, total: 0, currentItemName: nil, bytesRemaining: nil)))
+        syncChild = Task { [perform, submit] in
+            do {
+                let report = try await perform(.all) { progress in submit(.progress(gen: gen, progress)) }
+                submit(.finished(gen: gen, report))
+            } catch is CancellationError {
+                // Superseded (pause/sign-out) already set the terminal status.
+            } catch {
+                submit(.failed(gen: gen, message: String(describing: error)))
+            }
+        }
+    }
+
+    private func finishSync(_ report: SyncReport) {
+        syncChild = nil
+        if !report.failed.isEmpty { logFailures(report.failed) }
+        // Immediate summary from the report (skipped+uploaded == the completed count for an .all
+        // sync); a background refresh reconciles it to the live server count.
+        setSummary(SyncSummary(backedUp: report.skipped + report.uploaded.count, failed: report.failed))
+        setStatus(.watching(lastSync: lastSync))
+        scheduleBackedUpRefresh(gen: generation)
+    }
+
+    /// Runs `refreshBackedUp` OFF the consumer (network-backed; must not block the command
+    /// queue) and reports the result via `.summaryRefreshed`, gated by generation.
+    private func scheduleBackedUpRefresh(gen: UInt64) {
+        guard let refresh = refreshBackedUp else { return }
+        Task { [submit] in
+            if let count = try? await refresh() { submit(.summaryRefreshed(gen: gen, backedUp: count)) }
+        }
+    }
+
+    // MARK: - Published snapshot
+
+    private func setStatus(_ s: SyncStatus) {
+        fanoutLock.lock(); status = s; let cs = Array(statusConts.values); fanoutLock.unlock()
+        for c in cs { c.yield(s) }
+    }
+
+    private func setSummary(_ s: SyncSummary) {
+        fanoutLock.lock(); summary = s; let cs = Array(summaryConts.values); fanoutLock.unlock()
+        for c in cs { c.yield(s) }
+    }
+
+    private var currentStatus: SyncStatus { fanoutLock.lock(); defer { fanoutLock.unlock() }; return status }
+    private var currentSummary: SyncSummary { fanoutLock.lock(); defer { fanoutLock.unlock() }; return summary }
+    private var isSyncingStatus: Bool { if case .syncing = currentStatus { return true }; return false }
 
     /// Last sync = the coordinator-persisted start time (single source of truth).
     private var lastSync: Date? { state.loadLastSyncStarted() }
 
-    public func start() async {
-        let creds = try? await credentials.basicCredentials()
-        set(creds == nil ? .signedOut : .watching(lastSync: lastSync))
-    }
-
-    public func pause() async {
-        guard !isSignedOut else { return }
-        set(.paused(pending: 0))
-    }
-
-    public func resume() async {
-        guard !isSignedOut else { return }
-        set(.watching(lastSync: lastSync))
-    }
-
-    public func syncNow() async {
-        guard !isSignedOut, !isPaused else { return }
-        guard beginSyncing() else { return }        // re-entrancy guard
-        defer { endSyncing() }
-
-        set(.syncing(SyncProgress(completed: 0, total: 0,
-                                  currentItemName: nil, bytesRemaining: nil)))
-        do {
-            let report = try await perform(.all) { [weak self] progress in
-                self?.set(.syncing(progress))
-            }
-            if !report.failed.isEmpty { logFailures(report.failed) }
-            set(.watching(lastSync: lastSync))
-        } catch is CancellationError {
-            set(.watching(lastSync: lastSync))       // cancellation is not an error
-        } catch {
-            set(.error(message: String(describing: error)))
-        }
-    }
-
     /// Per-item failures don't fail the whole sync (skip-and-continue). Surface them
-    /// to the log; a later slice renders `SyncReport.failed` in the panel.
+    /// to the log; the panel renders `SyncReport.failed` via the summary.
     private func logFailures(_ failed: [FailedItem]) {
         for item in failed {
             print("FilesNest sync: failed \(item.key.encoded): \(item.reason)")
