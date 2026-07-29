@@ -13,7 +13,8 @@ nonisolated struct PhotosAssetLibrary: AssetLibrary {
         case authorizationDenied(PHAuthorizationStatus)
     }
 
-    func resources(in range: SyncRange) async throws -> [AssetResource] {
+    func resources(in range: SyncRange,
+                   onProgress: (@Sendable (_ done: Int, _ total: Int) -> Void)? = nil) async throws -> [AssetResource] {
         try await ensureAuthorized()
 
         // Enumerating a large library is heavy, synchronous PhotoKit work (a
@@ -36,8 +37,9 @@ nonisolated struct PhotosAssetLibrary: AssetLibrary {
                     }
 
                     let assets = PHAsset.fetchAssets(with: options)
+                    let total = assets.count
                     var out: [AssetResource] = []
-                    assets.enumerateObjects { asset, _, stop in
+                    assets.enumerateObjects { asset, idx, stop in
                         if cancel.isSet { stop.pointee = true; return }   // Pause/sign-out cancelled the scan
                         let isLive = asset.mediaSubtypes.contains(.photoLive)
                         let created = asset.creationDate ?? .distantPast   // non-optional key field (design §3.4)
@@ -49,6 +51,8 @@ nonisolated struct PhotosAssetLibrary: AssetLibrary {
                                 creationDate: created,
                                 bundleID: isLive ? asset.localIdentifier : nil))
                         }
+                        // Throttle: emit every 250 assets and on the last (design §10 — tune during verify).
+                        if let onProgress, idx % 250 == 0 || idx == total - 1 { onProgress(idx + 1, total) }
                     }
                     if cancel.isSet {
                         continuation.resume(throwing: CancellationError())

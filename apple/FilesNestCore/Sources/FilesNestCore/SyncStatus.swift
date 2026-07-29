@@ -18,8 +18,9 @@ public struct SyncProgress: Sendable, Equatable {
 }
 
 public enum SyncStatus: Sendable, Equatable {
-    case signedOut                    // no credentials → "Sign in in Settings"
-    case watching(lastSync: Date?)    // idle, monitoring for new items
+    case signedOut                        // no credentials → "Sign in in Settings"
+    case counting(done: Int, total: Int)  // launch scan in progress (determinate)
+    case watching(lastSync: Date?)        // idle, monitoring for new items
     case syncing(SyncProgress)
     case paused(pending: Int)
     case error(message: String)
