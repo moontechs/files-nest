@@ -226,13 +226,22 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     // MARK: - Published snapshot
 
     private func setStatus(_ s: SyncStatus) {
+        log("status → \(s)")
         fanoutLock.lock(); status = s; let cs = Array(statusConts.values); fanoutLock.unlock()
         for c in cs { c.yield(s) }
     }
 
     private func setSummary(_ s: SyncSummary) {
+        log("summary → backedUp=\(s.backedUp) failed=\(s.failed.count)")
         fanoutLock.lock(); summary = s; let cs = Array(summaryConts.values); fanoutLock.unlock()
         for c in cs { c.yield(s) }
+    }
+
+    /// DEBUG-only trace of engine transitions (visible in the Xcode console).
+    private func log(_ message: @autoclosure () -> String) {
+        #if DEBUG
+        print("🟣 FN engine: \(message())")
+        #endif
     }
 
     private var currentStatus: SyncStatus { fanoutLock.lock(); defer { fanoutLock.unlock() }; return status }

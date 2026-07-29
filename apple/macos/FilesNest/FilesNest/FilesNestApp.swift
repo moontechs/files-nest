@@ -59,12 +59,25 @@ struct FilesNestApp: App {
             PanelView(model: model, settings: settings).task { model.begin() }
         }
         .menuBarExtraStyle(.window)
+
+        #if DEBUG
+        // A persistent window mirroring the panel, so the popup doesn't auto-dismiss
+        // during manual testing. Observes the same models — no separate state.
+        Window("FilesNest (debug)", id: "filesnest-debug-panel") {
+            PanelView(model: model, settings: settings).task { model.begin() }
+        }
+        .windowResizability(.contentSize)
+        #endif
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        #if DEBUG
+        NSApp.setActivationPolicy(.regular)     // show/focus the debug window during testing
+        #else
+        NSApp.setActivationPolicy(.accessory)   // production: menu-bar agent, no Dock icon
+        #endif
     }
 }
 

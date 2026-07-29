@@ -21,6 +21,10 @@ nonisolated struct PhotosAssetLibrary: AssetLibrary {
         // starve other async work (status/progress delivery) while it runs.
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
+                #if DEBUG
+                let clock = Date()
+                print("🟢 FN library: enumeration start (range=\(range))")
+                #endif
                 let options = PHFetchOptions()
                 options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
                 if case .dates(let r) = range {
@@ -42,6 +46,9 @@ nonisolated struct PhotosAssetLibrary: AssetLibrary {
                             bundleID: isLive ? asset.localIdentifier : nil))
                     }
                 }
+                #if DEBUG
+                print("🟢 FN library: enumerated \(out.count) resources from \(assets.count) assets in \(String(format: "%.2f", -clock.timeIntervalSinceNow))s")
+                #endif
                 continuation.resume(returning: out)
             }
         }
