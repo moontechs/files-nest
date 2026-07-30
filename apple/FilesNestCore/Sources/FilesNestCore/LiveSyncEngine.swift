@@ -56,6 +56,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private var lastProgress: SyncProgress?   // latest progress of the running sync, for pause's pending count
     private var syncBaseBackedUp = 0          // backed-up count at the current sync's start, for a live climb
     private var autoSyncAfterCount = false    // whether the in-flight count should chain into a sync when it settles
+    private var pendingLibraryChange = false  // a change arrived mid-run; drain when the run finishes
 
     // Published snapshot + stream registries (read from arbitrary threads → fanoutLock).
     private let fanoutLock = NSLock()
@@ -158,10 +159,20 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 setStatus(.watching(lastSync: lastSync))
                 let shouldSync = autoSyncAfterCount && (a?.pending ?? 0) > 0
                 autoSyncAfterCount = false
-                if shouldSync { doSyncNow() }
+                if shouldSync { doSyncNow() } else { drainPendingChangeIfAny() }
             }
         case .libraryChanged:
-            break   // Task 3 fills this in
+            guard signedIn else { break }                 // ignore while signed out / before start
+            switch currentStatus {
+            case .watching, .error:
+                startIdleCount(autoSync: true)            // idle → count, then sync if pending
+            case .syncing, .counting:
+                pendingLibraryChange = true               // coalesce; drained when the run finishes
+            case .paused:
+                pendingLibraryChange = true               // honored on resume (never upload while paused)
+            case .signedOut:
+                break
+            }
         case .barrier(let ack):
             ack()
         }
@@ -181,6 +192,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
             syncChild?.cancel(); syncChild = nil
             assessChild?.cancel(); assessChild = nil
             lastProgress = nil                          // so a later idle Pause shows 0, not stale remaining
+            pendingLibraryChange = false                // sign-out drops any coalesced change
+            autoSyncAfterCount = false
             setStatus(.signedOut)
             setSummary(.empty)                          // drop stale failures
             return
@@ -219,6 +232,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         assessChild?.cancel(); assessChild = nil      // defensive; no count is in flight while paused
         lastProgress = nil                            // resumed work is a fresh run; no stale remaining
         setStatus(.watching(lastSync: lastSync))
+        drainPendingChangeIfAny()                     // honor a change that arrived while paused
     }
 
     private func doSyncNow() {
@@ -255,6 +269,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         setSummary(SyncSummary(backedUp: report.skipped + report.uploaded.count,
                                pending: pendingUploads, failed: report.failed))
         setStatus(.watching(lastSync: lastSync))
+        drainPendingChangeIfAny()                   // pick up a change coalesced during this sync
     }
 
     /// Runs `assess` OFF the consumer (PhotoKit scan + server diff; must not block the command
@@ -268,6 +283,14 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         lastProgress = nil
         autoSyncAfterCount = autoSync
         beginCounting(gen: generation)
+    }
+
+    /// If a library change was coalesced while a run was in flight, start a fresh count now
+    /// (which chains into a sync if anything is pending). Consumer-only.
+    private func drainPendingChangeIfAny() {
+        guard pendingLibraryChange else { return }
+        pendingLibraryChange = false
+        startIdleCount(autoSync: true)
     }
 
     private func beginCounting(gen: UInt64) {
