@@ -7,6 +7,7 @@ struct FilesNestApp: App {
     @StateObject private var model: AppModel
     @StateObject private var settings: SettingsModel
     private let thumbnails = ThumbnailLoader()
+    private let watcher: PhotoLibraryWatcher
 
     init() {
         let defaults   = UserDefaults.standard
@@ -15,7 +16,9 @@ struct FilesNestApp: App {
         let stateStore = UserDefaultsSyncStateStore(defaults: defaults)
         // Shared, TTL-memoized scan so a Sync Now right after the launch count reuses that
         // scan instead of paying a second full enumeration. (Observer-invalidated later.)
-        let library    = CachingAssetLibrary(wrapping: PhotosAssetLibrary())
+        // Change-based invalidation (via PhotoLibraryWatcher) is the primary freshness
+        // mechanism; the TTL is a self-healing backstop for a missed observer signal.
+        let library    = CachingAssetLibrary(wrapping: PhotosAssetLibrary(), ttl: 300)
 
         let engine = LiveSyncEngine(
             credentials: credStore,
@@ -60,6 +63,12 @@ struct FilesNestApp: App {
                 return a
             },
             cachedAssessment: { stateStore.loadAssessment() })
+
+        // Continuously watch the photo library: on a debounced change, invalidate the cached
+        // scan and nudge the engine to count + back up (auto-sync scheduler).
+        let watcher = PhotoLibraryWatcher(library: library, engine: engine)
+        watcher.startObserving()
+        self.watcher = watcher
 
         let appModel = AppModel(engine: engine)
         let settingsModel = SettingsModel(urlStore: urlStore,
