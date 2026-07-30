@@ -32,6 +32,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
 
     private enum Command: Sendable {
         case start, pause, resume, syncNow
+        case libraryChanged
         case progress(gen: UInt64, SyncProgress)
         case finished(gen: UInt64, SyncReport)
         case failed(gen: UInt64, message: String)
@@ -124,6 +125,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     public func pause() async  { submit(.pause) }
     public func resume() async { submit(.resume) }
     public func syncNow() async { submit(.syncNow) }
+    public func libraryDidChange() async { submit(.libraryChanged) }
 
     // MARK: - Consumer (single task; no interleaving)
 
@@ -154,6 +156,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 if let a { setSummary(SyncSummary(backedUp: a.backedUp, pending: a.pending, failed: currentSummary.failed)) }
                 setStatus(.watching(lastSync: lastSync))
             }
+        case .libraryChanged:
+            break   // Task 3 fills this in
         case .barrier(let ack):
             ack()
         }
