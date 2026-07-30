@@ -57,16 +57,18 @@ import Foundation
     }
 
     @Test func startCountsThenAssesses() async {
+        let hold = Gate()   // stall the launch auto-sync so the count summary is observable
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
-                                    perform: { _, _ in self.emptyReport() },
+                                    perform: { _, _ in await hold.wait(); return self.emptyReport() },
                                     assess: { progress in
                                         progress(3, 10); progress(10, 10)
                                         return Assessment(backedUp: 5, pending: 7, resourceTotal: 12)
                                     })
         await engine.start()
         let sum = await awaitSummary(engine) { $0.pending == 7 }
-        #expect(sum.backedUp == 5)
-        #expect(isWatching(await awaitStatus(engine, isWatching)))
+        #expect(sum.backedUp == 5)                                    // count surfaced the assessment
+        #expect(isSyncing(await awaitStatus(engine, isSyncing)))     // launch auto-syncs the pending work (option A)
+        await hold.open()
     }
 
     @Test func cachedAssessmentSeedsBeforeCounting() async {
@@ -145,6 +147,30 @@ import Foundation
         await release.open()
         await engine.settle()
         #expect(await assessRuns.value == 1)
+    }
+
+    // MARK: - launch auto-sync (option A)
+
+    @Test func launchAutoSyncsWhenCountFindsPending() async {
+        let performCalls = Counter()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in await performCalls.inc(); return self.emptyReport() },
+                                    assess: { _ in Assessment(backedUp: 0, pending: 1, resourceTotal: 1) })
+        await engine.start()
+        _ = await awaitStatus(engine, isSyncing)            // count found pending → auto-sync started
+        _ = await awaitStatus(engine, isWatching)           // sync completed
+        #expect(await performCalls.value == 1)
+    }
+
+    @Test func launchDoesNotSyncWhenNothingPending() async {
+        let performCalls = Counter()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in await performCalls.inc(); return self.emptyReport() },
+                                    assess: { _ in Assessment(backedUp: 5, pending: 0, resourceTotal: 5) })
+        await engine.start()
+        _ = await awaitStatus(engine, isWatching)           // count settles, no sync
+        await engine.settle()
+        #expect(await performCalls.value == 0)
     }
 
     // MARK: - sync status flow
@@ -387,9 +413,10 @@ import Foundation
     }
 
     @Test func signOutClearsSummary() async {
+        let hold = Gate()
         let creds = MutableCreds(.init(username: "u", password: "p"))
         let engine = LiveSyncEngine(credentials: creds, state: InMemorySyncStateStore(),
-                                    perform: { _, _ in self.emptyReport() },
+                                    perform: { _, _ in await hold.wait(); return self.emptyReport() },
                                     assess: { _ in Assessment(backedUp: 9, pending: 2, resourceTotal: 11) })
         await engine.start()
         #expect(await awaitSummary(engine) { $0.backedUp == 9 } == SyncSummary(backedUp: 9, pending: 2, failed: []))
@@ -397,6 +424,7 @@ import Foundation
         await engine.start()
         #expect(await awaitStatus(engine) { $0 == .signedOut } == .signedOut)
         #expect(await awaitSummary(engine) { $0 == .empty } == .empty)
+        await hold.open()   // let the stranded (stale-generation) auto-sync return; its result is dropped
     }
 
     @Test func startDuringSyncDoesNotStrandTheEngine() async {
