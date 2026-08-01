@@ -381,9 +381,13 @@ import Foundation
         await engine.start()
         _ = await awaitStatus(engine, isError)             // launch .all count → sync throws → error, anchor unmoved
         await recorded.clear()
+        var it = engine.statusStream().makeAsyncIterator()  // current = stale .error; wait for the CHANGE cycle
         await engine.libraryDidChange()                     // from .error a change starts a fresh cycle…
-        _ = await awaitStatus(engine, isError)             // …which is .all and also throws
-        await engine.settle()
+        var sawCounting = false
+        while let s = await it.next() {
+            if case .counting = s { sawCounting = true }    // the change's count started
+            else if sawCounting, case .error = s { break }  // …and its .all sync threw
+        }
         let ranges = await recorded.all
         #expect(!ranges.isEmpty)
         #expect(ranges.allSatisfy { $0 == .all })          // fell back to .all — no stale incremental window
