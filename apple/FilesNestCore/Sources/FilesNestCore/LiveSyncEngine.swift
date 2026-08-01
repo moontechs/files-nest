@@ -206,9 +206,16 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
             if let cached = cachedAssessment?() {      // warm launch: show last-known instantly
                 setSummary(SyncSummary(backedUp: cached.backedUp, pending: cached.pending, failed: currentSummary.failed))
             }
-            // Restart from paused reconciles to watching (updates Pending) but must not auto-upload —
-            // the user explicitly paused. Otherwise launch/restart catch-up auto-syncs (option A).
-            startIdleCount(autoSync: !isPausedStatus)
+            if isPausedStatus {
+                // Restart from paused reconciles to watching (updates Pending) but must not
+                // auto-upload — the user explicitly paused. Drop any change coalesced during the
+                // pause too, so the reconcile count's else-drain can't turn it into an upload;
+                // that count already reflects it in Pending, and watching stays live for the next one.
+                pendingLibraryChange = false
+                startIdleCount(autoSync: false)
+            } else {
+                startIdleCount(autoSync: true)         // launch/restart catch-up (option A)
+            }
         }
     }
 

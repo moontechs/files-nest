@@ -195,6 +195,29 @@ import Foundation
         #expect(await performCalls.value == 1)              // …but does NOT auto-upload while paused
     }
 
+    @Test func restartWhilePausedWithCoalescedChangeDoesNotAutoSync() async {
+        let performCalls = Counter()
+        let firstStarted = Gate(); let hold = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in
+                                        let n = await performCalls.incAndGet()
+                                        if n == 1 { await firstStarted.open(); await hold.wait() }
+                                        return self.emptyReport()
+                                    },
+                                    assess: { _ in Assessment(backedUp: 0, pending: 5, resourceTotal: 5) })
+        await engine.start()
+        await firstStarted.wait()                           // launch auto-sync of the 5 pending (option A), stalled
+        await engine.pause()                                // user pauses
+        #expect(isPaused(await awaitStatus(engine, isPaused)))
+        await engine.libraryDidChange()                     // a change arrives WHILE paused → coalesced
+        await engine.settle()
+        await hold.open()                                   // cancelled sync's perform returns (dropped by generation)
+        await engine.start()                                // Settings save → restart while paused
+        _ = await awaitStatus(engine, isWatching)
+        await engine.settle(); await engine.settle(); await engine.settle()
+        #expect(await performCalls.value == 1)              // the coalesced-during-pause change must NOT upload on restart
+    }
+
     // MARK: - continuous watching (libraryDidChange)
 
     @Test func changeWhileIdleCountsThenSyncs() async {
