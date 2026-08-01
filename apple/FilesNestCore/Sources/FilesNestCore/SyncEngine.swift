@@ -14,4 +14,5 @@ public protocol SyncEngine: Sendable {
     func resume() async
     func syncNow() async   // manual trigger
     func libraryDidChange() async   // a debounced host signal that the photo library changed
+    func reconcile() async   // a configuration change (Settings save): force a full reconcile now
 }

@@ -429,6 +429,100 @@ import Foundation
         #expect(sum.backedUp == 63_001)   // base 63000 + 1 uploaded — NOT collapsed to report.skipped+uploaded (=1)
     }
 
+    // MARK: - reconcile (Settings save → forced full .all)
+
+    @Test func reconcileWhileSyncingSupersedesWithFreshAll() async {
+        let performCalls = Counter()
+        let firstStarted = Gate(); let hold = Gate(); let secondStarted = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in
+                                        let n = await performCalls.incAndGet()
+                                        if n == 1 { await firstStarted.open(); await hold.wait() }
+                                        if n == 2 { await secondStarted.open() }
+                                        return self.emptyReport()
+                                    },
+                                    assess: { _, _ in Assessment(backedUp: 0, pending: 1, resourceTotal: 1) })
+        await engine.start()
+        await firstStarted.wait()                 // launch .all sync #1 running (stalled)
+        #expect(await performCalls.value == 1)
+        await engine.reconcile()                  // Settings save mid-sync → supersede #1, fresh .all
+        await secondStarted.wait()                // …a second sync actually starts (supersede confirmed)
+        #expect(await performCalls.value == 2)
+        await hold.open()                         // let the superseded #1 return (generation-dropped)
+    }
+
+    @Test func reconcileWhileCountingSupersedesTheCount() async {
+        let assessRuns = Counter()
+        let firstCounting = Gate(); let release = Gate(); let secondCounting = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in self.emptyReport() },
+                                    assess: { _, _ in
+                                        let n = await assessRuns.incAndGet()
+                                        if n == 1 { await firstCounting.open(); await release.wait() }
+                                        if n == 2 { await secondCounting.open() }
+                                        return Assessment(backedUp: 0, pending: 0, resourceTotal: 0)
+                                    })
+        await engine.start()
+        await firstCounting.wait()                // launch count #1 running (stalled in assess)
+        await engine.reconcile()                  // supersede the count with a fresh .all count
+        await secondCounting.wait()               // …a second assess runs (contrast: start() would NOT)
+        #expect(await assessRuns.value == 2)
+        await release.open()                      // let the superseded #1 return (generation-dropped)
+    }
+
+    @Test func reconcileWhilePausedRefreshesWithoutUploading() async {
+        let performCalls = Counter()
+        let firstStarted = Gate(); let hold = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in
+                                        let n = await performCalls.incAndGet()
+                                        if n == 1 { await firstStarted.open(); await hold.wait() }
+                                        return self.emptyReport()
+                                    },
+                                    assess: { _, _ in Assessment(backedUp: 0, pending: 5, resourceTotal: 5) })
+        await engine.start()
+        await firstStarted.wait()                 // launch auto-sync (option A), stalled
+        await engine.pause()
+        #expect(isPaused(await awaitStatus(engine, isPaused)))
+        await hold.open()                         // cancelled #1 returns (dropped)
+        await engine.reconcile()                  // Settings save while paused
+        _ = await awaitStatus(engine, isWatching) // reconcile .all count settles to watching
+        await engine.settle()
+        #expect(await awaitStatus(engine) { _ in true } == .watching(lastSync: nil))   // stays watching (no sync)
+        #expect(await performCalls.value == 1)    // did NOT upload while paused
+    }
+
+    @Test func reconcileResetsIncrementalAnchorSoNextChangeIsAll() async {
+        let anchor = Date(timeIntervalSince1970: 5_000)
+        let recorded = RangeBox()
+        let pending = IntBox(1)
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { range, _ in await recorded.add(range); return self.emptyReport() },
+                                    assess: { range, _ in await recorded.add(range)
+                                                          return Assessment(backedUp: 0, pending: await pending.value, resourceTotal: 0) },
+                                    now: { anchor })
+        // 1) Clean .all launch sync sets the anchor.
+        var it0 = engine.statusStream().makeAsyncIterator()
+        await engine.start()
+        var s0 = false
+        while let s = await it0.next() { if case .syncing = s { s0 = true }; if s0, case .watching = s { break } }
+        // 2) Pause, then reconcile-while-paused: an .all count with NO sync → the anchor stays reset (nil).
+        await engine.pause()
+        #expect(isPaused(await awaitStatus(engine, isPaused)))
+        await engine.reconcile()
+        _ = await awaitStatus(engine, isWatching)
+        await engine.settle()
+        // 3) A change must now scan .all — the reset anchor was not re-grounded (no sync ran).
+        await recorded.clear()
+        var it = engine.statusStream().makeAsyncIterator()
+        await engine.libraryDidChange()
+        var s1 = false
+        while let s = await it.next() { if case .syncing = s { s1 = true }; if s1, case .watching = s { break } }
+        let ranges = await recorded.all
+        #expect(!ranges.isEmpty)
+        #expect(ranges.allSatisfy { $0 == .all })   // anchor reset by reconcile → change fell back to .all
+    }
+
     // MARK: - sync status flow
 
     @Test func syncEmitsProgressThenWatching() async {

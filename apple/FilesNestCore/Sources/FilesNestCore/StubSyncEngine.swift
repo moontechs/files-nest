@@ -118,4 +118,5 @@ public final class StubSyncEngine: SyncEngine, @unchecked Sendable {
     }
 
     public func libraryDidChange() async {}   // the stub does not watch; no-op
+    public func reconcile() async { await start() }
 }
