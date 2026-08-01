@@ -23,18 +23,24 @@ public enum SyncPlanner {
             }
         }
 
-        // Delete side — server records absent from the library.
+        // Delete side — server records absent from the library. Incremental (.modifiedSince) is
+        // upload-only: a windowed scan can't tell a deletion from an out-of-window asset, so it
+        // never deletes; deletions reconcile on the next .all.
         var deletes: [PlannedDelete] = []
-        for rec in server where !libraryKeys.contains(rec.localIdentifier) {
-            switch rec.status {
-            case .deleted, .completing:
-                continue // already gone / mid-move — leave alone
-            case .uploading, .complete, .backendLost:
-                if case .dates(let window) = range {
-                    guard let d = parseDate(rec.creationDate), window.contains(d) else { continue }
-                }
-                if let key = try? ResourceKey(parsing: rec.localIdentifier) {
-                    deletes.append(PlannedDelete(uploadID: rec.id, key: key))
+        if case .modifiedSince = range {
+            // no deletes
+        } else {
+            for rec in server where !libraryKeys.contains(rec.localIdentifier) {
+                switch rec.status {
+                case .deleted, .completing:
+                    continue // already gone / mid-move — leave alone
+                case .uploading, .complete, .backendLost:
+                    if case .dates(let window) = range {
+                        guard let d = parseDate(rec.creationDate), window.contains(d) else { continue }
+                    }
+                    if let key = try? ResourceKey(parsing: rec.localIdentifier) {
+                        deletes.append(PlannedDelete(uploadID: rec.id, key: key))
+                    }
                 }
             }
         }

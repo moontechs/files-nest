@@ -65,6 +65,21 @@ struct SyncPlannerTests {
         #expect(plan.deletes.isEmpty)
     }
 
+    // Incremental (.modifiedSince) — upload-only ------------------------------
+    @Test func modifiedSinceUploadsMissingButNeverDeletes() {
+        // A server record absent from the (windowed) library must NOT be deleted under .modifiedSince.
+        let janRec = rec("JAN", status: .complete, id: "J1", date: "2024-01-10T12:00:00Z")
+        let plan = SyncPlanner.plan(library: [], server: [janRec], range: .modifiedSince(date("2024-01-01T00:00:00Z")))
+        #expect(plan.deletes.isEmpty)
+    }
+
+    @Test func modifiedSinceStillPlansUploadsForScannedItems() {
+        // Upload side is identical to .all: a scanned library item not on the server is an upload.
+        let plan = SyncPlanner.plan(library: [res("NEW")], server: [], range: .modifiedSince(date("2024-01-01T00:00:00Z")))
+        #expect(plan.uploads.map { $0.resource.key.encoded } == [ResourceKey(localIdentifier: "NEW", kind: .photo).encoded])
+        #expect(plan.deletes.isEmpty)
+    }
+
     // Range scoping (spec §5.3) ----------------------------------------------
     @Test func datesRangeDoesNotDeleteRecordsOutsideWindow() {
         // Library scoped to January; a February server record must survive.

@@ -34,6 +34,8 @@ nonisolated struct PhotosAssetLibrary: AssetLibrary {
                     if case .dates(let r) = range {
                         options.predicate = NSPredicate(format: "creationDate >= %@ AND creationDate <= %@",
                                                         r.lowerBound as NSDate, r.upperBound as NSDate)
+                    } else if case .modifiedSince(let d) = range {
+                        options.predicate = NSPredicate(format: "modificationDate >= %@", d as NSDate)
                     }
 
                     let assets = PHAsset.fetchAssets(with: options)
