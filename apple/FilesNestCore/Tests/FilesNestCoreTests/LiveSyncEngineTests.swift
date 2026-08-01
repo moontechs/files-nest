@@ -327,6 +327,72 @@ import Foundation
         #expect(await performCalls.value == 0)
     }
 
+    // MARK: - incremental range
+
+    @Test func libraryChangeUsesModifiedSinceLaunchUsesAll() async {
+        let state = InMemorySyncStateStore()
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        state.saveLastSyncStarted(base)
+        let recorded = RangeBox()
+        let pending = IntBox(0)   // launch finds nothing → no launch sync; keeps the recorded ranges clean
+        let engine = LiveSyncEngine(credentials: creds(true), state: state,
+                                    perform: { range, _ in await recorded.add(range); return self.emptyReport() },
+                                    assess: { range, _ in await recorded.add(range)
+                                                          return Assessment(backedUp: 0, pending: await pending.value, resourceTotal: 0) })
+        await engine.start()
+        _ = await awaitStatus(engine, isWatching)          // launch count (.all), no sync
+        await engine.settle()
+        #expect(await recorded.all == [.all])              // launch scanned .all
+
+        await recorded.clear()
+        await pending.set(1)
+        var it = engine.statusStream().makeAsyncIterator()
+        await engine.libraryDidChange()                     // change → incremental count + sync
+        var sawSyncing = false                              // wait deterministically for the sync to complete
+        while let s = await it.next() {
+            if case .syncing = s { sawSyncing = true }
+            else if sawSyncing, case .watching = s { break }
+        }
+        let want = SyncRange.modifiedSince(base.addingTimeInterval(-60))
+        let ranges = await recorded.all
+        #expect(!ranges.isEmpty)
+        #expect(ranges.allSatisfy { $0 == want })          // both the count and the sync used .modifiedSince(base-60)
+    }
+
+    @Test func manualSyncNowUsesAll() async {
+        let state = InMemorySyncStateStore()
+        state.saveLastSyncStarted(Date(timeIntervalSince1970: 1_000_000))
+        let recorded = RangeBox()
+        let engine = LiveSyncEngine(credentials: creds(true), state: state,
+                                    perform: { range, _ in await recorded.add(range); return self.emptyReport() })
+        await engine.start(); await engine.settle()         // no assess → straight to watching
+        var it = engine.statusStream().makeAsyncIterator()
+        await engine.syncNow()
+        var sawSyncing = false                              // wait for the sync to actually run and complete
+        while let s = await it.next() {
+            if case .syncing = s { sawSyncing = true }
+            else if sawSyncing, case .watching = s { break }
+        }
+        #expect(await recorded.all == [.all])               // manual Sync Now is always full
+    }
+
+    @Test func incrementalSyncKeepsWholeLibraryBackedUp() async {
+        let state = InMemorySyncStateStore()
+        state.saveLastSyncStarted(Date(timeIntervalSince1970: 1_000_000))
+        let pending = IntBox(0)
+        let up = ResourceKey(localIdentifier: "NEW", kind: .photo)
+        let engine = LiveSyncEngine(credentials: creds(true), state: state,
+                                    perform: { _, _ in SyncReport(uploaded: [up], deleted: [], failed: [], skipped: 0) },
+                                    assess: { _, _ in Assessment(backedUp: 63_000, pending: await pending.value, resourceTotal: 70_000) })
+        await engine.start()
+        _ = await awaitSummary(engine) { $0.backedUp == 63_000 }   // launch count grounds whole-library backedUp; pending 0 → no sync
+        _ = await awaitStatus(engine, isWatching)
+        await pending.set(1)
+        await engine.libraryDidChange()                             // incremental count(63000, pending 1) → incremental sync(uploaded 1)
+        let sum = await awaitSummary(engine) { $0.backedUp == 63_001 }
+        #expect(sum.backedUp == 63_001)   // base 63000 + 1 uploaded — NOT collapsed to report.skipped+uploaded (=1)
+    }
+
     // MARK: - sync status flow
 
     @Test func syncEmitsProgressThenWatching() async {
@@ -668,6 +734,13 @@ actor Counter {
     private(set) var value = 0
     func inc() { value += 1 }
     func incAndGet() -> Int { value += 1; return value }
+}
+
+/// Records the ranges a fake perform/assess was called with.
+actor RangeBox {
+    private(set) var all: [SyncRange] = []
+    func add(_ r: SyncRange) { all.append(r) }
+    func clear() { all.removeAll() }
 }
 
 /// A pending value a test can flip between assess calls.
