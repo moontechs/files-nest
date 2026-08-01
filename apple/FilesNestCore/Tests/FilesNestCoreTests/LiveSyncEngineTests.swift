@@ -173,6 +173,28 @@ import Foundation
         #expect(await performCalls.value == 0)
     }
 
+    @Test func restartWhilePausedDoesNotAutoSync() async {
+        let performCalls = Counter()
+        let firstStarted = Gate(); let hold = Gate()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in
+                                        let n = await performCalls.incAndGet()
+                                        if n == 1 { await firstStarted.open(); await hold.wait() }
+                                        return self.emptyReport()
+                                    },
+                                    assess: { _ in Assessment(backedUp: 0, pending: 5, resourceTotal: 5) })
+        await engine.start()
+        await firstStarted.wait()                           // launch auto-sync of the 5 pending (option A) has started
+        #expect(await performCalls.value == 1)
+        await engine.pause()                                // user pauses
+        #expect(isPaused(await awaitStatus(engine, isPaused)))
+        await hold.open()                                   // cancelled sync's perform returns (dropped by generation)
+        await engine.start()                                // Settings save → restart while paused
+        _ = await awaitStatus(engine, isWatching)           // reconciles to watching…
+        await engine.settle()
+        #expect(await performCalls.value == 1)              // …but does NOT auto-upload while paused
+    }
+
     // MARK: - continuous watching (libraryDidChange)
 
     @Test func changeWhileIdleCountsThenSyncs() async {
@@ -199,23 +221,25 @@ import Foundation
     @Test func changeWhileSyncingCoalescesOneFollowUp() async {
         let box = IntBox(1)                      // launch finds work → launch auto-sync #1
         let performCalls = Counter()
-        let hold = Gate()                        // stall only the first sync
+        let firstStarted = Gate(); let hold = Gate(); let secondStarted = Gate()
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in
                                         let n = await performCalls.incAndGet()
-                                        if n == 1 { await hold.wait() }
+                                        if n == 1 { await firstStarted.open(); await hold.wait() }
+                                        if n == 2 { await secondStarted.open() }
                                         return self.emptyReport()
                                     },
                                     assess: { _ in Assessment(backedUp: 0, pending: await box.value, resourceTotal: 0) })
         await engine.start()
-        _ = await awaitStatus(engine, isSyncing)            // sync #1 running (stalled on hold)
+        await firstStarted.wait()                           // sync #1 running (stalled on hold)
         await engine.libraryDidChange()                     // change mid-sync → coalesced
         await engine.settle()
         await hold.open()                                   // sync #1 finishes → drain → count → sync #2
-        _ = await awaitStatus(engine, isWatching)
-        // settle a couple of command round-trips so sync #2's finish is processed
+        await secondStarted.wait()                          // deterministically: the follow-up sync started
+        #expect(await performCalls.value == 2)
+        _ = await awaitStatus(engine, isWatching)           // sync #2 completes
         await engine.settle(); await engine.settle()
-        #expect(await performCalls.value == 2)              // exactly one follow-up sync, no loop
+        #expect(await performCalls.value == 2)              // no third sync — the coalesced flag was consumed once
     }
 
     @Test func changeWhilePausedIsHeldUntilResume() async {

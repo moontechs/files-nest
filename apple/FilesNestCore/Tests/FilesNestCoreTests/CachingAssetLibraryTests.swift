@@ -67,4 +67,45 @@ import Foundation
         _ = try await caching.resources(in: .all, onProgress: nil)
         #expect(fake.requestedRanges.count == 2)
     }
+
+    /// A scan that is in flight when `invalidate()` lands must NOT publish its now-stale
+    /// result into the cache — otherwise a coalesced follow-up serves a photo-losing snapshot
+    /// for up to the TTL. (Reuses `Gate` from LiveSyncEngineTests in the same test target.)
+    @Test func invalidateDuringScanDoesNotPublishStaleCache() async throws {
+        let entered = Gate(); let release = Gate()
+        let fake = SuspendingLibrary(items: [item("A")], entered: entered, release: release)
+        let caching = CachingAssetLibrary(wrapping: fake, ttl: 60, now: { Date(timeIntervalSince1970: 0) })
+
+        let first = Task { try await caching.resources(in: .all, onProgress: nil) }
+        await entered.wait()              // the first scan is suspended inside the wrapped library
+        await caching.invalidate()        // a library change lands mid-scan
+        await release.open()              // let the (now stale) first scan finish
+        _ = try await first.value
+
+        _ = try await caching.resources(in: .all, onProgress: nil)
+        #expect(fake.calls == 2)          // the stale scan did not populate the cache → re-scanned
+    }
+}
+
+/// A wrapped `AssetLibrary` whose first `resources(...)` suspends until released, so a test can
+/// call `invalidate()` while a scan is in flight.
+final class SuspendingLibrary: AssetLibrary, @unchecked Sendable {
+    private let items: [AssetResource]
+    private let entered: Gate
+    private let release: Gate
+    private let lock = NSLock(); private var _calls = 0
+    var calls: Int { lock.lock(); defer { lock.unlock() }; return _calls }
+
+    init(items: [AssetResource], entered: Gate, release: Gate) {
+        self.items = items; self.entered = entered; self.release = release
+    }
+
+    func resources(in range: SyncRange,
+                   onProgress: (@Sendable (Int, Int) -> Void)?) async throws -> [AssetResource] {
+        let n = bump()                                             // sync: NSLock must not span an await
+        if n == 1 { await entered.open(); await release.wait() }   // first scan suspends mid-flight
+        return items
+    }
+
+    private func bump() -> Int { lock.lock(); defer { lock.unlock() }; _calls += 1; return _calls }
 }

@@ -12,6 +12,7 @@ public actor CachingAssetLibrary: AssetLibrary {
     private let ttl: TimeInterval
     private let now: @Sendable () -> Date
     private var cached: (range: SyncRange, at: Date, result: [AssetResource])?
+    private var version = 0   // bumped by invalidate(); defeats a scan that was in flight when it landed
 
     public init(wrapping wrapped: any AssetLibrary,
                 ttl: TimeInterval = 60,
@@ -27,11 +28,15 @@ public actor CachingAssetLibrary: AssetLibrary {
             onProgress?(c.result.count, c.result.count)   // jump the counting UI straight to "done"
             return c.result
         }
+        let startVersion = version
         let result = try await wrapped.resources(in: range, onProgress: onProgress)
-        cached = (range, now(), result)                   // only a completed scan is cached (a throw skips this)
+        if version == startVersion {                      // no invalidate() landed during the scan
+            cached = (range, now(), result)               // (a throw also skips this — only a completed, current scan caches)
+        }
         return result
     }
 
-    /// Drops the memoized scan (e.g. on a library-change signal, once that lands).
-    public func invalidate() { cached = nil }
+    /// Drops the memoized scan (e.g. on a library-change signal). Also bumps the version so a scan
+    /// currently suspended inside `wrapped` won't publish its now-stale result when it resumes.
+    public func invalidate() { cached = nil; version &+= 1 }
 }
