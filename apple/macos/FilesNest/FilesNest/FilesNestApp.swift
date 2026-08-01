@@ -70,6 +70,11 @@ struct FilesNestApp: App {
         watcher.startObserving()
         self.watcher = watcher
 
+        // Start the engine at launch — reconcile credentials and run launch catch-up — so it
+        // does not depend on the menu-bar panel ever being opened. The panel only subscribes to
+        // the engine's streams (AppModel.begin).
+        Task { await engine.start() }
+
         let appModel = AppModel(engine: engine)
         let settingsModel = SettingsModel(urlStore: urlStore,
                                           credStore: KeychainStore(),

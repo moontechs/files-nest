@@ -12,7 +12,9 @@ final class AppModel: ObservableObject {
 
     init(engine: any SyncEngine) { self.engine = engine }
 
-    /// Subscribe to the engine and start it. Idempotent.
+    /// Subscribe to the engine's streams for the UI. Idempotent. The engine is *started*
+    /// at app launch (see `FilesNestApp.init`), not here — the menu-bar panel may never be
+    /// opened, and launch catch-up + continuous watching must run regardless.
     func begin() {
         guard streamTask == nil else { return }
         streamTask = Task { [engine] in
@@ -21,7 +23,6 @@ final class AppModel: ObservableObject {
         summaryTask = Task { [engine] in
             for await s in engine.summaryStream() { self.summary = s }
         }
-        Task { await engine.start() }
     }
 
     /// Re-reconcile after credentials change (Settings save).
