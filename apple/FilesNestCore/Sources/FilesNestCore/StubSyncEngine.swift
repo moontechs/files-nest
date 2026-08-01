@@ -116,4 +116,6 @@ public final class StubSyncEngine: SyncEngine, @unchecked Sendable {
         set(.watching(lastSync: stampLastSync()))
         setSummary(SyncSummary(backedUp: 1_240, pending: 900, failed: []))
     }
+
+    public func libraryDidChange() async {}   // the stub does not watch; no-op
 }

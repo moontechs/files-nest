@@ -57,16 +57,18 @@ import Foundation
     }
 
     @Test func startCountsThenAssesses() async {
+        let hold = Gate()   // stall the launch auto-sync so the count summary is observable
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
-                                    perform: { _, _ in self.emptyReport() },
+                                    perform: { _, _ in await hold.wait(); return self.emptyReport() },
                                     assess: { progress in
                                         progress(3, 10); progress(10, 10)
                                         return Assessment(backedUp: 5, pending: 7, resourceTotal: 12)
                                     })
         await engine.start()
         let sum = await awaitSummary(engine) { $0.pending == 7 }
-        #expect(sum.backedUp == 5)
-        #expect(isWatching(await awaitStatus(engine, isWatching)))
+        #expect(sum.backedUp == 5)                                    // count surfaced the assessment
+        #expect(isSyncing(await awaitStatus(engine, isSyncing)))     // launch auto-syncs the pending work (option A)
+        await hold.open()
     }
 
     @Test func cachedAssessmentSeedsBeforeCounting() async {
@@ -145,6 +147,133 @@ import Foundation
         await release.open()
         await engine.settle()
         #expect(await assessRuns.value == 1)
+    }
+
+    // MARK: - launch auto-sync (option A)
+
+    @Test func launchAutoSyncsWhenCountFindsPending() async {
+        let performCalls = Counter()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in await performCalls.inc(); return self.emptyReport() },
+                                    assess: { _ in Assessment(backedUp: 0, pending: 1, resourceTotal: 1) })
+        await engine.start()
+        _ = await awaitStatus(engine, isSyncing)            // count found pending → auto-sync started
+        _ = await awaitStatus(engine, isWatching)           // sync completed
+        #expect(await performCalls.value == 1)
+    }
+
+    @Test func launchDoesNotSyncWhenNothingPending() async {
+        let performCalls = Counter()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in await performCalls.inc(); return self.emptyReport() },
+                                    assess: { _ in Assessment(backedUp: 5, pending: 0, resourceTotal: 5) })
+        await engine.start()
+        _ = await awaitStatus(engine, isWatching)           // count settles, no sync
+        await engine.settle()
+        #expect(await performCalls.value == 0)
+    }
+
+    // MARK: - continuous watching (libraryDidChange)
+
+    @Test func changeWhileIdleCountsThenSyncs() async {
+        let box = IntBox(0)                      // launch finds nothing → no launch sync
+        let performCalls = Counter()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in await performCalls.inc(); return self.emptyReport() },
+                                    assess: { _ in Assessment(backedUp: 0, pending: await box.value, resourceTotal: 0) })
+        await engine.start()
+        _ = await awaitStatus(engine, isWatching)          // launch count (pending 0) → watching, no sync
+        await engine.settle()
+        #expect(await performCalls.value == 0)
+
+        await box.set(1)                                    // now a change would find work
+        var it = engine.statusStream().makeAsyncIterator()
+        await engine.libraryDidChange()
+        var sawSyncing = false
+        while let s = await it.next() { if case .syncing = s { sawSyncing = true; break } }
+        #expect(sawSyncing)                                 // change → count → sync
+        _ = await awaitStatus(engine, isWatching)           // sync completed
+        #expect(await performCalls.value == 1)              // exactly the change-triggered sync
+    }
+
+    @Test func changeWhileSyncingCoalescesOneFollowUp() async {
+        let box = IntBox(1)                      // launch finds work → launch auto-sync #1
+        let performCalls = Counter()
+        let hold = Gate()                        // stall only the first sync
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in
+                                        let n = await performCalls.incAndGet()
+                                        if n == 1 { await hold.wait() }
+                                        return self.emptyReport()
+                                    },
+                                    assess: { _ in Assessment(backedUp: 0, pending: await box.value, resourceTotal: 0) })
+        await engine.start()
+        _ = await awaitStatus(engine, isSyncing)            // sync #1 running (stalled on hold)
+        await engine.libraryDidChange()                     // change mid-sync → coalesced
+        await engine.settle()
+        await hold.open()                                   // sync #1 finishes → drain → count → sync #2
+        _ = await awaitStatus(engine, isWatching)
+        // settle a couple of command round-trips so sync #2's finish is processed
+        await engine.settle(); await engine.settle()
+        #expect(await performCalls.value == 2)              // exactly one follow-up sync, no loop
+    }
+
+    @Test func changeWhilePausedIsHeldUntilResume() async {
+        let box = IntBox(0)                      // launch finds nothing
+        let performCalls = Counter()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in await performCalls.inc(); return self.emptyReport() },
+                                    assess: { _ in Assessment(backedUp: 0, pending: await box.value, resourceTotal: 0) })
+        await engine.start()
+        _ = await awaitStatus(engine, isWatching)
+        await engine.pause()
+        #expect(isPaused(await awaitStatus(engine, isPaused)))
+        await box.set(1)
+        await engine.libraryDidChange()                     // change while paused → held, no sync
+        await engine.settle()
+        #expect(await performCalls.value == 0)
+        await engine.resume()                               // resume drains the held change → count → sync
+        _ = await awaitStatus(engine, isSyncing)
+        _ = await awaitStatus(engine, isWatching)
+        #expect(await performCalls.value == 1)
+    }
+
+    @Test func changeWhileSignedOutIsIgnored() async {
+        let performCalls = Counter()
+        let engine = LiveSyncEngine(credentials: creds(false), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in await performCalls.inc(); return self.emptyReport() },
+                                    assess: { _ in Assessment(backedUp: 0, pending: 9, resourceTotal: 9) })
+        await engine.start()
+        #expect(await awaitStatus(engine) { $0 == .signedOut } == .signedOut)
+        await engine.libraryDidChange()
+        await engine.settle()
+        #expect(await performCalls.value == 0)
+        #expect(await awaitStatus(engine) { $0 == .signedOut } == .signedOut)
+    }
+
+    @Test func changeWithNothingNewDoesNotSyncOrLoop() async {
+        let assessCalls = Counter()
+        let performCalls = Counter()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in await performCalls.inc(); return self.emptyReport() },
+                                    assess: { _ in await assessCalls.inc(); return Assessment(backedUp: 3, pending: 0, resourceTotal: 3) })
+        await engine.start()
+        _ = await awaitStatus(engine, isWatching)           // launch count, no sync
+        await engine.libraryDidChange()                     // change → count → pending 0 → no sync
+        _ = await awaitSummary(engine) { $0.backedUp == 3 }
+        await engine.settle()
+        #expect(await performCalls.value == 0)              // never synced
+        #expect(await assessCalls.value == 2)              // launch + one change count; no runaway loop
+    }
+
+    @Test func libraryDidChangeBeforeStartDoesNothing() async {
+        let performCalls = Counter()
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in await performCalls.inc(); return self.emptyReport() },
+                                    assess: { _ in Assessment(backedUp: 0, pending: 1, resourceTotal: 1) })
+        await engine.libraryDidChange()                     // before start(): not signed in yet → ignored
+        await engine.settle()
+        #expect(await performCalls.value == 0)
     }
 
     // MARK: - sync status flow
@@ -387,9 +516,10 @@ import Foundation
     }
 
     @Test func signOutClearsSummary() async {
+        let hold = Gate()
         let creds = MutableCreds(.init(username: "u", password: "p"))
         let engine = LiveSyncEngine(credentials: creds, state: InMemorySyncStateStore(),
-                                    perform: { _, _ in self.emptyReport() },
+                                    perform: { _, _ in await hold.wait(); return self.emptyReport() },
                                     assess: { _ in Assessment(backedUp: 9, pending: 2, resourceTotal: 11) })
         await engine.start()
         #expect(await awaitSummary(engine) { $0.backedUp == 9 } == SyncSummary(backedUp: 9, pending: 2, failed: []))
@@ -397,6 +527,7 @@ import Foundation
         await engine.start()
         #expect(await awaitStatus(engine) { $0 == .signedOut } == .signedOut)
         #expect(await awaitSummary(engine) { $0 == .empty } == .empty)
+        await hold.open()   // let the stranded (stale-generation) auto-sync return; its result is dropped
     }
 
     @Test func startDuringSyncDoesNotStrandTheEngine() async {
@@ -485,6 +616,14 @@ import Foundation
 actor Counter {
     private(set) var value = 0
     func inc() { value += 1 }
+    func incAndGet() -> Int { value += 1; return value }
+}
+
+/// A pending value a test can flip between assess calls.
+actor IntBox {
+    private(set) var value: Int
+    init(_ v: Int) { value = v }
+    func set(_ v: Int) { value = v }
 }
 
 /// Credential store whose value can change between calls (for sign-out tests).

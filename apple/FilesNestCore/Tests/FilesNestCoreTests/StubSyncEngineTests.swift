@@ -43,4 +43,11 @@ struct StubSyncEngineTests {
         await engine.syncNow()
         #expect(await firstStatus(engine) == .signedOut)
     }
+
+    @Test func libraryDidChangeIsANoOp() async {
+        let engine = StubSyncEngine(credentials: StaticCredentialStore(.init(username: "u", password: "p")))
+        await engine.start()
+        await engine.libraryDidChange()
+        #expect(await firstStatus(engine) == .watching(lastSync: nil))   // unchanged; no crash
+    }
 }

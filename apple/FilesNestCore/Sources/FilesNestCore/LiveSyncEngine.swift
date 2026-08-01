@@ -32,6 +32,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
 
     private enum Command: Sendable {
         case start, pause, resume, syncNow
+        case libraryChanged
         case progress(gen: UInt64, SyncProgress)
         case finished(gen: UInt64, SyncReport)
         case failed(gen: UInt64, message: String)
@@ -54,6 +55,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private var assessChild: Task<Void, Never>?   // cancellable launch-count child (mirrors syncChild)
     private var lastProgress: SyncProgress?   // latest progress of the running sync, for pause's pending count
     private var syncBaseBackedUp = 0          // backed-up count at the current sync's start, for a live climb
+    private var autoSyncAfterCount = false    // whether the in-flight count should chain into a sync when it settles
+    private var pendingLibraryChange = false  // a change arrived mid-run; drain when the run finishes
 
     // Published snapshot + stream registries (read from arbitrary threads → fanoutLock).
     private let fanoutLock = NSLock()
@@ -124,6 +127,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     public func pause() async  { submit(.pause) }
     public func resume() async { submit(.resume) }
     public func syncNow() async { submit(.syncNow) }
+    public func libraryDidChange() async { submit(.libraryChanged) }
 
     // MARK: - Consumer (single task; no interleaving)
 
@@ -153,6 +157,21 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 assessChild = nil
                 if let a { setSummary(SyncSummary(backedUp: a.backedUp, pending: a.pending, failed: currentSummary.failed)) }
                 setStatus(.watching(lastSync: lastSync))
+                let shouldSync = autoSyncAfterCount && (a?.pending ?? 0) > 0
+                autoSyncAfterCount = false
+                if shouldSync { doSyncNow() } else { drainPendingChangeIfAny() }
+            }
+        case .libraryChanged:
+            guard signedIn else { break }                 // ignore while signed out / before start
+            switch currentStatus {
+            case .watching, .error:
+                startIdleCount(autoSync: true)            // idle → count, then sync if pending
+            case .syncing, .counting:
+                pendingLibraryChange = true               // coalesce; drained when the run finishes
+            case .paused:
+                pendingLibraryChange = true               // honored on resume (never upload while paused)
+            case .signedOut:
+                break
             }
         case .barrier(let ack):
             ack()
@@ -173,6 +192,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
             syncChild?.cancel(); syncChild = nil
             assessChild?.cancel(); assessChild = nil
             lastProgress = nil                          // so a later idle Pause shows 0, not stale remaining
+            pendingLibraryChange = false                // sign-out drops any coalesced change
+            autoSyncAfterCount = false
             setStatus(.signedOut)
             setSummary(.empty)                          // drop stale failures
             return
@@ -182,12 +203,10 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         // orphan the in-flight child. Only reconcile here when idle; the count refreshes the
         // exact backlog off the consumer.
         if !isSyncingStatus && !isCountingStatus {
-            generation &+= 1
-            lastProgress = nil                         // reconciling to idle; drop any paused-run remaining
             if let cached = cachedAssessment?() {      // warm launch: show last-known instantly
                 setSummary(SyncSummary(backedUp: cached.backedUp, pending: cached.pending, failed: currentSummary.failed))
             }
-            beginCounting(gen: generation)             // off-consumer scan → exact pending
+            startIdleCount(autoSync: true)             // launch/restart catch-up (option A)
         }
     }
 
@@ -213,6 +232,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         assessChild?.cancel(); assessChild = nil      // defensive; no count is in flight while paused
         lastProgress = nil                            // resumed work is a fresh run; no stale remaining
         setStatus(.watching(lastSync: lastSync))
+        drainPendingChangeIfAny()                     // honor a change that arrived while paused
     }
 
     private func doSyncNow() {
@@ -249,11 +269,30 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         setSummary(SyncSummary(backedUp: report.skipped + report.uploaded.count,
                                pending: pendingUploads, failed: report.failed))
         setStatus(.watching(lastSync: lastSync))
+        drainPendingChangeIfAny()                   // pick up a change coalesced during this sync
     }
 
     /// Runs `assess` OFF the consumer (PhotoKit scan + server diff; must not block the command
     /// queue). Reports scan progress via `.counting` and the result via `.assessFinished`, both
     /// generation-gated. `nil` result = the scan failed → the handler settles to `.watching`.
+    /// Bump the generation and start an off-consumer count. If `autoSync` and the count finds
+    /// pending work, `.assessFinished` chains into a sync (count-then-upload).
+    private func startIdleCount(autoSync: Bool) {
+        guard signedIn else { return }
+        generation &+= 1
+        lastProgress = nil
+        autoSyncAfterCount = autoSync
+        beginCounting(gen: generation)
+    }
+
+    /// If a library change was coalesced while a run was in flight, start a fresh count now
+    /// (which chains into a sync if anything is pending). Consumer-only.
+    private func drainPendingChangeIfAny() {
+        guard pendingLibraryChange else { return }
+        pendingLibraryChange = false
+        startIdleCount(autoSync: true)
+    }
+
     private func beginCounting(gen: UInt64) {
         guard let assess else { setStatus(.watching(lastSync: lastSync)); return }
         setStatus(.counting(done: 0, total: 0))
