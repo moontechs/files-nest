@@ -216,6 +216,14 @@ launch `.all` reconciles the server record).
    server API change; server pagination stays full here).
 2. **Periodic background full sweep** (so deletions reconcile without a relaunch).
 3. **`resourceTotal` display** (still cached, not shown).
+4. **Restart (Settings save) during an active run forces a full `.all` reconcile**
+   (Codex #2, deferred). Today a `start()` while counting/syncing is a no-op (the
+   pre-existing `!isSyncing && !isCounting` guard from #11), so a settings change
+   mid-run isn't fully reconciled until the next launch `.all` or manual Sync Now.
+   A proper fix distinguishes "restart" from "launch" (a new engine signal) and
+   defers an `.all` until the active child settles — and must update the deliberate
+   `startWhileCountingDoesNotRestartAssess` / `startDuringSyncDoesNotStrandTheEngine`
+   tests. Its own small slice.
 
 ## 12. Ships as
 
