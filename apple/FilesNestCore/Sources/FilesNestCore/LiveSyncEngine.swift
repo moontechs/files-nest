@@ -206,7 +206,16 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
             if let cached = cachedAssessment?() {      // warm launch: show last-known instantly
                 setSummary(SyncSummary(backedUp: cached.backedUp, pending: cached.pending, failed: currentSummary.failed))
             }
-            startIdleCount(autoSync: true)             // launch/restart catch-up (option A)
+            if isPausedStatus {
+                // Restart from paused reconciles to watching (updates Pending) but must not
+                // auto-upload — the user explicitly paused. Drop any change coalesced during the
+                // pause too, so the reconcile count's else-drain can't turn it into an upload;
+                // that count already reflects it in Pending, and watching stays live for the next one.
+                pendingLibraryChange = false
+                startIdleCount(autoSync: false)
+            } else {
+                startIdleCount(autoSync: true)         // launch/restart catch-up (option A)
+            }
         }
     }
 
@@ -334,6 +343,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private var currentSummary: SyncSummary { fanoutLock.lock(); defer { fanoutLock.unlock() }; return summary }
     private var isSyncingStatus: Bool { if case .syncing = currentStatus { return true }; return false }
     private var isCountingStatus: Bool { if case .counting = currentStatus { return true }; return false }
+    private var isPausedStatus: Bool { if case .paused = currentStatus { return true }; return false }
 
     /// Last sync = the coordinator-persisted start time (single source of truth).
     private var lastSync: Date? { state.loadLastSyncStarted() }
