@@ -57,6 +57,10 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private var syncBaseBackedUp = 0          // backed-up count at the current sync's start, for a live climb
     private var autoSyncRange: SyncRange?      // range for the sync to chain after the in-flight count (nil = don't chain)
     private var currentSyncRange: SyncRange = .all   // range of the in-flight sync, for finishSync sourcing
+    private var currentSyncStartedAt: Date?          // start time of the in-flight sync (for the incremental anchor)
+    private var incrementalAnchor: Date?             // start of the last CLEAN sync; the .modifiedSince lower bound.
+                                                     // Only advanced on a failure-free finish, so a failed/partial
+                                                     // sync never lets an incremental window skip un-uploaded work.
     private var pendingLibraryChange = false  // a change arrived mid-run; drain when the run finishes
 
     // Published snapshot + stream registries (read from arbitrary threads → fanoutLock).
@@ -196,6 +200,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
             lastProgress = nil                          // so a later idle Pause shows 0, not stale remaining
             pendingLibraryChange = false                // sign-out drops any coalesced change
             autoSyncRange = nil
+            incrementalAnchor = nil                     // a fresh sign-in re-establishes the baseline via .all
             setStatus(.signedOut)
             setSummary(.empty)                          // drop stale failures
             return
@@ -255,6 +260,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         let gen = generation
         lastProgress = nil
         currentSyncRange = range                     // for finishSync's backedUp sourcing
+        currentSyncStartedAt = now()                 // candidate incremental anchor (committed only on a clean finish)
         syncBaseBackedUp = currentSummary.backedUp   // baseline for the live backed-up climb
         setStatus(.syncing(SyncProgress(completed: 0, total: 0, currentItemName: nil, bytesRemaining: nil)))
         syncChild = Task { [perform, submit] in
@@ -278,6 +284,10 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         // resource awaiting upload) so it stays consistent with assess's plan.uploads.count. No
         // re-scan (a launch count already gave the exact numbers; warm launch recounts).
         let pendingUploads = report.failed.filter { $0.kind == .upload }.count
+        // Advance the incremental anchor only when this sync uploaded everything it planned
+        // (no upload failures). A failed/partial sync leaves the anchor where it was, so the
+        // next change re-scans from there (or falls back to .all) and never skips the backlog.
+        if pendingUploads == 0 { incrementalAnchor = currentSyncStartedAt }
         let backedUp: Int
         switch currentSyncRange {
         case .all:
@@ -308,7 +318,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     /// The window for a change-triggered cycle: everything modified since the last sync started
     /// (minus a small margin). `.all` when there is no prior sync yet.
     private func incrementalRange() -> SyncRange {
-        guard let last = state.loadLastSyncStarted() else { return .all }
+        guard let last = incrementalAnchor else { return .all }   // no clean sync yet → full .all (safe)
         return .modifiedSince(last.addingTimeInterval(-Self.incrementalMargin))
     }
 

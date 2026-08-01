@@ -329,34 +329,64 @@ import Foundation
 
     // MARK: - incremental range
 
-    @Test func libraryChangeUsesModifiedSinceLaunchUsesAll() async {
-        let state = InMemorySyncStateStore()
-        let base = Date(timeIntervalSince1970: 1_000_000)
-        state.saveLastSyncStarted(base)
+    @Test func libraryChangeUsesModifiedSinceAfterACleanSync() async {
+        // The incremental anchor is the start of the last CLEAN sync (in-memory), not the
+        // persisted lastSyncStarted. A clean .all launch sync (at now == `anchor`) sets it.
+        let anchor = Date(timeIntervalSince1970: 5_000)
         let recorded = RangeBox()
-        let pending = IntBox(0)   // launch finds nothing → no launch sync; keeps the recorded ranges clean
-        let engine = LiveSyncEngine(credentials: creds(true), state: state,
+        let pending = IntBox(1)   // launch finds work → a clean .all launch sync sets the anchor
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { range, _ in await recorded.add(range); return self.emptyReport() },
                                     assess: { range, _ in await recorded.add(range)
-                                                          return Assessment(backedUp: 0, pending: await pending.value, resourceTotal: 0) })
+                                                          return Assessment(backedUp: 0, pending: await pending.value, resourceTotal: 0) },
+                                    now: { anchor })
+        var it0 = engine.statusStream().makeAsyncIterator()
         await engine.start()
-        _ = await awaitStatus(engine, isWatching)          // launch count (.all), no sync
-        await engine.settle()
-        #expect(await recorded.all == [.all])              // launch scanned .all
+        var sawSyncing0 = false                             // launch: .all count → .all sync (clean) → anchor set
+        while let s = await it0.next() {
+            if case .syncing = s { sawSyncing0 = true }
+            else if sawSyncing0, case .watching = s { break }
+        }
+        #expect(await recorded.all.allSatisfy { $0 == .all })   // launch scanned + synced .all
+        #expect(!(await recorded.all.isEmpty))
 
         await recorded.clear()
-        await pending.set(1)
         var it = engine.statusStream().makeAsyncIterator()
         await engine.libraryDidChange()                     // change → incremental count + sync
-        var sawSyncing = false                              // wait deterministically for the sync to complete
+        var sawSyncing = false
         while let s = await it.next() {
             if case .syncing = s { sawSyncing = true }
             else if sawSyncing, case .watching = s { break }
         }
-        let want = SyncRange.modifiedSince(base.addingTimeInterval(-60))
+        let want = SyncRange.modifiedSince(anchor.addingTimeInterval(-60))
         let ranges = await recorded.all
         #expect(!ranges.isEmpty)
-        #expect(ranges.allSatisfy { $0 == want })          // both the count and the sync used .modifiedSince(base-60)
+        #expect(ranges.allSatisfy { $0 == want })          // both the count and the sync used .modifiedSince(anchor-60)
+    }
+
+    @Test func failedSyncDoesNotAdvanceIncrementalAnchorSoNextChangeIsAll() async {
+        // A launch .all sync that throws must NOT leave a stale anchor: the next change must
+        // fall back to .all (covering the backlog), not an incremental window that skips it.
+        struct Boom: Error {}
+        let recorded = RangeBox()
+        let state = InMemorySyncStateStore()
+        let when = Date(timeIntervalSince1970: 5_000)
+        let engine = LiveSyncEngine(credentials: creds(true), state: state,
+                                    // Mirror the real coordinator: persist lastSyncStarted at the sync's START,
+                                    // then fail. The fix must NOT anchor on that persisted value.
+                                    perform: { range, _ in await recorded.add(range); state.saveLastSyncStarted(when); throw Boom() },
+                                    assess: { range, _ in await recorded.add(range)
+                                                          return Assessment(backedUp: 0, pending: 1, resourceTotal: 1) },
+                                    now: { when })
+        await engine.start()
+        _ = await awaitStatus(engine, isError)             // launch .all count → sync throws → error, anchor unmoved
+        await recorded.clear()
+        await engine.libraryDidChange()                     // from .error a change starts a fresh cycle…
+        _ = await awaitStatus(engine, isError)             // …which is .all and also throws
+        await engine.settle()
+        let ranges = await recorded.all
+        #expect(!ranges.isEmpty)
+        #expect(ranges.allSatisfy { $0 == .all })          // fell back to .all — no stale incremental window
     }
 
     @Test func manualSyncNowUsesAll() async {
@@ -377,18 +407,20 @@ import Foundation
     }
 
     @Test func incrementalSyncKeepsWholeLibraryBackedUp() async {
-        let state = InMemorySyncStateStore()
-        state.saveLastSyncStarted(Date(timeIntervalSince1970: 1_000_000))
-        let pending = IntBox(0)
+        // A clean .all launch sync grounds whole-library backedUp (63000) AND sets the anchor,
+        // so the change runs incrementally; its finishSync must keep backedUp at base + uploaded.
         let up = ResourceKey(localIdentifier: "NEW", kind: .photo)
-        let engine = LiveSyncEngine(credentials: creds(true), state: state,
-                                    perform: { _, _ in SyncReport(uploaded: [up], deleted: [], failed: [], skipped: 0) },
-                                    assess: { _, _ in Assessment(backedUp: 63_000, pending: await pending.value, resourceTotal: 70_000) })
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { range, _ in
+                                        if case .modifiedSince = range { return SyncReport(uploaded: [up], deleted: [], failed: [], skipped: 0) }
+                                        return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 63_000)   // .all launch: clean baseline
+                                    },
+                                    assess: { _, _ in Assessment(backedUp: 63_000, pending: 1, resourceTotal: 70_000) },
+                                    now: { Date(timeIntervalSince1970: 5_000) })
         await engine.start()
-        _ = await awaitSummary(engine) { $0.backedUp == 63_000 }   // launch count grounds whole-library backedUp; pending 0 → no sync
+        _ = await awaitSummary(engine) { $0.backedUp == 63_000 }   // launch: assess grounds 63000; clean .all sync keeps it, sets anchor
         _ = await awaitStatus(engine, isWatching)
-        await pending.set(1)
-        await engine.libraryDidChange()                             // incremental count(63000, pending 1) → incremental sync(uploaded 1)
+        await engine.libraryDidChange()                             // incremental count(63000, pending 1) → .modifiedSince sync uploads 1
         let sum = await awaitSummary(engine) { $0.backedUp == 63_001 }
         #expect(sum.backedUp == 63_001)   // base 63000 + 1 uploaded — NOT collapsed to report.skipped+uploaded (=1)
     }
