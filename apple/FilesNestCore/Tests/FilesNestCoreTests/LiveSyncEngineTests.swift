@@ -192,6 +192,7 @@ import Foundation
         await engine.start()                                // Settings save → restart while paused
         _ = await awaitStatus(engine, isWatching)           // reconciles to watching…
         await engine.settle()
+        #expect(await awaitStatus(engine) { _ in true } == .watching(lastSync: nil))   // stays watching (pre-fix: chained → .syncing)
         #expect(await performCalls.value == 1)              // …but does NOT auto-upload while paused
     }
 
@@ -214,7 +215,10 @@ import Foundation
         await hold.open()                                   // cancelled sync's perform returns (dropped by generation)
         await engine.start()                                // Settings save → restart while paused
         _ = await awaitStatus(engine, isWatching)
-        await engine.settle(); await engine.settle(); await engine.settle()
+        await engine.settle()
+        // Pre-fix the else-drain synchronously flips status to .counting for the follow-up count;
+        // asserting it stays .watching catches that deterministically (not just via the perform count).
+        #expect(await awaitStatus(engine) { _ in true } == .watching(lastSync: nil))
         #expect(await performCalls.value == 1)              // the coalesced-during-pause change must NOT upload on restart
     }
 
