@@ -37,10 +37,11 @@ struct FilesNestApp: App {
                                                   state: stateStore)
                 return try await coordinator.sync(range: range, onProgress: onProgress)
             },
-            assess: { progress in
-                // Full library scan (drives the determinate "Counting…" state) + server diff →
-                // exact at-rest Pending via SyncPlanner. Cached so a warm launch is instant.
-                let scan = try await library.resources(in: .all, onProgress: progress.report)
+            assess: { range, progress in
+                // Scan (drives the determinate "Counting…" state) + server diff → exact at-rest
+                // Pending via SyncPlanner. `.all` on launch/restart; `.modifiedSince` on a change.
+                // Cached so a warm launch is instant.
+                let scan = try await library.resources(in: range, onProgress: progress.report)
                 guard let url = urlStore.load(),
                       (try await credStore.basicCredentials()) != nil else {
                     // Signed out: no server to diff against — everything local is pending.
@@ -55,10 +56,15 @@ struct FilesNestApp: App {
                     records += page.items
                     cursor = page.nextCursor
                 } while cursor != nil
-                let plan = SyncPlanner.plan(library: scan, server: records, range: .all)
+                let plan = SyncPlanner.plan(library: scan, server: records, range: range)
+                // A windowed scan only sees recent items, so its count is not the whole-library
+                // total — keep the last full resourceTotal rather than clobbering it.
+                let resourceTotal = (range == .all)
+                    ? scan.count
+                    : (stateStore.loadAssessment()?.resourceTotal ?? scan.count)
                 let a = Assessment(backedUp: records.filter { $0.status == .complete }.count,
                                    pending: plan.uploads.count,
-                                   resourceTotal: scan.count)
+                                   resourceTotal: resourceTotal)
                 stateStore.saveAssessment(a)
                 return a
             },

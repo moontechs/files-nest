@@ -60,7 +60,7 @@ import Foundation
         let hold = Gate()   // stall the launch auto-sync so the count summary is observable
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in await hold.wait(); return self.emptyReport() },
-                                    assess: { progress in
+                                    assess: { _, progress in
                                         progress(3, 10); progress(10, 10)
                                         return Assessment(backedUp: 5, pending: 7, resourceTotal: 12)
                                     })
@@ -75,7 +75,7 @@ import Foundation
         let gate = Gate()
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in self.emptyReport() },
-                                    assess: { _ in await gate.wait(); return Assessment(backedUp: 1, pending: 1, resourceTotal: 1) },
+                                    assess: { _, _ in await gate.wait(); return Assessment(backedUp: 1, pending: 1, resourceTotal: 1) },
                                     cachedAssessment: { Assessment(backedUp: 9, pending: 4, resourceTotal: 20) })
         await engine.start()
         #expect(await awaitSummary(engine) { $0.pending == 4 }.backedUp == 9)   // seeded before assess returns
@@ -112,7 +112,7 @@ import Foundation
         struct Boom: Error {}
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in self.emptyReport() },
-                                    assess: { _ in throw Boom() })
+                                    assess: { _, _ in throw Boom() })
         await engine.start()
         #expect(isWatching(await awaitStatus(engine, isWatching)))
         #expect(await awaitSummary(engine) { _ in true } == .empty)   // no cache → stays empty
@@ -122,7 +122,7 @@ import Foundation
         let counting = Gate(); let release = Gate()
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in self.emptyReport() },
-                                    assess: { _ in await counting.open(); await release.wait()
+                                    assess: { _, _ in await counting.open(); await release.wait()
                                                     return Assessment(backedUp: 0, pending: 99, resourceTotal: 0) })
         await engine.start()
         await counting.wait()                       // assess is running
@@ -138,7 +138,7 @@ import Foundation
         let assessRuns = Counter()
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in self.emptyReport() },
-                                    assess: { _ in await assessRuns.inc(); await counting.open(); await release.wait()
+                                    assess: { _, _ in await assessRuns.inc(); await counting.open(); await release.wait()
                                                     return Assessment(backedUp: 0, pending: 0, resourceTotal: 0) })
         await engine.start()
         await counting.wait()
@@ -155,7 +155,7 @@ import Foundation
         let performCalls = Counter()
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in await performCalls.inc(); return self.emptyReport() },
-                                    assess: { _ in Assessment(backedUp: 0, pending: 1, resourceTotal: 1) })
+                                    assess: { _, _ in Assessment(backedUp: 0, pending: 1, resourceTotal: 1) })
         await engine.start()
         _ = await awaitStatus(engine, isSyncing)            // count found pending → auto-sync started
         _ = await awaitStatus(engine, isWatching)           // sync completed
@@ -166,7 +166,7 @@ import Foundation
         let performCalls = Counter()
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in await performCalls.inc(); return self.emptyReport() },
-                                    assess: { _ in Assessment(backedUp: 5, pending: 0, resourceTotal: 5) })
+                                    assess: { _, _ in Assessment(backedUp: 5, pending: 0, resourceTotal: 5) })
         await engine.start()
         _ = await awaitStatus(engine, isWatching)           // count settles, no sync
         await engine.settle()
@@ -182,7 +182,7 @@ import Foundation
                                         if n == 1 { await firstStarted.open(); await hold.wait() }
                                         return self.emptyReport()
                                     },
-                                    assess: { _ in Assessment(backedUp: 0, pending: 5, resourceTotal: 5) })
+                                    assess: { _, _ in Assessment(backedUp: 0, pending: 5, resourceTotal: 5) })
         await engine.start()
         await firstStarted.wait()                           // launch auto-sync of the 5 pending (option A) has started
         #expect(await performCalls.value == 1)
@@ -205,7 +205,7 @@ import Foundation
                                         if n == 1 { await firstStarted.open(); await hold.wait() }
                                         return self.emptyReport()
                                     },
-                                    assess: { _ in Assessment(backedUp: 0, pending: 5, resourceTotal: 5) })
+                                    assess: { _, _ in Assessment(backedUp: 0, pending: 5, resourceTotal: 5) })
         await engine.start()
         await firstStarted.wait()                           // launch auto-sync of the 5 pending (option A), stalled
         await engine.pause()                                // user pauses
@@ -229,7 +229,7 @@ import Foundation
         let performCalls = Counter()
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in await performCalls.inc(); return self.emptyReport() },
-                                    assess: { _ in Assessment(backedUp: 0, pending: await box.value, resourceTotal: 0) })
+                                    assess: { _, _ in Assessment(backedUp: 0, pending: await box.value, resourceTotal: 0) })
         await engine.start()
         _ = await awaitStatus(engine, isWatching)          // launch count (pending 0) → watching, no sync
         await engine.settle()
@@ -256,7 +256,7 @@ import Foundation
                                         if n == 2 { await secondStarted.open() }
                                         return self.emptyReport()
                                     },
-                                    assess: { _ in Assessment(backedUp: 0, pending: await box.value, resourceTotal: 0) })
+                                    assess: { _, _ in Assessment(backedUp: 0, pending: await box.value, resourceTotal: 0) })
         await engine.start()
         await firstStarted.wait()                           // sync #1 running (stalled on hold)
         await engine.libraryDidChange()                     // change mid-sync → coalesced
@@ -274,7 +274,7 @@ import Foundation
         let performCalls = Counter()
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in await performCalls.inc(); return self.emptyReport() },
-                                    assess: { _ in Assessment(backedUp: 0, pending: await box.value, resourceTotal: 0) })
+                                    assess: { _, _ in Assessment(backedUp: 0, pending: await box.value, resourceTotal: 0) })
         await engine.start()
         _ = await awaitStatus(engine, isWatching)
         await engine.pause()
@@ -293,7 +293,7 @@ import Foundation
         let performCalls = Counter()
         let engine = LiveSyncEngine(credentials: creds(false), state: InMemorySyncStateStore(),
                                     perform: { _, _ in await performCalls.inc(); return self.emptyReport() },
-                                    assess: { _ in Assessment(backedUp: 0, pending: 9, resourceTotal: 9) })
+                                    assess: { _, _ in Assessment(backedUp: 0, pending: 9, resourceTotal: 9) })
         await engine.start()
         #expect(await awaitStatus(engine) { $0 == .signedOut } == .signedOut)
         await engine.libraryDidChange()
@@ -307,7 +307,7 @@ import Foundation
         let performCalls = Counter()
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in await performCalls.inc(); return self.emptyReport() },
-                                    assess: { _ in await assessCalls.inc(); return Assessment(backedUp: 3, pending: 0, resourceTotal: 3) })
+                                    assess: { _, _ in await assessCalls.inc(); return Assessment(backedUp: 3, pending: 0, resourceTotal: 3) })
         await engine.start()
         _ = await awaitStatus(engine, isWatching)           // launch count, no sync
         await engine.libraryDidChange()                     // change → count → pending 0 → no sync
@@ -321,10 +321,112 @@ import Foundation
         let performCalls = Counter()
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in await performCalls.inc(); return self.emptyReport() },
-                                    assess: { _ in Assessment(backedUp: 0, pending: 1, resourceTotal: 1) })
+                                    assess: { _, _ in Assessment(backedUp: 0, pending: 1, resourceTotal: 1) })
         await engine.libraryDidChange()                     // before start(): not signed in yet → ignored
         await engine.settle()
         #expect(await performCalls.value == 0)
+    }
+
+    // MARK: - incremental range
+
+    @Test func libraryChangeUsesModifiedSinceAfterACleanSync() async {
+        // The incremental anchor is the start of the last CLEAN sync (in-memory), not the
+        // persisted lastSyncStarted. A clean .all launch sync (at now == `anchor`) sets it.
+        let anchor = Date(timeIntervalSince1970: 5_000)
+        let recorded = RangeBox()
+        let pending = IntBox(1)   // launch finds work → a clean .all launch sync sets the anchor
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { range, _ in await recorded.add(range); return self.emptyReport() },
+                                    assess: { range, _ in await recorded.add(range)
+                                                          return Assessment(backedUp: 0, pending: await pending.value, resourceTotal: 0) },
+                                    now: { anchor })
+        var it0 = engine.statusStream().makeAsyncIterator()
+        await engine.start()
+        var sawSyncing0 = false                             // launch: .all count → .all sync (clean) → anchor set
+        while let s = await it0.next() {
+            if case .syncing = s { sawSyncing0 = true }
+            else if sawSyncing0, case .watching = s { break }
+        }
+        #expect(await recorded.all.allSatisfy { $0 == .all })   // launch scanned + synced .all
+        #expect(!(await recorded.all.isEmpty))
+
+        await recorded.clear()
+        var it = engine.statusStream().makeAsyncIterator()
+        await engine.libraryDidChange()                     // change → incremental count + sync
+        var sawSyncing = false
+        while let s = await it.next() {
+            if case .syncing = s { sawSyncing = true }
+            else if sawSyncing, case .watching = s { break }
+        }
+        let want = SyncRange.modifiedSince(anchor.addingTimeInterval(-60))
+        let ranges = await recorded.all
+        #expect(!ranges.isEmpty)
+        #expect(ranges.allSatisfy { $0 == want })          // both the count and the sync used .modifiedSince(anchor-60)
+    }
+
+    @Test func failedSyncDoesNotAdvanceIncrementalAnchorSoNextChangeIsAll() async {
+        // A launch .all sync that throws must NOT leave a stale anchor: the next change must
+        // fall back to .all (covering the backlog), not an incremental window that skips it.
+        struct Boom: Error {}
+        let recorded = RangeBox()
+        let state = InMemorySyncStateStore()
+        let when = Date(timeIntervalSince1970: 5_000)
+        let engine = LiveSyncEngine(credentials: creds(true), state: state,
+                                    // Mirror the real coordinator: persist lastSyncStarted at the sync's START,
+                                    // then fail. The fix must NOT anchor on that persisted value.
+                                    perform: { range, _ in await recorded.add(range); state.saveLastSyncStarted(when); throw Boom() },
+                                    assess: { range, _ in await recorded.add(range)
+                                                          return Assessment(backedUp: 0, pending: 1, resourceTotal: 1) },
+                                    now: { when })
+        await engine.start()
+        _ = await awaitStatus(engine, isError)             // launch .all count → sync throws → error, anchor unmoved
+        await recorded.clear()
+        var it = engine.statusStream().makeAsyncIterator()  // current = stale .error; wait for the CHANGE cycle
+        await engine.libraryDidChange()                     // from .error a change starts a fresh cycle…
+        var sawCounting = false
+        while let s = await it.next() {
+            if case .counting = s { sawCounting = true }    // the change's count started
+            else if sawCounting, case .error = s { break }  // …and its .all sync threw
+        }
+        let ranges = await recorded.all
+        #expect(!ranges.isEmpty)
+        #expect(ranges.allSatisfy { $0 == .all })          // fell back to .all — no stale incremental window
+    }
+
+    @Test func manualSyncNowUsesAll() async {
+        let state = InMemorySyncStateStore()
+        state.saveLastSyncStarted(Date(timeIntervalSince1970: 1_000_000))
+        let recorded = RangeBox()
+        let engine = LiveSyncEngine(credentials: creds(true), state: state,
+                                    perform: { range, _ in await recorded.add(range); return self.emptyReport() })
+        await engine.start(); await engine.settle()         // no assess → straight to watching
+        var it = engine.statusStream().makeAsyncIterator()
+        await engine.syncNow()
+        var sawSyncing = false                              // wait for the sync to actually run and complete
+        while let s = await it.next() {
+            if case .syncing = s { sawSyncing = true }
+            else if sawSyncing, case .watching = s { break }
+        }
+        #expect(await recorded.all == [.all])               // manual Sync Now is always full
+    }
+
+    @Test func incrementalSyncKeepsWholeLibraryBackedUp() async {
+        // A clean .all launch sync grounds whole-library backedUp (63000) AND sets the anchor,
+        // so the change runs incrementally; its finishSync must keep backedUp at base + uploaded.
+        let up = ResourceKey(localIdentifier: "NEW", kind: .photo)
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { range, _ in
+                                        if case .modifiedSince = range { return SyncReport(uploaded: [up], deleted: [], failed: [], skipped: 0) }
+                                        return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 63_000)   // .all launch: clean baseline
+                                    },
+                                    assess: { _, _ in Assessment(backedUp: 63_000, pending: 1, resourceTotal: 70_000) },
+                                    now: { Date(timeIntervalSince1970: 5_000) })
+        await engine.start()
+        _ = await awaitSummary(engine) { $0.backedUp == 63_000 }   // launch: assess grounds 63000; clean .all sync keeps it, sets anchor
+        _ = await awaitStatus(engine, isWatching)
+        await engine.libraryDidChange()                             // incremental count(63000, pending 1) → .modifiedSince sync uploads 1
+        let sum = await awaitSummary(engine) { $0.backedUp == 63_001 }
+        #expect(sum.backedUp == 63_001)   // base 63000 + 1 uploaded — NOT collapsed to report.skipped+uploaded (=1)
     }
 
     // MARK: - sync status flow
@@ -455,7 +557,7 @@ import Foundation
             await release.wait()
             return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 0)
         },
-                                    assess: { _ in Assessment(backedUp: 10, pending: 0, resourceTotal: 10) })
+                                    assess: { _, _ in Assessment(backedUp: 10, pending: 0, resourceTotal: 10) })
         await engine.start()
         _ = await awaitSummary(engine) { $0.backedUp == 10 }   // base from the launch count
         await engine.syncNow()
@@ -553,7 +655,7 @@ import Foundation
             await release.wait()
             return SyncReport(uploaded: [], deleted: [], failed: [], skipped: 5)
         },
-                                    assess: { _ in Assessment(backedUp: 9, pending: 0, resourceTotal: 9) })
+                                    assess: { _, _ in Assessment(backedUp: 9, pending: 0, resourceTotal: 9) })
         await engine.start()
         await engine.syncNow()
         await started.wait()
@@ -571,7 +673,7 @@ import Foundation
         let creds = MutableCreds(.init(username: "u", password: "p"))
         let engine = LiveSyncEngine(credentials: creds, state: InMemorySyncStateStore(),
                                     perform: { _, _ in await hold.wait(); return self.emptyReport() },
-                                    assess: { _ in Assessment(backedUp: 9, pending: 2, resourceTotal: 11) })
+                                    assess: { _, _ in Assessment(backedUp: 9, pending: 2, resourceTotal: 11) })
         await engine.start()
         #expect(await awaitSummary(engine) { $0.backedUp == 9 } == SyncSummary(backedUp: 9, pending: 2, failed: []))
         creds.set(nil)
@@ -627,7 +729,7 @@ import Foundation
             credentials: creds(true),
             state: InMemorySyncStateStore(),
             perform: { range, onProgress in try await coordinator.sync(range: range, onProgress: onProgress) },
-            assess: { progress in
+            assess: { _, progress in
                 let scan = try await lib.resources(in: .all, onProgress: progress.report)
                 var records: [UploadRecord] = []
                 var cursor: String? = nil
@@ -668,6 +770,13 @@ actor Counter {
     private(set) var value = 0
     func inc() { value += 1 }
     func incAndGet() -> Int { value += 1; return value }
+}
+
+/// Records the ranges a fake perform/assess was called with.
+actor RangeBox {
+    private(set) var all: [SyncRange] = []
+    func add(_ r: SyncRange) { all.append(r) }
+    func clear() { all.removeAll() }
 }
 
 /// A pending value a test can flip between assess calls.

@@ -2,9 +2,13 @@ import Testing
 import Foundation
 @testable import FilesNestCore
 
-/// Serialized: all tests register the same per-host handler (`Self.host`).
+/// Each test instance uses a UNIQUE host, so a request lingering from another test (or a
+/// parallel suite) can never route into this test's handler/recorder. (swift-testing makes a
+/// fresh struct instance per test, so `host` is distinct per test.)
 @Suite(.serialized)
 struct AssetUploaderTests {
+    let host = "uploader-\(UUID().uuidString).test"
+
 
     /// Records PATCHes without retaining bodies.
     final class Recorder: @unchecked Sendable {
@@ -30,7 +34,7 @@ struct AssetUploaderTests {
     /// Installs a handler emulating the TUS data endpoints.
     /// Body bytes are COUNTED, never accumulated.
     func installHandler(startOffset: Int64, recorder: Recorder) {
-        MockURLProtocol.setHandler(forHost: Self.host) { req in
+        MockURLProtocol.setHandler(forHost: host) { req in
             let url = req.url!
             switch (req.httpMethod, url.path) {
             case ("HEAD", _):
@@ -55,10 +59,8 @@ struct AssetUploaderTests {
         }
     }
 
-    static let host = "uploader.test"
-
     func makeClient() -> ServerClient {
-        ServerClient(baseURL: URL(string: "https://\(Self.host)")!,
+        ServerClient(baseURL: URL(string: "https://\(host)")!,
                      credentials: FakeCredentialStore(creds: nil),
                      session: MockURLProtocol.makeSession())
     }
@@ -145,7 +147,7 @@ struct AssetUploaderTests {
     }
 
     @Test func propagatesBackendLostWithoutRecovering() async throws {
-        MockURLProtocol.setHandler(forHost: Self.host) { req in
+        MockURLProtocol.setHandler(forHost: host) { req in
             if req.httpMethod == "HEAD" {
                 return MockURLProtocol.respond(
                     status: 200, headers: ["Upload-Offset": "0"], for: req.url!)

@@ -225,19 +225,19 @@ extension SyncCoordinatorTests {
 
 // MARK: - Task 8: range-scoped delete integration
 extension SyncCoordinatorTests {
-    // End-to-end proof of spec §5.3 through the coordinator: a January sync must
-    // NOT delete a February backup even though listUploads returns everything.
-    @Test func januarySyncDoesNotDeleteFebruaryBackup() async throws {
+    // End-to-end proof through the coordinator: an incremental (.modifiedSince) sync uploads new
+    // work but NEVER deletes, even though listUploads returns everything.
+    @Test func incrementalSyncUploadsNewButDeletesNothing() async throws {
         let server = FakeServer(host: "sc-range.test")
         let febID = server.seed(localIdentifier: "FEB#photo", status: "complete",
                                 creationDate: "2024-02-10T12:00:00Z")
-        let jan = date("2024-01-01T00:00:00Z")...date("2024-01-31T23:59:59Z")
         let report = try await makeCoordinator(
             server: server,
-            library: [resource("JAN", date: "2024-01-15T09:00:00Z")]).sync(range: .dates(jan))
+            library: [resource("JAN", date: "2024-01-15T09:00:00Z")])
+            .sync(range: .modifiedSince(date("2024-01-01T00:00:00Z")))
 
         #expect(report.uploaded == [ResourceKey(localIdentifier: "JAN", kind: .photo)])
-        #expect(report.deleted.isEmpty)
+        #expect(report.deleted.isEmpty)                       // incremental never deletes
         #expect(server.record(id: febID)?.status == "complete") // untouched
     }
 
@@ -251,9 +251,9 @@ extension SyncCoordinatorTests {
             client: client, library: lib,
             uploader: AssetUploader(client: client, source: FakeAssetDataSource(totalBytes: 10, blobSize: 10)),
             state: InMemorySyncStateStore(), now: { Date(timeIntervalSince1970: 0) })
-        let jan = date("2024-01-01T00:00:00Z")...date("2024-01-31T23:59:59Z")
-        _ = try await coord.sync(range: .dates(jan))
-        #expect(lib.requestedRanges == [.dates(jan)])
+        let since = date("2024-01-01T00:00:00Z")
+        _ = try await coord.sync(range: .modifiedSince(since))
+        #expect(lib.requestedRanges == [.modifiedSince(since)])
     }
 }
 

@@ -44,7 +44,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private let credentials: any CredentialStore
     private let state: any SyncStateStore
     private let perform: Perform
-    private let assess: (@Sendable (_ progress: AssessProgress) async throws -> Assessment)?
+    private let assess: (@Sendable (_ range: SyncRange, _ progress: AssessProgress) async throws -> Assessment)?
     private let cachedAssessment: (@Sendable () -> Assessment?)?
     private let now: @Sendable () -> Date
 
@@ -55,7 +55,12 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private var assessChild: Task<Void, Never>?   // cancellable launch-count child (mirrors syncChild)
     private var lastProgress: SyncProgress?   // latest progress of the running sync, for pause's pending count
     private var syncBaseBackedUp = 0          // backed-up count at the current sync's start, for a live climb
-    private var autoSyncAfterCount = false    // whether the in-flight count should chain into a sync when it settles
+    private var autoSyncRange: SyncRange?      // range for the sync to chain after the in-flight count (nil = don't chain)
+    private var currentSyncRange: SyncRange = .all   // range of the in-flight sync, for finishSync sourcing
+    private var currentSyncStartedAt: Date?          // start time of the in-flight sync (for the incremental anchor)
+    private var incrementalAnchor: Date?             // start of the last CLEAN sync; the .modifiedSince lower bound.
+                                                     // Only advanced on a failure-free finish, so a failed/partial
+                                                     // sync never lets an incremental window skip un-uploaded work.
     private var pendingLibraryChange = false  // a change arrived mid-run; drain when the run finishes
 
     // Published snapshot + stream registries (read from arbitrary threads → fanoutLock).
@@ -71,7 +76,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     public init(credentials: any CredentialStore,
                 state: any SyncStateStore,
                 perform: @escaping Perform,
-                assess: (@Sendable (_ progress: AssessProgress) async throws -> Assessment)? = nil,
+                assess: (@Sendable (_ range: SyncRange, _ progress: AssessProgress) async throws -> Assessment)? = nil,
                 cachedAssessment: (@Sendable () -> Assessment?)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.credentials = credentials
@@ -136,7 +141,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         case .start:   await doStart()
         case .pause:   doPause()
         case .resume:  doResume()
-        case .syncNow: doSyncNow()
+        case .syncNow: doSyncNow(range: .all)      // manual Sync Now is always a full sync
         case .progress(let gen, let p):
             if gen == generation {
                 lastProgress = p
@@ -157,15 +162,16 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 assessChild = nil
                 if let a { setSummary(SyncSummary(backedUp: a.backedUp, pending: a.pending, failed: currentSummary.failed)) }
                 setStatus(.watching(lastSync: lastSync))
-                let shouldSync = autoSyncAfterCount && (a?.pending ?? 0) > 0
-                autoSyncAfterCount = false
-                if shouldSync { doSyncNow() } else { drainPendingChangeIfAny() }
+                let range = autoSyncRange
+                autoSyncRange = nil
+                if let range, (a?.pending ?? 0) > 0 { doSyncNow(range: range) }
+                else { drainPendingChangeIfAny() }
             }
         case .libraryChanged:
             guard signedIn else { break }                 // ignore while signed out / before start
             switch currentStatus {
             case .watching, .error:
-                startIdleCount(autoSync: true)            // idle → count, then sync if pending
+                startIdleCount(range: incrementalRange(), autoSync: true)   // idle → incremental count, then sync if pending
             case .syncing, .counting:
                 pendingLibraryChange = true               // coalesce; drained when the run finishes
             case .paused:
@@ -193,7 +199,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
             assessChild?.cancel(); assessChild = nil
             lastProgress = nil                          // so a later idle Pause shows 0, not stale remaining
             pendingLibraryChange = false                // sign-out drops any coalesced change
-            autoSyncAfterCount = false
+            autoSyncRange = nil
+            incrementalAnchor = nil                     // a fresh sign-in re-establishes the baseline via .all
             setStatus(.signedOut)
             setSummary(.empty)                          // drop stale failures
             return
@@ -212,9 +219,9 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 // pause too, so the reconcile count's else-drain can't turn it into an upload;
                 // that count already reflects it in Pending, and watching stays live for the next one.
                 pendingLibraryChange = false
-                startIdleCount(autoSync: false)
+                startIdleCount(range: .all, autoSync: false)
             } else {
-                startIdleCount(autoSync: true)         // launch/restart catch-up (option A)
+                startIdleCount(range: .all, autoSync: true)   // launch/restart catch-up (option A) — always full
             }
         }
     }
@@ -244,19 +251,21 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         drainPendingChangeIfAny()                     // honor a change that arrived while paused
     }
 
-    private func doSyncNow() {
-        log("cmd syncNow (signedIn=\(signedIn) syncChild=\(syncChild != nil) status=\(currentStatus))")
+    private func doSyncNow(range: SyncRange) {
+        log("cmd syncNow (signedIn=\(signedIn) syncChild=\(syncChild != nil) status=\(currentStatus) range=\(range))")
         guard signedIn, syncChild == nil else { return }
         if case .paused = currentStatus { return }
         generation &+= 1
         assessChild?.cancel(); assessChild = nil      // syncNow supersedes an in-flight count
         let gen = generation
         lastProgress = nil
+        currentSyncRange = range                     // for finishSync's backedUp sourcing
+        currentSyncStartedAt = now()                 // candidate incremental anchor (committed only on a clean finish)
         syncBaseBackedUp = currentSummary.backedUp   // baseline for the live backed-up climb
         setStatus(.syncing(SyncProgress(completed: 0, total: 0, currentItemName: nil, bytesRemaining: nil)))
         syncChild = Task { [perform, submit] in
             do {
-                let report = try await perform(.all) { progress in submit(.progress(gen: gen, progress)) }
+                let report = try await perform(range) { progress in submit(.progress(gen: gen, progress)) }
                 submit(.finished(gen: gen, report))
             } catch is CancellationError {
                 // Superseded (pause/sign-out) already set the terminal status.
@@ -275,8 +284,18 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         // resource awaiting upload) so it stays consistent with assess's plan.uploads.count. No
         // re-scan (a launch count already gave the exact numbers; warm launch recounts).
         let pendingUploads = report.failed.filter { $0.kind == .upload }.count
-        setSummary(SyncSummary(backedUp: report.skipped + report.uploaded.count,
-                               pending: pendingUploads, failed: report.failed))
+        // Advance the incremental anchor only when this sync uploaded everything it planned
+        // (no upload failures). A failed/partial sync leaves the anchor where it was, so the
+        // next change re-scans from there (or falls back to .all) and never skips the backlog.
+        if pendingUploads == 0 { incrementalAnchor = currentSyncStartedAt }
+        let backedUp: Int
+        switch currentSyncRange {
+        case .all:
+            backedUp = report.skipped + report.uploaded.count           // full scan saw everything
+        case .modifiedSince:
+            backedUp = syncBaseBackedUp + report.uploaded.count          // windowed: baseline (from the count) + new uploads
+        }
+        setSummary(SyncSummary(backedUp: backedUp, pending: pendingUploads, failed: report.failed))
         setStatus(.watching(lastSync: lastSync))
         drainPendingChangeIfAny()                   // pick up a change coalesced during this sync
     }
@@ -286,12 +305,21 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     /// generation-gated. `nil` result = the scan failed → the handler settles to `.watching`.
     /// Bump the generation and start an off-consumer count. If `autoSync` and the count finds
     /// pending work, `.assessFinished` chains into a sync (count-then-upload).
-    private func startIdleCount(autoSync: Bool) {
+    private func startIdleCount(range: SyncRange, autoSync: Bool) {
         guard signedIn else { return }
         generation &+= 1
         lastProgress = nil
-        autoSyncAfterCount = autoSync
-        beginCounting(gen: generation)
+        autoSyncRange = autoSync ? range : nil
+        beginCounting(gen: generation, range: range)
+    }
+
+    private static let incrementalMargin: TimeInterval = 60   // clock-skew safety; re-scanning slightly wider is a no-op
+
+    /// The window for a change-triggered cycle: everything modified since the last sync started
+    /// (minus a small margin). `.all` when there is no prior sync yet.
+    private func incrementalRange() -> SyncRange {
+        guard let last = incrementalAnchor else { return .all }   // no clean sync yet → full .all (safe)
+        return .modifiedSince(last.addingTimeInterval(-Self.incrementalMargin))
     }
 
     /// If a library change was coalesced while a run was in flight, start a fresh count now
@@ -299,16 +327,16 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private func drainPendingChangeIfAny() {
         guard pendingLibraryChange else { return }
         pendingLibraryChange = false
-        startIdleCount(autoSync: true)
+        startIdleCount(range: incrementalRange(), autoSync: true)
     }
 
-    private func beginCounting(gen: UInt64) {
+    private func beginCounting(gen: UInt64, range: SyncRange) {
         guard let assess else { setStatus(.watching(lastSync: lastSync)); return }
         setStatus(.counting(done: 0, total: 0))
         assessChild = Task { [assess, submit] in
             do {
                 let progress = AssessProgress { done, total in submit(.counting(gen: gen, done: done, total: total)) }
-                let a = try await assess(progress)
+                let a = try await assess(range, progress)
                 submit(.assessFinished(gen: gen, a))
             } catch is CancellationError {
                 // Superseded (pause/syncNow/sign-out) already set the terminal status.
