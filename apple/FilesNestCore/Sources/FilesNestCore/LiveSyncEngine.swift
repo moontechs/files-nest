@@ -44,7 +44,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private let credentials: any CredentialStore
     private let state: any SyncStateStore
     private let perform: Perform
-    private let assess: (@Sendable (_ progress: AssessProgress) async throws -> Assessment)?
+    private let assess: (@Sendable (_ range: SyncRange, _ progress: AssessProgress) async throws -> Assessment)?
     private let cachedAssessment: (@Sendable () -> Assessment?)?
     private let now: @Sendable () -> Date
 
@@ -71,7 +71,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     public init(credentials: any CredentialStore,
                 state: any SyncStateStore,
                 perform: @escaping Perform,
-                assess: (@Sendable (_ progress: AssessProgress) async throws -> Assessment)? = nil,
+                assess: (@Sendable (_ range: SyncRange, _ progress: AssessProgress) async throws -> Assessment)? = nil,
                 cachedAssessment: (@Sendable () -> Assessment?)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.credentials = credentials
@@ -291,7 +291,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         generation &+= 1
         lastProgress = nil
         autoSyncAfterCount = autoSync
-        beginCounting(gen: generation)
+        beginCounting(gen: generation, range: .all)
     }
 
     /// If a library change was coalesced while a run was in flight, start a fresh count now
@@ -302,13 +302,13 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         startIdleCount(autoSync: true)
     }
 
-    private func beginCounting(gen: UInt64) {
+    private func beginCounting(gen: UInt64, range: SyncRange) {
         guard let assess else { setStatus(.watching(lastSync: lastSync)); return }
         setStatus(.counting(done: 0, total: 0))
         assessChild = Task { [assess, submit] in
             do {
                 let progress = AssessProgress { done, total in submit(.counting(gen: gen, done: done, total: total)) }
-                let a = try await assess(progress)
+                let a = try await assess(range, progress)
                 submit(.assessFinished(gen: gen, a))
             } catch is CancellationError {
                 // Superseded (pause/syncNow/sign-out) already set the terminal status.
