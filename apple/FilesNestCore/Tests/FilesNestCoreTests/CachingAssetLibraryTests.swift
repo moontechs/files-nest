@@ -45,8 +45,7 @@ import Foundation
         let fake = FakeAssetLibrary(items: [item("A")])
         let caching = CachingAssetLibrary(wrapping: fake, ttl: 60, now: { Date(timeIntervalSince1970: 0) })
         _ = try await caching.resources(in: .all, onProgress: nil)
-        let window = Date(timeIntervalSince1970: 0)...Date(timeIntervalSince1970: 10)
-        _ = try await caching.resources(in: .dates(window), onProgress: nil)
+        _ = try await caching.resources(in: .modifiedSince(Date(timeIntervalSince1970: 5)), onProgress: nil)
         #expect(fake.requestedRanges.count == 2)   // a different range is a distinct scan
     }
 

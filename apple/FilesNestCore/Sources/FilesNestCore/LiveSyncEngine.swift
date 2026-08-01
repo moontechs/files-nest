@@ -282,7 +282,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         switch currentSyncRange {
         case .all:
             backedUp = report.skipped + report.uploaded.count           // full scan saw everything
-        case .dates, .modifiedSince:
+        case .modifiedSince:
             backedUp = syncBaseBackedUp + report.uploaded.count          // windowed: baseline (from the count) + new uploads
         }
         setSummary(SyncSummary(backedUp: backedUp, pending: pendingUploads, failed: report.failed))

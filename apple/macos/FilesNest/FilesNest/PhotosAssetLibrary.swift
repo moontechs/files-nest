@@ -31,10 +31,7 @@ nonisolated struct PhotosAssetLibrary: AssetLibrary {
                     #endif
                     let options = PHFetchOptions()
                     options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
-                    if case .dates(let r) = range {
-                        options.predicate = NSPredicate(format: "creationDate >= %@ AND creationDate <= %@",
-                                                        r.lowerBound as NSDate, r.upperBound as NSDate)
-                    } else if case .modifiedSince(let d) = range {
+                    if case .modifiedSince(let d) = range {
                         options.predicate = NSPredicate(format: "modificationDate >= %@", d as NSDate)
                     }
 

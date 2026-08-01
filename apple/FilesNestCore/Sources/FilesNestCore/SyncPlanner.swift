@@ -27,17 +27,12 @@ public enum SyncPlanner {
         // upload-only: a windowed scan can't tell a deletion from an out-of-window asset, so it
         // never deletes; deletions reconcile on the next .all.
         var deletes: [PlannedDelete] = []
-        if case .modifiedSince = range {
-            // no deletes
-        } else {
+        if case .all = range {                                // incremental (.modifiedSince) is upload-only
             for rec in server where !libraryKeys.contains(rec.localIdentifier) {
                 switch rec.status {
                 case .deleted, .completing:
                     continue // already gone / mid-move — leave alone
                 case .uploading, .complete, .backendLost:
-                    if case .dates(let window) = range {
-                        guard let d = parseDate(rec.creationDate), window.contains(d) else { continue }
-                    }
                     if let key = try? ResourceKey(parsing: rec.localIdentifier) {
                         deletes.append(PlannedDelete(uploadID: rec.id, key: key))
                     }
@@ -53,13 +48,4 @@ public enum SyncPlanner {
         return a.key.encoded < b.key.encoded
     }
 
-    static func parseDate(_ s: String?) -> Date? {
-        guard let s else { return nil }
-        let withFraction = ISO8601DateFormatter()
-        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = withFraction.date(from: s) { return d }
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: s)
-    }
 }

@@ -80,34 +80,9 @@ struct SyncPlannerTests {
         #expect(plan.deletes.isEmpty)
     }
 
-    // Range scoping (spec §5.3) ----------------------------------------------
-    @Test func datesRangeDoesNotDeleteRecordsOutsideWindow() {
-        // Library scoped to January; a February server record must survive.
-        let jan = date("2024-01-01T00:00:00Z")...date("2024-01-31T23:59:59Z")
-        let feb = rec("FEB", status: .complete, id: "F1", date: "2024-02-10T12:00:00Z")
-        let plan = SyncPlanner.plan(library: [], server: [feb], range: .dates(jan))
-        #expect(plan.deletes.isEmpty)
-    }
-
-    @Test func datesRangeDeletesRecordsInsideWindow() {
-        let jan = date("2024-01-01T00:00:00Z")...date("2024-01-31T23:59:59Z")
-        let janRec = rec("JAN", status: .complete, id: "J1", date: "2024-01-10T12:00:00Z")
-        let plan = SyncPlanner.plan(library: [], server: [janRec], range: .dates(jan))
-        #expect(plan.deletes.map(\.uploadID) == ["J1"])
-    }
-
-    @Test func datesRangeEndpointsAreInclusive() {
-        let start = date("2024-01-01T00:00:00Z"); let end = date("2024-01-31T23:59:59Z")
-        let onStart = rec("S", status: .complete, id: "S1", date: "2024-01-01T00:00:00Z")
-        let onEnd = rec("E", status: .complete, id: "E1", date: "2024-01-31T23:59:59Z")
-        let plan = SyncPlanner.plan(library: [], server: [onStart, onEnd], range: .dates(start...end))
-        #expect(Set(plan.deletes.map(\.uploadID)) == ["S1", "E1"])
-    }
-
-    @Test func nilCreationDateNeverDeletedUnderDatesButDeletedUnderAll() {
-        let jan = date("2024-01-01T00:00:00Z")...date("2024-01-31T23:59:59Z")
+    // Range scoping ----------------------------------------------------------
+    @Test func nilCreationDateDeletedUnderAll() {
         let noDate = rec("NODATE", status: .complete, id: "N1", date: nil)
-        #expect(SyncPlanner.plan(library: [], server: [noDate], range: .dates(jan)).deletes.isEmpty)
         #expect(SyncPlanner.plan(library: [], server: [noDate], range: .all).deletes.map(\.uploadID) == ["N1"])
     }
 

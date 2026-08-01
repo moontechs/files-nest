@@ -14,8 +14,8 @@ struct SyncValueTypeTests {
     }
 
     @Test func syncRangeEquatable() {
-        let r = Date(timeIntervalSince1970: 0)...Date(timeIntervalSince1970: 100)
-        #expect(SyncRange.dates(r) == SyncRange.dates(r))
-        #expect(SyncRange.all != SyncRange.dates(r))
+        let d = Date(timeIntervalSince1970: 100)
+        #expect(SyncRange.modifiedSince(d) == SyncRange.modifiedSince(d))
+        #expect(SyncRange.all != SyncRange.modifiedSince(d))
     }
 }
