@@ -50,4 +50,10 @@ struct StubSyncEngineTests {
         await engine.libraryDidChange()
         #expect(await firstStatus(engine) == .watching(lastSync: nil))   // unchanged; no crash
     }
+
+    @Test func reconcileReconcilesCredentialsLikeStart() async {
+        let engine = StubSyncEngine(credentials: StaticCredentialStore(.init(username: "u", password: "p")))
+        await engine.reconcile()
+        #expect(await firstStatus(engine) == .watching(lastSync: nil))
+    }
 }

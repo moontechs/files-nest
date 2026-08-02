@@ -25,8 +25,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Re-reconcile after credentials change (Settings save).
-    func restart() { Task { await engine.start() } }
+    /// Force a full reconcile after a Settings save (config change) — supersedes any active run.
+    func restart() { Task { await engine.reconcile() } }
 
     func pause()   { Task { await engine.pause() } }
     func resume()  { Task { await engine.resume() } }

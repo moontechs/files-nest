@@ -33,6 +33,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private enum Command: Sendable {
         case start, pause, resume, syncNow
         case libraryChanged
+        case reconcile
         case progress(gen: UInt64, SyncProgress)
         case finished(gen: UInt64, SyncReport)
         case failed(gen: UInt64, message: String)
@@ -133,12 +134,14 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     public func resume() async { submit(.resume) }
     public func syncNow() async { submit(.syncNow) }
     public func libraryDidChange() async { submit(.libraryChanged) }
+    public func reconcile() async { submit(.reconcile) }
 
     // MARK: - Consumer (single task; no interleaving)
 
     private func handle(_ command: Command) async {
         switch command {
         case .start:   await doStart()
+        case .reconcile: await doReconcile()
         case .pause:   doPause()
         case .resume:  doResume()
         case .syncNow: doSyncNow(range: .all)      // manual Sync Now is always a full sync
@@ -190,21 +193,44 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         await withCheckedContinuation { c in submit(.barrier({ c.resume() })) }
     }
 
+    /// Supersede any in-flight run and drop all reconciliation state, then publish signed-out.
+    private func resetToSignedOut() {
+        generation &+= 1                            // supersede any in-flight run
+        signedIn = false
+        syncChild?.cancel(); syncChild = nil
+        assessChild?.cancel(); assessChild = nil
+        lastProgress = nil                          // so a later idle Pause shows 0, not stale remaining
+        pendingLibraryChange = false                // sign-out drops any coalesced change
+        autoSyncRange = nil
+        incrementalAnchor = nil                     // a fresh sign-in re-establishes the baseline via .all
+        setStatus(.signedOut)
+        setSummary(.empty)                          // drop stale failures
+    }
+
+    /// A Settings save (config change). Unlike `doStart`, always supersede any in-flight run —
+    /// the config may repoint the app (e.g. new server), so old-config work must stop — and
+    /// re-establish the incremental anchor via a forced `.all`.
+    private func doReconcile() async {
+        let creds = try? await credentials.basicCredentials()
+        guard creds != nil else { resetToSignedOut(); return }
+        signedIn = true
+        syncChild?.cancel(); syncChild = nil        // stop old-config work
+        assessChild?.cancel(); assessChild = nil
+        incrementalAnchor = nil                     // config may have changed → re-ground via the forced .all
+        if let cached = cachedAssessment?() {
+            setSummary(SyncSummary(backedUp: cached.backedUp, pending: cached.pending, failed: currentSummary.failed))
+        }
+        if isPausedStatus {
+            pendingLibraryChange = false
+            startIdleCount(range: .all, autoSync: false)   // paused: refresh Pending, do NOT upload (#14 parity)
+        } else {
+            startIdleCount(range: .all, autoSync: true)    // force full reconcile + upload with new config
+        }
+    }
+
     private func doStart() async {
         let creds = try? await credentials.basicCredentials()
-        guard creds != nil else {
-            generation &+= 1                            // supersede any in-flight run
-            signedIn = false
-            syncChild?.cancel(); syncChild = nil
-            assessChild?.cancel(); assessChild = nil
-            lastProgress = nil                          // so a later idle Pause shows 0, not stale remaining
-            pendingLibraryChange = false                // sign-out drops any coalesced change
-            autoSyncRange = nil
-            incrementalAnchor = nil                     // a fresh sign-in re-establishes the baseline via .all
-            setStatus(.signedOut)
-            setSummary(.empty)                          // drop stale failures
-            return
-        }
+        guard creds != nil else { resetToSignedOut(); return }
         signedIn = true
         // While a sync or count is running, leave it (and its generation) intact — bumping would
         // orphan the in-flight child. Only reconcile here when idle; the count refreshes the
