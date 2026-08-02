@@ -93,6 +93,10 @@ struct PanelView: View {
     /// "63,201 of 70,444 backed up" — shown once the library has been counted.
     private var backedUpProgressCaption: String? {
         guard !isSignedOut, let total = model.summary.resourceTotal else { return nil }
+        // Hidden during the scan: the "Counting N of M" ring counts ASSETS, while this counts
+        // RESOURCES (a Live Photo is 1 asset but 2 resources), so the two totals differ; and these
+        // numbers are the stale cached values until the count lands. Show it only at rest / syncing.
+        if case .counting = model.status { return nil }
         // Clamp the numerator: backedUp (server records) can briefly exceed resourceTotal
         // (local resources) after deletions, until the next .all reconcile.
         return "\(min(model.summary.backedUp, total).formatted()) of \(total.formatted()) backed up"
