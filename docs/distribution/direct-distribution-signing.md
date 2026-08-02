@@ -19,11 +19,16 @@ Project facts (from `FilesNest.xcodeproj` / `FilesNest.entitlements`):
 
 ## 0. Prerequisites (do these once)
 
-- [ ] **Apple Developer Program membership active, with the current agreements
-      accepted.** ⚠️ Earlier this account had a **pending Program License Agreement**
-      that blocked provisioning (that's why the app uses the file-based keychain).
-      Verify it's resolved: developer.apple.com/account → **Agreements**. A pending
-      agreement will make certificate creation and `notarytool` submission fail.
+- [x] **Apple Developer Program membership active, with the Program License
+      Agreement accepted.** ✅ Confirmed: the **Apple Developer Program License
+      Agreement** is accepted (latest version issued 2026-03-31, accepted 2026-04-07)
+      — so certificate creation and `notarytool` submission are unblocked. (The
+      earlier `errSecMissingEntitlement` pain was about `keychain-access-groups`
+      needing a *provisioning profile* — unrelated to Developer ID direct
+      distribution, which needs no profile.) The separate **Paid Applications
+      Agreement** is **not required** here — it only gates selling paid apps / IAP on
+      the App Store. Re-check at developer.apple.com/account → **Agreements** if Apple
+      later issues a new PLA version (it must be re-accepted before notarization).
 - [ ] A **Developer ID Application** certificate in your login keychain (NOT
       "Apple Development"). Create it in Xcode → Settings → Accounts → your team →
       *Manage Certificates* → **+** → *Developer ID Application*.
