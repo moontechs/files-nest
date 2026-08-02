@@ -433,10 +433,12 @@ import Foundation
 
     @Test func reconcileWhileSyncingSupersedesWithFreshAll() async {
         let performCalls = Counter()
+        let recorded = RangeBox()
         let firstStarted = Gate(); let hold = Gate(); let secondStarted = Gate()
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
-                                    perform: { _, _ in
+                                    perform: { range, _ in
                                         let n = await performCalls.incAndGet()
+                                        await recorded.add(range)
                                         if n == 1 { await firstStarted.open(); await hold.wait() }
                                         if n == 2 { await secondStarted.open() }
                                         return self.emptyReport()
@@ -448,6 +450,7 @@ import Foundation
         await engine.reconcile()                  // Settings save mid-sync → supersede #1, fresh .all
         await secondStarted.wait()                // …a second sync actually starts (supersede confirmed)
         #expect(await performCalls.value == 2)
+        #expect(await recorded.all == [.all, .all])   // both the launch and the superseding sync used .all
         await hold.open()                         // let the superseded #1 return (generation-dropped)
     }
 
