@@ -429,6 +429,23 @@ import Foundation
         #expect(sum.backedUp == 63_001)   // base 63000 + 1 uploaded — NOT collapsed to report.skipped+uploaded (=1)
     }
 
+    @Test func summaryCarriesResourceTotalAcrossCountAndSync() async {
+        let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
+                                    perform: { _, _ in self.emptyReport() },
+                                    assess: { _, _ in Assessment(backedUp: 5, pending: 0, resourceTotal: 42) })
+        await engine.start()
+        let sum = await awaitSummary(engine) { $0.resourceTotal == 42 }   // the count surfaced the whole-library total
+        #expect(sum.backedUp == 5)
+        var it = engine.statusStream().makeAsyncIterator()                // wait for the sync's .syncing→.watching so
+        await engine.syncNow()                                            // finishSync provably ran (a drop would show)
+        var sawSyncing = false
+        while let s = await it.next() {
+            if case .syncing = s { sawSyncing = true }
+            else if sawSyncing, case .watching = s { break }
+        }
+        #expect(await awaitSummary(engine) { _ in true }.resourceTotal == 42)   // survived finishSync
+    }
+
     // MARK: - reconcile (Settings save → forced full .all)
 
     @Test func reconcileWhileSyncingSupersedesWithFreshAll() async {
@@ -772,7 +789,7 @@ import Foundation
                                     perform: { _, _ in await hold.wait(); return self.emptyReport() },
                                     assess: { _, _ in Assessment(backedUp: 9, pending: 2, resourceTotal: 11) })
         await engine.start()
-        #expect(await awaitSummary(engine) { $0.backedUp == 9 } == SyncSummary(backedUp: 9, pending: 2, failed: []))
+        #expect(await awaitSummary(engine) { $0.backedUp == 9 } == SyncSummary(backedUp: 9, pending: 2, failed: [], resourceTotal: 11))
         creds.set(nil)
         await engine.start()
         #expect(await awaitStatus(engine) { $0 == .signedOut } == .signedOut)

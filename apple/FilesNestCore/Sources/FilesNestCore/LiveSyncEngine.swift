@@ -151,7 +151,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 // Live climb: each completed upload is one more file on the server. Reconciled
                 // to the true server count by the post-completion refresh.
                 setSummary(SyncSummary(backedUp: syncBaseBackedUp + p.completed,
-                                       pending: currentSummary.pending, failed: currentSummary.failed))
+                                       pending: currentSummary.pending, failed: currentSummary.failed,
+                                       resourceTotal: currentSummary.resourceTotal))
                 setStatus(.syncing(p))
             }
         case .finished(let gen, let report):
@@ -163,7 +164,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         case .assessFinished(let gen, let a):
             if gen == generation {
                 assessChild = nil
-                if let a { setSummary(SyncSummary(backedUp: a.backedUp, pending: a.pending, failed: currentSummary.failed)) }
+                if let a { setSummary(SyncSummary(backedUp: a.backedUp, pending: a.pending, failed: currentSummary.failed, resourceTotal: a.resourceTotal)) }
                 setStatus(.watching(lastSync: lastSync))
                 let range = autoSyncRange
                 autoSyncRange = nil
@@ -218,7 +219,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         assessChild?.cancel(); assessChild = nil
         incrementalAnchor = nil                     // config may have changed → re-ground via the forced .all
         if let cached = cachedAssessment?() {
-            setSummary(SyncSummary(backedUp: cached.backedUp, pending: cached.pending, failed: currentSummary.failed))
+            setSummary(SyncSummary(backedUp: cached.backedUp, pending: cached.pending, failed: currentSummary.failed,
+                                   resourceTotal: cached.resourceTotal))
         }
         if isPausedStatus {
             pendingLibraryChange = false
@@ -237,7 +239,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         // exact backlog off the consumer.
         if !isSyncingStatus && !isCountingStatus {
             if let cached = cachedAssessment?() {      // warm launch: show last-known instantly
-                setSummary(SyncSummary(backedUp: cached.backedUp, pending: cached.pending, failed: currentSummary.failed))
+                setSummary(SyncSummary(backedUp: cached.backedUp, pending: cached.pending, failed: currentSummary.failed,
+                                       resourceTotal: cached.resourceTotal))
             }
             if isPausedStatus {
                 // Restart from paused reconciles to watching (updates Pending) but must not
@@ -321,7 +324,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         case .modifiedSince:
             backedUp = syncBaseBackedUp + report.uploaded.count          // windowed: baseline (from the count) + new uploads
         }
-        setSummary(SyncSummary(backedUp: backedUp, pending: pendingUploads, failed: report.failed))
+        setSummary(SyncSummary(backedUp: backedUp, pending: pendingUploads, failed: report.failed,
+                               resourceTotal: currentSummary.resourceTotal))
         setStatus(.watching(lastSync: lastSync))
         drainPendingChangeIfAny()                   // pick up a change coalesced during this sync
     }
