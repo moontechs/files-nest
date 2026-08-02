@@ -89,14 +89,26 @@ Project facts (from `FilesNest.xcodeproj` / `FilesNest.entitlements`):
 
 ## 3. Package for testers (DMG)
 
+The `.app` inside is already notarized + stapled (step 3). The **DMG container must
+be notarized too** — a downloaded DMG is itself Gatekeeper-assessed, and you can't
+staple a DMG that was never notarized (`stapler` fails with error 65). So: create →
+sign → notarize → staple the DMG.
+
 ```bash
 hdiutil create -volname FilesNest \
   -srcfolder build/export/FilesNest.app \
   -ov -format UDZO build/FilesNest.dmg
-xcrun stapler staple build/FilesNest.dmg   # optional but nice
+
+# sign the DMG with the same Developer ID identity
+codesign --force --sign "Developer ID Application: … (MJVT445YNL)" build/FilesNest.dmg
+
+# notarize the DMG (a second submission, separate from the .app), then staple
+xcrun notarytool submit build/FilesNest.dmg --keychain-profile FN-NOTARY --wait
+xcrun stapler staple build/FilesNest.dmg
 ```
-(A zip works too — `ditto -c -k --keepParent FilesNest.app FilesNest.zip` — but a
-DMG gives testers a clean drag-to-Applications window.)
+(A zip works for a quick hand to a technical tester — `ditto -c -k --keepParent
+FilesNest.app FilesNest.zip` — the stapled `.app` opens fine; but a notarized DMG is
+the clean, warning-free path for everyone.)
 
 ## 4. Verify before sending
 
@@ -107,6 +119,10 @@ xcrun stapler validate build/export/FilesNest.app
 #   → The validate action worked!
 codesign -dvvv --entitlements - build/export/FilesNest.app
 #   → Authority=Developer ID Application: … ; flags=…runtime… ; the 3 entitlements
+
+# the DMG you actually send:
+spctl -a -vvv -t open --context context:primary-signature build/FilesNest.dmg
+#   → accepted; source=Notarized Developer ID
 ```
 All three must pass. If `spctl` says anything but "Notarized Developer ID", do not
 send it.
