@@ -93,7 +93,9 @@ struct PanelView: View {
     /// "63,201 of 70,444 backed up" — shown once the library has been counted.
     private var backedUpProgressCaption: String? {
         guard !isSignedOut, let total = model.summary.resourceTotal else { return nil }
-        return "\(model.summary.backedUp.formatted()) of \(total.formatted()) backed up"
+        // Clamp the numerator: backedUp (server records) can briefly exceed resourceTotal
+        // (local resources) after deletions, until the next .all reconcile.
+        return "\(min(model.summary.backedUp, total).formatted()) of \(total.formatted()) backed up"
     }
 
     @ViewBuilder private var failedTile: some View {

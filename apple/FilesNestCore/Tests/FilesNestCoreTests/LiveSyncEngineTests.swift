@@ -436,10 +436,14 @@ import Foundation
         await engine.start()
         let sum = await awaitSummary(engine) { $0.resourceTotal == 42 }   // the count surfaced the whole-library total
         #expect(sum.backedUp == 5)
-        await engine.syncNow()                                            // a sync must not drop the total
-        _ = await awaitStatus(engine, isWatching)
-        await engine.settle()
-        #expect(await awaitSummary(engine) { _ in true }.resourceTotal == 42)
+        var it = engine.statusStream().makeAsyncIterator()                // wait for the sync's .syncing→.watching so
+        await engine.syncNow()                                            // finishSync provably ran (a drop would show)
+        var sawSyncing = false
+        while let s = await it.next() {
+            if case .syncing = s { sawSyncing = true }
+            else if sawSyncing, case .watching = s { break }
+        }
+        #expect(await awaitSummary(engine) { _ in true }.resourceTotal == 42)   // survived finishSync
     }
 
     // MARK: - reconcile (Settings save → forced full .all)
