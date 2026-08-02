@@ -62,21 +62,20 @@ Project facts (from `FilesNest.xcodeproj` / `FilesNest.entitlements`):
      DEVELOPMENT_TEAM=YOUR_TEAM_ID -allowProvisioningUpdates archive
    ```
 
-2. **Export** with Developer ID. Create `ExportOptions.plist`:
-   ```xml
-   <?xml version="1.0" encoding="UTF-8"?>
-   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-   <plist version="1.0"><dict>
-     <key>method</key><string>developer-id</string>
-     <key>teamID</key><string>YOUR_TEAM_ID</string>
-     <key>signingStyle</key><string>automatic</string>
-   </dict></plist>
-   ```
+2. **Export** with Developer ID. A ready-made export config is committed at
+   `apple/macos/FilesNest/ExportOptions-developerid.plist` (method `developer-id`,
+   teamID `MJVT445YNL`):
    ```bash
    xcodebuild -exportArchive -archivePath build/FilesNest.xcarchive \
-     -exportOptionsPlist ExportOptions.plist -exportPath build/export
+     -exportOptionsPlist apple/macos/FilesNest/ExportOptions-developerid.plist \
+     -exportPath build/export
    ```
    → `build/export/FilesNest.app`, signed with Developer ID + hardened runtime.
+
+   **Validated 2026-08-02** (`codesign -dvvv`): Authority = *Developer ID Application:
+   … (MJVT445YNL)*, `flags=0x10000(runtime)`, secure Timestamp, and the three
+   entitlements (app-sandbox / network.client / photos-library) all embedded.
+   `spctl` reports *Unnotarized Developer ID* until step 3 notarizes + staples.
 
 3. **Notarize + staple**:
    ```bash
