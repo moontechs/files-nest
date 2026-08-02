@@ -93,6 +93,9 @@ Tick every box. Record anything surprising inline.
 - [ ] Missing/deleted assets fall back to the gradient gracefully (no crash).
 - [ ] The panel is legible: tiles (Backed up / Pending / Failed), status text, and the
       Pause/Resume/Sync Now controls behave as labeled.
+- [ ] The **"X of Y backed up"** caption under the tiles shows once the library has
+      been counted (e.g. "63,201 of 70,444 backed up"), with thousands separators, and
+      updates as backed-up climbs. It's absent when signed out / before the first count.
 
 ## 7. Failure handling
 

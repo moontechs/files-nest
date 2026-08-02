@@ -78,11 +78,22 @@ struct PanelView: View {
     }
 
     private var tiles: some View {
-        HStack(spacing: 8) {
-            tile(backedUpText, "Backed up", .primary)
-            tile(pendingText, "Pending", pending > 0 ? .orange : .primary)
-            failedTile
+        VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                tile(backedUpText, "Backed up", .primary)
+                tile(pendingText, "Pending", pending > 0 ? .orange : .primary)
+                failedTile
+            }
+            if let caption = backedUpProgressCaption {
+                Text(caption).font(.caption2).foregroundStyle(.secondary)
+            }
         }.padding(.horizontal, 12).padding(.bottom, 8)
+    }
+
+    /// "63,201 of 70,444 backed up" — shown once the library has been counted.
+    private var backedUpProgressCaption: String? {
+        guard !isSignedOut, let total = model.summary.resourceTotal else { return nil }
+        return "\(model.summary.backedUp.formatted()) of \(total.formatted()) backed up"
     }
 
     @ViewBuilder private var failedTile: some View {
@@ -98,7 +109,7 @@ struct PanelView: View {
         }
     }
 
-    private var backedUpText: String { isSignedOut ? "—" : "\(model.summary.backedUp)" }
+    private var backedUpText: String { isSignedOut ? "—" : model.summary.backedUp.formatted() }
 
     private var pendingText: String {
         guard !isSignedOut else { return "—" }
