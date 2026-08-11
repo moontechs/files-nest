@@ -28,3 +28,4 @@ Local.xcconfig
 
 # ---- Local server runtime data (created by README local-dev steps) ----
 server/data/
+.serena
