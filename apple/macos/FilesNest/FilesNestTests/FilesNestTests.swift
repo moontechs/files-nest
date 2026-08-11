@@ -1,0 +1,17 @@
+//
+//  FilesNestTests.swift
+//  FilesNestTests
+//
+//  Created by Paulo Garcia on 23.07.26.
+//
+
+import Testing
+@testable import FilesNest
+
+struct FilesNestTests {
+
+    @Test func example() async throws {
+        // Write your test here and use APIs like `#expect(...)` to check expected conditions.
+    }
+
+}

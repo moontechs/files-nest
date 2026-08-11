@@ -1,0 +1,10 @@
+// FilesNest — signing configuration.
+//
+// Your Apple Developer Team ID is intentionally NOT stored in this committed
+// file. It lives in Local.xcconfig (gitignored), so it never lands in the
+// public repository. Copy Local.xcconfig.example to Local.xcconfig and set
+// your team once; Xcode picks it up automatically.
+//
+// The optional include below is silently skipped when Local.xcconfig is
+// absent (e.g. CI, or a fresh checkout), leaving DEVELOPMENT_TEAM unset.
+#include? "Local.xcconfig"

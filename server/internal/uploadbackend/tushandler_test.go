@@ -874,3 +874,61 @@ func TestTUSForwardPatchBodyNotAReadCloser(t *testing.T) {
 		t.Errorf("offset = %d, want %d", offset, len(payload))
 	}
 }
+
+// TestTUSZeroByteFinalPatchDeclaresLength verifies that an upload whose bytes
+// were all written WITHOUT a declared length can be finalized by a subsequent
+// zero-byte PATCH that carries Upload-Length. The Mac client needs this for the
+// zero-blob resume path: when a resumed upload has no new bytes to send, there
+// is no chunk to attach Upload-Length to.
+func TestTUSZeroByteFinalPatchDeclaresLength(t *testing.T) {
+	h, _ := setupTUSHandler(t)
+
+	payload := []byte("bytes written without declaring a length")
+	id, err := h.CreateUpload("")
+	if err != nil {
+		t.Fatalf("CreateUpload: %v", err)
+	}
+
+	// First PATCH: write all bytes, length still deferred.
+	offset, err := h.ForwardPatch(id, bytes.NewReader(payload), 0, "")
+	if err != nil {
+		t.Fatalf("ForwardPatch (deferred): %v", err)
+	}
+	if offset != int64(len(payload)) {
+		t.Fatalf("offset = %d, want %d", offset, len(payload))
+	}
+
+	complete, err := h.IsComplete(id)
+	if err != nil {
+		t.Fatalf("IsComplete before finalize: %v", err)
+	}
+	if complete {
+		t.Fatal("upload should not be complete while size is deferred")
+	}
+
+	// Second PATCH: zero bytes, at the current offset, declaring the length.
+	finalOffset, err := h.ForwardPatch(id, bytes.NewReader(nil), offset,
+		strconv.FormatInt(offset, 10))
+	if err != nil {
+		t.Fatalf("zero-byte finalizing ForwardPatch: %v", err)
+	}
+	if finalOffset != offset {
+		t.Errorf("final offset = %d, want %d", finalOffset, offset)
+	}
+
+	info, err := h.GetInfo(id)
+	if err != nil {
+		t.Fatalf("GetInfo: %v", err)
+	}
+	if info.SizeIsDeferred {
+		t.Error("SizeIsDeferred should be false after declaring length")
+	}
+
+	complete, err = h.IsComplete(id)
+	if err != nil {
+		t.Fatalf("IsComplete after finalize: %v", err)
+	}
+	if !complete {
+		t.Error("upload should be complete after zero-byte PATCH declared the length")
+	}
+}
