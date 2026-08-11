@@ -98,29 +98,29 @@ from the embedded `*httptest.ResponseRecorder`.
 **Files:**
 - Modify: `server/internal/uploadbackend/tushandler.go`
 
-- [ ] add the `tusdRecorder` type and `newTusdRecorder()` constructor (see
+- [x] add the `tusdRecorder` type and `newTusdRecorder()` constructor (see
       Technical Details) near the top of the file, after the type
       declarations and before `New()`
-- [ ] replace `rec := httptest.NewRecorder()` in `CreateUpload` with
+- [x] replace `rec := httptest.NewRecorder()` in `CreateUpload` with
       `rec := newTusdRecorder()`
-- [ ] replace `rec := httptest.NewRecorder()` in `ForwardPatch` with
+- [x] replace `rec := httptest.NewRecorder()` in `ForwardPatch` with
       `rec := newTusdRecorder()`
-- [ ] replace `rec := httptest.NewRecorder()` in `TerminateOrCleanup` with
+- [x] replace `rec := httptest.NewRecorder()` in `TerminateOrCleanup` with
       `rec := newTusdRecorder()`
-- [ ] keep `extractTusdError(rec *httptest.ResponseRecorder)` unchanged; at
+- [x] keep `extractTusdError(rec *httptest.ResponseRecorder)` unchanged; at
       its three call sites (in `CreateUpload`, `ForwardPatch`,
       `TerminateOrCleanup`) pass `rec.ResponseRecorder` (the embedded field)
       instead of `rec`
-- [ ] create `server/internal/uploadbackend/tushandler_internal_test.go` with
+- [x] create `server/internal/uploadbackend/tushandler_internal_test.go` with
       `package uploadbackend` (an internal test file — `tushandler_test.go`
       and `tusd_api_test.go` are both `package uploadbackend_test` and can't
       reach the unexported `newTusdRecorder()`)
-- [ ] in that file, write one test asserting
+- [x] in that file, write one test asserting
       `http.NewResponseController(newTusdRecorder()).SetReadDeadline(time.Now())`
       and `.SetWriteDeadline(time.Now())` both return `nil` — this is the
       exact behavior tusd depends on; no separate "error case" exists since
       neither method can fail
-- [ ] write one end-to-end test that actually pins the bug: construct a
+- [x] write one end-to-end test that actually pins the bug: construct a
       `*TUSHandler` with `handler.Config.Logger` pointed at a `slog.Logger`
       wrapping a custom `slog.Handler` (or `slog.NewTextHandler` writing to a
       `bytes.Buffer`) that captures emitted records, drive a real
@@ -134,7 +134,7 @@ from the embedded `*httptest.ResponseRecorder`.
       constructor in the same internal test file that builds the
       `handler.UnroutedHandler` with a custom `Config.Logger`, reusing `New`'s
       other config) rather than adding a public option nobody else needs
-- [ ] run `cd server && go test ./internal/uploadbackend/...` — must pass
+- [x] run `cd server && go test ./internal/uploadbackend/...` — must pass
       before task 2
 
 ### Task 2: Verify acceptance criteria
