@@ -44,7 +44,7 @@ Adds the protocol method both engines must satisfy. Ships with the stub's no-op 
 **Interfaces:**
 - Produces: `func libraryDidChange() async` on `protocol SyncEngine` — a debounced host signal that the photo library changed. `StubSyncEngine` implements it as a no-op.
 
-- [ ] **Step 1: Add the protocol method**
+- [x] **Step 1: Add the protocol method**
 
 In `SyncEngine.swift`, add to the protocol body (after `func syncNow() async`):
 
@@ -52,7 +52,7 @@ In `SyncEngine.swift`, add to the protocol body (after `func syncNow() async`):
     func libraryDidChange() async   // a debounced host signal that the photo library changed
 ```
 
-- [ ] **Step 2: Add the stub no-op**
+- [x] **Step 2: Add the stub no-op**
 
 In `StubSyncEngine.swift`, add (e.g. after `syncNow()`):
 
@@ -60,7 +60,7 @@ In `StubSyncEngine.swift`, add (e.g. after `syncNow()`):
     public func libraryDidChange() async {}   // the stub does not watch; no-op
 ```
 
-- [ ] **Step 3: Make `LiveSyncEngine` conform (so the package compiles)**
+- [x] **Step 3: Make `LiveSyncEngine` conform (so the package compiles)**
 
 Adding a protocol requirement breaks `LiveSyncEngine`'s conformance. Wire the real enqueue now (its handler is a no-op until Task 3). In `LiveSyncEngine.swift`:
 
@@ -82,7 +82,7 @@ Add a temporary arm in `handle(_:)` so the switch stays exhaustive (Task 3 fills
         case .libraryChanged: break
 ```
 
-- [ ] **Step 4: Write the failing test**
+- [x] **Step 4: Write the failing test**
 
 In `StubSyncEngineTests.swift`, add a test that the no-op changes nothing. (Match the existing file's style; it already builds a `StubSyncEngine`.)
 
@@ -98,17 +98,17 @@ In `StubSyncEngineTests.swift`, add a test that the no-op changes nothing. (Matc
     }
 ```
 
-- [ ] **Step 5: Build & run the stub suite**
+- [x] **Step 5: Build & run the stub suite**
 
 Run: `cd apple/FilesNestCore && swift test --filter StubSyncEngineTests`
 Expected: PASS (the package compiles — both engines now conform).
 
-- [ ] **Step 6: Run the full Core suite to confirm green**
+- [x] **Step 6: Run the full Core suite to confirm green**
 
 Run: `cd apple/FilesNestCore && swift test`
 Expected: PASS (all existing tests still green; `.libraryChanged` is an inert no-op for now).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/SyncEngine.swift \
@@ -132,7 +132,7 @@ When a count settles with pending work, the engine auto-syncs it. This makes lau
 - Consumes: existing `doStart`, `beginCounting(gen:)`, `doSyncNow`, `.assessFinished` handling.
 - Produces: `private func startIdleCount(autoSync: Bool)`; consumer-only `private var autoSyncAfterCount = false`. When an assess settles and `autoSyncAfterCount` is true and `Assessment.pending > 0`, the engine calls `doSyncNow()`.
 
-- [ ] **Step 1: Update the two existing tests that now trigger a launch auto-sync**
+- [x] **Step 1: Update the two existing tests that now trigger a launch auto-sync**
 
 Under option A, any `start()` whose `assess` returns `pending > 0` will auto-sync. Two existing tests in `LiveSyncEngineTests.swift` assert on the post-count summary/status and must be updated to gate `perform` so the count result stays observable.
 
@@ -174,7 +174,7 @@ Replace `signOutClearsSummary` with:
     }
 ```
 
-- [ ] **Step 2: Write the new failing tests**
+- [x] **Step 2: Write the new failing tests**
 
 Add to `LiveSyncEngineTests.swift`:
 
@@ -204,12 +204,12 @@ Add to `LiveSyncEngineTests.swift`:
     }
 ```
 
-- [ ] **Step 3: Run to verify the new tests fail**
+- [x] **Step 3: Run to verify the new tests fail**
 
 Run: `cd apple/FilesNestCore && swift test --filter launchAutoSyncsWhenCountFindsPending`
 Expected: FAIL (no auto-sync yet — `performCalls` stays 0, never reaches `.syncing`).
 
-- [ ] **Step 4: Implement the chaining**
+- [x] **Step 4: Implement the chaining**
 
 In `LiveSyncEngine.swift`:
 
@@ -282,18 +282,18 @@ Change it to:
             }
 ```
 
-- [ ] **Step 5: Run the new tests**
+- [x] **Step 5: Run the new tests**
 
 Run: `cd apple/FilesNestCore && swift test --filter launchAutoSyncsWhenCountFindsPending`
 then: `cd apple/FilesNestCore && swift test --filter launchDoesNotSyncWhenNothingPending`
 Expected: PASS both.
 
-- [ ] **Step 6: Run the full Core suite**
+- [x] **Step 6: Run the full Core suite**
 
 Run: `cd apple/FilesNestCore && swift test`
 Expected: PASS — including the two updated tests. (If `startCountsThenAssesses` or `signOutClearsSummary` fail, re-check the Step 1 rewrites.)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/LiveSyncEngine.swift \
@@ -315,7 +315,7 @@ Wires the `.libraryChanged` command (already a no-op arm from Task 1) into the r
 - Consumes: `startIdleCount(autoSync:)` and the `.assessFinished`→`doSyncNow` chaining from Task 2.
 - Produces: consumer-only `private var pendingLibraryChange = false`; `private func drainPendingChangeIfAny()`. `.libraryChanged` reaction (see table). Drain is called from `finishSync` and `doResume`; `doStart`'s signed-out branch resets both flags.
 
-- [ ] **Step 1: Add the test-support box, then write the failing tests**
+- [x] **Step 1: Add the test-support box, then write the failing tests**
 
 At the bottom of `LiveSyncEngineTests.swift` (near `Counter`), add a small mutable box so `assess` can return different `pending` before and after a change:
 
@@ -441,12 +441,12 @@ Add a helper to the `Counter` actor so `changeWhileSyncingCoalescesOneFollowUp` 
     func incAndGet() -> Int { value += 1; return value }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `cd apple/FilesNestCore && swift test --filter "changeWhileIdleCountsThenSyncs"`
 Expected: FAIL (`.libraryChanged` is still the inert `break` arm from Task 1; no sync happens).
 
-- [ ] **Step 3: Implement the reaction**
+- [x] **Step 3: Implement the reaction**
 
 In `LiveSyncEngine.swift`:
 
@@ -518,7 +518,7 @@ In `doStart`'s signed-out branch, reset both flags. The current branch clears `l
 
 Note: do **not** drain in the `.failed` handler or in `doPause` — a persistent error must not spin a retry loop, and a paused change must survive until resume.
 
-- [ ] **Step 4: Run the new tests**
+- [x] **Step 4: Run the new tests**
 
 Run each:
 ```
@@ -531,12 +531,12 @@ cd apple/FilesNestCore && swift test --filter "libraryDidChangeBeforeStartDoesNo
 ```
 Expected: PASS all.
 
-- [ ] **Step 5: Run the full Core suite (hammer for flakes)**
+- [x] **Step 5: Run the full Core suite (hammer for flakes)**
 
 Run: `cd apple/FilesNestCore && swift test && swift test && swift test`
 Expected: PASS all three runs (the command loop is deterministic via `settle()`; repeat guards against ordering flakes).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/LiveSyncEngine.swift \
@@ -559,7 +559,7 @@ Adds the PhotoKit observer, switches the cache to change-based invalidation with
 - Consumes: `SyncEngine.libraryDidChange()` (Task 1), `CachingAssetLibrary.invalidate()` (existing).
 - Produces: `final class PhotoLibraryWatcher: NSObject, PHPhotoLibraryChangeObserver` with `init(library:engine:debounce:)` and `func startObserving()`, retained by `FilesNestApp`.
 
-- [ ] **Step 1: Create the watcher**
+- [x] **Step 1: Create the watcher**
 
 Create `apple/macos/FilesNest/FilesNest/PhotoLibraryWatcher.swift`:
 
@@ -606,7 +606,7 @@ final class PhotoLibraryWatcher: NSObject, PHPhotoLibraryChangeObserver {
 }
 ```
 
-- [ ] **Step 2: Wire it into the composition root**
+- [x] **Step 2: Wire it into the composition root**
 
 In `FilesNestApp.swift`:
 
@@ -632,12 +632,12 @@ At the end of `init()` (after `engine` exists), assign and start it:
 
 (Assign `self.watcher` before the `_model`/`_settings` StateObject assignments if the compiler complains about definite initialization ordering; a stored `let` must be set before `init` returns.)
 
-- [ ] **Step 3: Build the app**
+- [x] **Step 3: Build the app**
 
 Run: `xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build`
 Expected: BUILD SUCCEEDED.
 
-- [ ] **Step 4: Write the manual-verify checklist**
+- [x] **Step 4: Write the manual-verify checklist**
 
 Create `docs/plans/20260730-continuous-watching-verification.md`:
 
@@ -647,21 +647,21 @@ Create `docs/plans/20260730-continuous-watching-verification.md`:
 Prereqs: signed in (server URL + credentials set), library backed up to a steady
 state (Pending 0, `.watching`).
 
-- [ ] **Add one photo.** Within ~2–3s the panel shows Counting → then a short sync,
+- [x] **Add one photo.** Within ~2–3s the panel shows Counting → then a short sync,
       Backed-up climbs by 1, returns to Watching, Pending 0.
-- [ ] **Import a burst** (e.g. AirDrop 20 photos). A *single* coalesced count+sync
+- [x] **Import a burst** (e.g. AirDrop 20 photos). A *single* coalesced count+sync
       runs after the burst settles (not 20 separate syncs).
-- [ ] **Add a photo mid-sync** (add during a large sync). After the current sync
+- [x] **Add a photo mid-sync** (add during a large sync). After the current sync
       finishes, a follow-up count+sync picks up the new photo.
-- [ ] **Pause, then add a photo.** Nothing syncs while paused. On Resume, the held
+- [x] **Pause, then add a photo.** Nothing syncs while paused. On Resume, the held
       change is counted and synced.
-- [ ] **Relaunch with a backlog** (delete a server item or add photos while the app
+- [x] **Relaunch with a backlog** (delete a server item or add photos while the app
       is closed, then launch). The app counts and auto-syncs the backlog on launch.
-- [ ] **No feedback loop.** After a sync completes it stays at Watching — it does not
+- [x] **No feedback loop.** After a sync completes it stays at Watching — it does not
       re-trigger itself from its own upload activity.
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apple/macos/FilesNest/FilesNest/PhotoLibraryWatcher.swift \
@@ -670,7 +670,7 @@ git add apple/macos/FilesNest/FilesNest/PhotoLibraryWatcher.swift \
 git commit -m "Continuous watching: PhotoKit observer + change-based cache invalidation"
 ```
 
-- [ ] **Step 6: Perform the manual verification**
+- [x] **Step 6: Perform the manual verification**
 
 Run the app and walk the checklist above, ticking each item. Record any surprises in the verification doc before opening the PR.
 

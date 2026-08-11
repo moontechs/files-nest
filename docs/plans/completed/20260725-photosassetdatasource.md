@@ -61,11 +61,11 @@
 - Consumes: nothing
 - Produces: `public enum DiskProbe` with `static func directorySize(at:) throws -> Int64`, `static func sizeDelta(of:during:) async throws -> Int64` (both unchanged, now `public`), and new `static func volumeFreeSpace(at url: URL) throws -> Int64` reading `.volumeAvailableCapacityForImportantUsageKey`.
 
-- [ ] **Step 1: Move the file and make it public**
+- [x] **Step 1: Move the file and make it public**
 
 Move `Tests/FilesNestCoreTests/Support/DiskProbe.swift` to `Sources/FilesNestCore/DiskProbe.swift`. Change `enum DiskProbe` to `public enum DiskProbe` and add `public` to `directorySize` and `sizeDelta`. Content is otherwise unchanged from the existing file.
 
-- [ ] **Step 2: Write the failing test for free space**
+- [x] **Step 2: Write the failing test for free space**
 
 Add to `DiskProbeTests.swift`:
 
@@ -77,12 +77,12 @@ Add to `DiskProbeTests.swift`:
 }
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `cd apple/FilesNestCore && swift test --filter volumeFreeSpaceIsPositiveForHomeDirectory`
 Expected: FAIL — `volumeFreeSpace` not found (or compile error).
 
-- [ ] **Step 4: Implement `volumeFreeSpace`**
+- [x] **Step 4: Implement `volumeFreeSpace`**
 
 Add to `DiskProbe`:
 
@@ -95,17 +95,17 @@ public static func volumeFreeSpace(at url: URL) throws -> Int64 {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd apple/FilesNestCore && swift test`
 Expected: PASS — all existing DiskProbe tests still green (the move did not change them), plus the new one.
 
-- [ ] **Step 6: Verify build with warnings-as-errors**
+- [x] **Step 6: Verify build with warnings-as-errors**
 
 Run: `cd apple/FilesNestCore && swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/x`
 Expected: builds clean.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/DiskProbe.swift \
@@ -131,7 +131,7 @@ Redefines `assetID` as a resource-addressing key so a Live Photo's two resources
   - `public struct ResourceKey: Sendable, Equatable { public let localIdentifier: String; public let kind: ResourceKind; public init(localIdentifier:kind:); public var encoded: String; public init(parsing:) throws }`
   - `public enum ResourceKeyError: Error, Equatable { case missingSeparator; case unknownKind(String); case emptyLocalIdentifier }`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `ResourceKeyTests.swift`:
 
@@ -177,12 +177,12 @@ import Testing
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd apple/FilesNestCore && swift test --filter ResourceKeyTests`
 Expected: FAIL — `ResourceKey` not defined.
 
-- [ ] **Step 3: Implement `ResourceKey`**
+- [x] **Step 3: Implement `ResourceKey`**
 
 Create `ResourceKey.swift`:
 
@@ -237,16 +237,16 @@ public struct ResourceKey: Sendable, Equatable {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd apple/FilesNestCore && swift test --filter ResourceKeyTests`
 Expected: PASS — all five.
 
-- [ ] **Step 5: Verify each test can fail**
+- [x] **Step 5: Verify each test can fail**
 
 Temporarily change `lastIndex(of:)` to `firstIndex(of:)` and rerun. `parsesOnLastSeparatorWhenIdentifierContainsHash` MUST fail (it would parse `A` + `B#pairedVideo`). Revert. This proves the last-separator test has teeth (spec §8.2).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/ResourceKey.swift \
@@ -268,7 +268,7 @@ The instrument for the measurement run's alarm channel (spec §6.2). A reading o
 - Consumes: nothing
 - Produces: `public final class StreamDiagnostics: @unchecked Sendable` with `public init()`, methods `func enter(byteCount: Int)` / `func exit()` (called by the reader around each `deliver`), and readonly getters `maxConcurrent: Int`, `blobCount: Int`, `totalBytes: Int64`, `minBlob: Int`, `maxBlob: Int`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `StreamDiagnosticsTests.swift`:
 
@@ -318,12 +318,12 @@ import Foundation
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd apple/FilesNestCore && swift test --filter StreamDiagnosticsTests`
 Expected: FAIL — `StreamDiagnostics` not defined.
 
-- [ ] **Step 3: Implement `StreamDiagnostics`**
+- [x] **Step 3: Implement `StreamDiagnostics`**
 
 Create `StreamDiagnostics.swift`:
 
@@ -368,16 +368,16 @@ public final class StreamDiagnostics: @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd apple/FilesNestCore && swift test --filter StreamDiagnosticsTests`
 Expected: PASS.
 
-- [ ] **Step 5: Verify the overlap test can fail**
+- [x] **Step 5: Verify the overlap test can fail**
 
 Temporarily make `enter` compute `_maxConcurrent = max(_maxConcurrent, 1)`. `maxConcurrentDetectsOverlap` MUST fail. Revert. This proves the counter is not inert (spec §8.1).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/StreamDiagnostics.swift \
@@ -404,7 +404,7 @@ The reader's happy path: ordered delivery from an offset (via `OffsetSkip`), cap
     and `public func read(from offset: Int64, into sink: @Sendable (Data) async throws -> Void) async throws`.
   - `FakeCallbackProducer` (test support) — drives `onData`/`onDone` on a background queue, returns an `Int` token, records whether `cancel` was called.
 
-- [ ] **Step 1: Write the test support fake**
+- [x] **Step 1: Write the test support fake**
 
 Create `Support/FakeCallbackProducer.swift`:
 
@@ -454,7 +454,7 @@ final class BlobCollector: @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 2: Write the failing delivery tests**
+- [x] **Step 2: Write the failing delivery tests**
 
 Create `CallbackStreamReaderTests.swift`:
 
@@ -551,12 +551,12 @@ final class InstrumentedProducer: @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run: `cd apple/FilesNestCore && swift test --filter CallbackStreamReaderTests`
 Expected: FAIL — `CallbackStreamReader` not defined.
 
-- [ ] **Step 4: Implement the reader (delivery path)**
+- [x] **Step 4: Implement the reader (delivery path)**
 
 Create `CallbackStreamReader.swift`. This introduces the full state enum and `Coordinator`; Task 5 only extends `finish`/adds cancellation.
 
@@ -740,21 +740,21 @@ extension CallbackStreamReader.Coordinator {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd apple/FilesNestCore && swift test --filter CallbackStreamReaderTests`
 Expected: PASS — all six delivery tests.
 
-- [ ] **Step 6: Verify capacity-1 test can fail**
+- [x] **Step 6: Verify capacity-1 test can fail**
 
 Temporarily change `deliver` to call `drained.signal()` itself right before `drained.wait()` (breaking backpressure). `sinkIsFullyAwaitedBeforeNextDelivery` MUST report `maxInFlight > 1`. Revert (spec §8.2).
 
-- [ ] **Step 7: Verify build with warnings-as-errors**
+- [x] **Step 7: Verify build with warnings-as-errors**
 
 Run: `cd apple/FilesNestCore && swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/x`
 Expected: clean.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/CallbackStreamReader.swift \
@@ -778,7 +778,7 @@ The concurrency-critical cluster. Three review rounds each found a distinct dead
 - Consumes: everything from Task 4.
 - Produces: same public surface; `read` now honours `Task` cancellation, invokes `cancel(token)` exactly once, resumes any suspended continuation on termination without double-resume, and never leaves a producer blocked.
 
-- [ ] **Step 1: Add a controllable producer to the fake**
+- [x] **Step 1: Add a controllable producer to the fake**
 
 Append to `Support/FakeCallbackProducer.swift`:
 
@@ -819,7 +819,7 @@ final class ControllableProducer: @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 2: Write the failing termination/cancellation tests**
+- [x] **Step 2: Write the failing termination/cancellation tests**
 
 Append to `CallbackStreamReaderTests.swift`:
 
@@ -972,12 +972,12 @@ final class CompleteDuringSinkProducer: @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run: `cd apple/FilesNestCore && swift test --filter CallbackStreamReaderTests`
 Expected: FAIL — cancellation is not yet wired; `cancellationWhileConsumerSuspendedResumesAndThrows` hangs or times out, others fail.
 
-- [ ] **Step 4: Wire cancellation, token lifecycle, and the terminal-owns-continuation rule**
+- [x] **Step 4: Wire cancellation, token lifecycle, and the terminal-owns-continuation rule**
 
 Replace the `read` body and extend the `Coordinator`. In `Coordinator`, add:
 
@@ -1057,12 +1057,12 @@ Replace `read` with:
 
 The delivery-path `finish` from Task 4 is unchanged and already correct for the `.handoff` and `.consumerWaiting` cases; the never-resume/double-resume safety now comes from `beginCancellation` owning the continuation under the lock and `finish`/`next` treating `.terminal` as absorbing.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd apple/FilesNestCore && swift test --filter CallbackStreamReaderTests`
 Expected: PASS — all delivery and termination tests. None hang (a hang = a bug; the suite must complete).
 
-- [ ] **Step 6: Verify each termination test can fail**
+- [x] **Step 6: Verify each termination test can fail**
 
 One at a time, revert and rerun:
 - Make `beginCancellation` not resume the continuation → `cancellationWhileConsumerSuspendedResumesAndThrows` hangs/times out.
@@ -1070,17 +1070,17 @@ One at a time, revert and rerun:
 - Make `storeToken` ignore `cancelOnTokenArrival` → `cancellationBeforeTokenReturnsStillCancels` fails (`cancelCount == 0`).
 Revert each. This is the §8.2 discipline; these three are the deadlock paths prior review rounds found.
 
-- [ ] **Step 7: Verify build with warnings-as-errors**
+- [x] **Step 7: Verify build with warnings-as-errors**
 
 Run: `cd apple/FilesNestCore && swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/x`
 Expected: clean.
 
-- [ ] **Step 8: Run the whole suite for regressions**
+- [x] **Step 8: Run the whole suite for regressions**
 
 Run: `cd apple/FilesNestCore && swift test`
 Expected: PASS — 68 prior tests plus the new ones.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/CallbackStreamReader.swift \
@@ -1104,11 +1104,11 @@ The untestable-by-`swift test` residue (spec §8.3). Links the Core package into
 - Consumes: `CallbackStreamReader<PHAssetResourceDataRequestID>`, `ResourceKey`, `ResourceKind`, `AssetDataSource` (from Core).
 - Produces: `struct PhotosAssetDataSource: AssetDataSource` in the app target.
 
-- [ ] **Step 1: Link FilesNestCore into the app target**
+- [x] **Step 1: Link FilesNestCore into the app target**
 
 In Xcode: open `apple/macos/FilesNest/FilesNest.xcodeproj`, File ▸ Add Package Dependencies ▸ Add Local ▸ select `apple/FilesNestCore`. Add `FilesNestCore` to the `FilesNest` target's "Frameworks, Libraries, and Embedded Content". (This edits `project.pbxproj`; do it through Xcode rather than by hand to keep the file valid.)
 
-- [ ] **Step 2: Add the Photos entitlement and usage string**
+- [x] **Step 2: Add the Photos entitlement and usage string**
 
 Create `apple/macos/FilesNest/FilesNest/FilesNest.entitlements`:
 
@@ -1127,7 +1127,7 @@ Create `apple/macos/FilesNest/FilesNest/FilesNest.entitlements`:
 
 In the target's Build Settings, set `CODE_SIGN_ENTITLEMENTS = FilesNest/FilesNest.entitlements`. In the target's Info tab, add `NSPhotoLibraryUsageDescription` = `FilesNest reads your photo and video originals to back them up to your server.` No network entitlement — the measurement sink discards.
 
-- [ ] **Step 3: Write the adapter**
+- [x] **Step 3: Write the adapter**
 
 Create `apple/macos/FilesNest/FilesNest/PhotosAssetDataSource.swift`:
 
@@ -1199,7 +1199,7 @@ struct PhotosAssetDataSource: AssetDataSource {
 }
 ```
 
-- [ ] **Step 4: Build the app target**
+- [x] **Step 4: Build the app target**
 
 Run:
 ```bash
@@ -1208,7 +1208,7 @@ xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj \
 ```
 Expected: BUILD SUCCEEDED. `import FilesNestCore` resolves; the `switch` over `ResourceKind` is exhaustive.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apple/macos/FilesNest/FilesNest.xcodeproj/project.pbxproj \
@@ -1232,7 +1232,7 @@ Builds the instrument that answers spec §6/§11.1: does PhotoKit honour backpre
 - Consumes: `PhotosAssetDataSource`, `DiskProbe.volumeFreeSpace`, `MemoryProbe.footprint` (from Core), `StreamDiagnostics`.
 - Produces: `MeasurementRunner` (async run) and `MeasurementView` (SwiftUI).
 
-- [ ] **Step 1: Write the runner**
+- [x] **Step 1: Write the runner**
 
 Create `MeasurementRunner.swift`:
 
@@ -1316,7 +1316,7 @@ final class MeasurementRunner: ObservableObject {
 }
 ```
 
-- [ ] **Step 2: Write the view**
+- [x] **Step 2: Write the view**
 
 Create `MeasurementView.swift`:
 
@@ -1358,7 +1358,7 @@ struct MeasurementView: View {
 }
 ```
 
-- [ ] **Step 3: Show it from ContentView**
+- [x] **Step 3: Show it from ContentView**
 
 Replace the body of `apple/macos/FilesNest/FilesNest/ContentView.swift`'s `ContentView` with:
 
@@ -1372,7 +1372,7 @@ struct ContentView: View {
 }
 ```
 
-- [ ] **Step 4: Build the app target**
+- [x] **Step 4: Build the app target**
 
 Run:
 ```bash
@@ -1381,7 +1381,7 @@ xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj \
 ```
 Expected: BUILD SUCCEEDED.
 
-- [ ] **Step 5: Manual measurement procedure (record results, do not automate)**
+- [x] **Step 5: Manual measurement procedure (record results, do not automate)**
 
 Document the run in the commit body. Procedure:
 1. Ensure the target asset is iCloud-only (Optimize Mac Storage on, asset evicted locally). If it is already materialised, the run is vacuous — verify first (spec §6.4).
@@ -1390,7 +1390,7 @@ Document the run in the commit body. Procedure:
 4. Interpret per the three-way rule the runner prints; if ambiguous, record **UNRESOLVED** rather than rounding.
 5. Note `maxConcurrentDeliver` — expected 1; a value > 1 is a surprising, report-worthy result.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apple/macos/FilesNest/FilesNest/MeasurementRunner.swift \
@@ -1408,7 +1408,7 @@ Fixes the stale key/id documentation the resource-key work exposed (spec §5 doc
 **Files:**
 - Modify: `docs/architecture.md:59-64`, `:230`, `:246` region as needed.
 
-- [ ] **Step 1: Correct the record-key documentation**
+- [x] **Step 1: Correct the record-key documentation**
 
 In `docs/architecture.md`, the schema block currently reads `Main records keyed by uploads/<localIdentifier>` with `"id": "<localIdentifier>"`. Replace with:
 
@@ -1424,7 +1424,7 @@ And change the `"id"` line in the JSON block to:
   "id":            "<SafeID of the resource key>",
 ```
 
-- [ ] **Step 2: Note the resource-key model near the Live Photo paragraph**
+- [x] **Step 2: Note the resource-key model near the Live Photo paragraph**
 
 At `docs/architecture.md:230` (Live Photos become two records), append:
 
@@ -1435,16 +1435,16 @@ occupy distinct keys and distinct `idx/local/*` index entries despite sharing a
 `localIdentifier`.
 ```
 
-- [ ] **Step 3: Record the §11.1 measurement outcome**
+- [x] **Step 3: Record the §11.1 measurement outcome**
 
 Under the "Mac app: streaming without temp files" section, add a short paragraph stating what the Task 7 run found: whether PhotoKit honoured backpressure, whether it streams or materialises, or that the result was UNRESOLVED. Use the actual observed numbers.
 
-- [ ] **Step 4: Verify no other stale references**
+- [x] **Step 4: Verify no other stale references**
 
 Run: `grep -n "uploads/<localIdentifier>\|\"id\": \"<localIdentifier>\"" docs/architecture.md`
 Expected: no matches remain.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/architecture.md

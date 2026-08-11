@@ -36,7 +36,7 @@
   - `public enum KeychainStoreError: Error, Equatable { case unexpectedStatus(OSStatus); case decoding }`.
   - Test-only `final class FakeKeychainBackend: KeychainBackend, @unchecked Sendable` with `var forcedStatus: OSStatus?`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apple/FilesNestCore/Tests/FilesNestCoreTests/Support/FakeKeychainBackend.swift`:
 
@@ -112,12 +112,12 @@ struct KeychainStoreTests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd apple/FilesNestCore && swift test --filter KeychainStoreTests`
 Expected: FAIL — compile error, `KeychainBackend` / `KeychainStore` are undefined.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `apple/FilesNestCore/Sources/FilesNestCore/KeychainStore.swift`:
 
@@ -255,12 +255,12 @@ public struct KeychainStore: CredentialStore {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd apple/FilesNestCore && swift test --filter KeychainStoreTests`
 Expected: PASS (1 test). No warnings in build output.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/KeychainStore.swift \
@@ -280,7 +280,7 @@ git commit -m "feat: KeychainStore core with backend seam + save/read roundtrip"
 - Consumes: `KeychainStore.save(_:)`, `KeychainStore.basicCredentials()`, `FakeKeychainBackend` (Task 1).
 - Produces: nothing new.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add inside `struct KeychainStoreTests`:
 
@@ -295,12 +295,12 @@ Add inside `struct KeychainStoreTests`:
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails or passes**
+- [x] **Step 2: Run test to verify it fails or passes**
 
 Run: `cd apple/FilesNestCore && swift test --filter saveTwiceUpdatesInPlaceSecondValueWins`
 Expected: PASS — the add-or-update path implemented in Task 1 already satisfies this. (This task locks the behavior with a regression test; if it fails, the `errSecDuplicateItem` → `update` branch is broken.)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add apple/FilesNestCore/Tests/FilesNestCoreTests/KeychainStoreTests.swift
@@ -318,7 +318,7 @@ git commit -m "test: KeychainStore save updates in place, no duplicate"
 - Consumes: `KeychainStore.save(_:)`, `.basicCredentials()`, `.clear()`, `FakeKeychainBackend` (Task 1).
 - Produces: nothing new.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add inside `struct KeychainStoreTests`:
 
@@ -339,12 +339,12 @@ Add inside `struct KeychainStoreTests`:
     }
 ```
 
-- [ ] **Step 2: Run test to verify it passes**
+- [x] **Step 2: Run test to verify it passes**
 
 Run: `cd apple/FilesNestCore && swift test --filter KeychainStoreTests`
 Expected: PASS (all tests). These lock in `errSecItemNotFound` → `nil` on read and the idempotent-clear branch from Task 1.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add apple/FilesNestCore/Tests/FilesNestCoreTests/KeychainStoreTests.swift
@@ -362,7 +362,7 @@ git commit -m "test: KeychainStore empty-read nil and idempotent clear"
 - Consumes: `KeychainStore`, `KeychainStoreError`, `FakeKeychainBackend` (Task 1). `errSecIO` is a stand-in "unexpected" `OSStatus`.
 - Produces: nothing new.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add inside `struct KeychainStoreTests`:
 
@@ -399,12 +399,12 @@ Add inside `struct KeychainStoreTests`:
     }
 ```
 
-- [ ] **Step 2: Run test to verify it passes**
+- [x] **Step 2: Run test to verify it passes**
 
 Run: `cd apple/FilesNestCore && swift test --filter KeychainStoreTests`
 Expected: PASS (all tests). Exercises the `default:` → `unexpectedStatus` branches and the `decode` failure path from Task 1.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add apple/FilesNestCore/Tests/FilesNestCoreTests/KeychainStoreTests.swift
@@ -422,7 +422,7 @@ git commit -m "test: KeychainStore error mapping for unexpected status and corru
 - Consumes: `KeychainStore` with default `SystemKeychainBackend`, `KeychainStoreError` (Task 1).
 - Produces: nothing new.
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 Create `apple/FilesNestCore/Tests/FilesNestCoreTests/KeychainStoreLiveTests.swift`:
 
@@ -460,17 +460,17 @@ struct KeychainStoreLiveTests {
 }
 ```
 
-- [ ] **Step 2: Run the test**
+- [x] **Step 2: Run the test**
 
 Run: `cd apple/FilesNestCore && swift test --filter KeychainStoreLiveTests`
 Expected: PASS — either a full live roundtrip (entitled/dev machine) or an early return (unentitled). Either way the test is green and leaves no Keychain item behind.
 
-- [ ] **Step 3: Run the full package suite**
+- [x] **Step 3: Run the full package suite**
 
 Run: `cd apple/FilesNestCore && swift test`
 Expected: PASS — entire `FilesNestCore` suite green, no build warnings.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apple/FilesNestCore/Tests/FilesNestCoreTests/KeychainStoreLiveTests.swift

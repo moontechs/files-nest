@@ -37,7 +37,7 @@ The gate instrument. Built before any streaming code, because a probe that silen
 - Consumes: nothing
 - Produces: `enum MemoryProbe` with `static func footprint() -> Int64?` and `static func peakGrowth(sampleInterval:during:) async throws -> Int64`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apple/FilesNestCore/Tests/FilesNestCoreTests/MemoryProbeTests.swift`:
 
@@ -75,12 +75,12 @@ import Foundation
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd apple/FilesNestCore && swift test --filter MemoryProbeTests`
 Expected: FAIL — `cannot find 'MemoryProbe' in scope`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `apple/FilesNestCore/Tests/FilesNestCoreTests/Support/MemoryProbe.swift`:
 
@@ -139,17 +139,17 @@ enum MemoryProbe {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd apple/FilesNestCore && swift test --filter MemoryProbeTests`
 Expected: PASS — 3 tests
 
-- [ ] **Step 5: Verify strict build**
+- [x] **Step 5: Verify strict build**
 
 Run: `cd apple/FilesNestCore && swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/x`
 Expected: exit 0, no output
 
-- [ ] **Step 6: Commit** *(wait for the user's go-ahead)*
+- [x] **Step 6: Commit** *(wait for the user's go-ahead)*
 
 ```bash
 git add apple/FilesNestCore/Tests/FilesNestCoreTests/Support/MemoryProbe.swift \
@@ -171,7 +171,7 @@ Plumbing only. It produces no iCloud numbers until the adapter slice — do not 
 - Consumes: nothing
 - Produces: `enum DiskProbe` with `static func directorySize(at: URL) throws -> Int64` and `static func sizeDelta(of:during:) async throws -> Int64`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apple/FilesNestCore/Tests/FilesNestCoreTests/DiskProbeTests.swift`:
 
@@ -216,12 +216,12 @@ import Foundation
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd apple/FilesNestCore && swift test --filter DiskProbeTests`
 Expected: FAIL — `cannot find 'DiskProbe' in scope`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `apple/FilesNestCore/Tests/FilesNestCoreTests/Support/DiskProbe.swift`:
 
@@ -264,12 +264,12 @@ enum DiskProbe {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd apple/FilesNestCore && swift test --filter DiskProbeTests`
 Expected: PASS — 3 tests
 
-- [ ] **Step 5: Commit** *(wait for the user's go-ahead)*
+- [x] **Step 5: Commit** *(wait for the user's go-ahead)*
 
 ```bash
 git add apple/FilesNestCore/Tests/FilesNestCoreTests/Support/DiskProbe.swift \
@@ -290,7 +290,7 @@ Placed before the Swift uploader deliberately. Spec §6.3's zero-blob path depen
 - Consumes: `TUSHandler.CreateUpload`, `TUSHandler.ForwardPatch`, `TUSHandler.IsComplete`, `TUSHandler.GetInfo`, `setupTUSHandler` — all existing in that file
 - Produces: confirmation that a 0-byte PATCH carrying `Upload-Length` finalizes a deferred-length upload
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `server/internal/uploadbackend/tushandler_test.go`:
 
@@ -354,7 +354,7 @@ func TestTUSZeroByteFinalPatchDeclaresLength(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test**
+- [x] **Step 2: Run the test**
 
 Run: `cd server && go test ./internal/uploadbackend/ -run TestTUSZeroByteFinalPatchDeclaresLength -v`
 
@@ -362,12 +362,12 @@ Expected: **PASS.** This test is written to confirm an assumption, not to drive 
 
 **If it FAILS, stop and report.** Do not work around it. Spec §6.3 and open item #1 depend on this behaviour; a failure means the zero-blob path needs redesigning (most likely by having `AssetUploader` skip `read` entirely when `HEAD` shows the offset already equals a known length, which requires a different source of truth for length). Surface it rather than patching around it.
 
-- [ ] **Step 3: Run the full server suite for regressions**
+- [x] **Step 3: Run the full server suite for regressions**
 
 Run: `cd server && go test ./... && go vet ./...`
 Expected: PASS, vet clean
 
-- [ ] **Step 4: Commit** *(wait for the user's go-ahead)*
+- [x] **Step 4: Commit** *(wait for the user's go-ahead)*
 
 ```bash
 git add server/internal/uploadbackend/tushandler_test.go
@@ -390,7 +390,7 @@ git commit -m "test(server): cover zero-byte PATCH declaring Upload-Length"
   - `struct FakeAssetDataSource: AssetDataSource` with `init(totalBytes: Int64, blobSize: Int, failAfterBlobs: Int? = nil)`
   - `enum FakeSourceError: Error { case injected }`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apple/FilesNestCore/Tests/FilesNestCoreTests/FakeAssetDataSourceTests.swift`:
 
@@ -484,12 +484,12 @@ import Foundation
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd apple/FilesNestCore && swift test --filter FakeAssetDataSourceTests`
 Expected: FAIL — `cannot find 'FakeAssetDataSource' in scope`
 
-- [ ] **Step 3: Write the seam**
+- [x] **Step 3: Write the seam**
 
 Create `apple/FilesNestCore/Sources/FilesNestCore/AssetDataSource.swift`:
 
@@ -524,7 +524,7 @@ public protocol AssetDataSource: Sendable {
 }
 ```
 
-- [ ] **Step 4: Write the fake**
+- [x] **Step 4: Write the fake**
 
 Create `apple/FilesNestCore/Tests/FilesNestCoreTests/Support/FakeAssetDataSource.swift`:
 
@@ -568,17 +568,17 @@ struct FakeAssetDataSource: AssetDataSource {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd apple/FilesNestCore && swift test --filter FakeAssetDataSourceTests`
 Expected: PASS — 6 tests
 
-- [ ] **Step 6: Verify strict build**
+- [x] **Step 6: Verify strict build**
 
 Run: `cd apple/FilesNestCore && swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/x`
 Expected: exit 0
 
-- [ ] **Step 7: Commit** *(wait for the user's go-ahead)*
+- [x] **Step 7: Commit** *(wait for the user's go-ahead)*
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/AssetDataSource.swift \
@@ -601,7 +601,7 @@ A tested skip helper for adapters. PhotoKit always restarts at byte 0, so `Photo
 - Consumes: nothing
 - Produces: `public struct OffsetSkip` with `init(skipping: Int64)` and `mutating func take(_ blob: Data) -> Data?`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apple/FilesNestCore/Tests/FilesNestCoreTests/OffsetSkipTests.swift`:
 
@@ -663,12 +663,12 @@ import Foundation
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd apple/FilesNestCore && swift test --filter OffsetSkipTests`
 Expected: FAIL — `cannot find 'OffsetSkip' in scope`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `apple/FilesNestCore/Sources/FilesNestCore/OffsetSkip.swift`:
 
@@ -707,12 +707,12 @@ public struct OffsetSkip: Sendable {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd apple/FilesNestCore && swift test --filter OffsetSkipTests`
 Expected: PASS — 7 tests
 
-- [ ] **Step 5: Commit** *(wait for the user's go-ahead)*
+- [x] **Step 5: Commit** *(wait for the user's go-ahead)*
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/OffsetSkip.swift \
@@ -732,7 +732,7 @@ git commit -m "feat: add OffsetSkip helper for non-seekable asset sources"
 - Consumes: `AssetDataSource` (Task 4); `ServerClient.offset(forUploadID:) -> UploadOffset`, `ServerClient.patchData(uploadID:offset:data:finalLength:) -> Int64`, `ServerClient.markComplete(uploadID:)`; `MockURLProtocol` (existing)
 - Produces: `public struct AssetUploader` with `init(client: ServerClient, source: any AssetDataSource)` and `func upload(assetID: String, uploadID: String) async throws`; `public enum AssetUploaderError: Error, Equatable { case concurrentSinkCall }`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `apple/FilesNestCore/Tests/FilesNestCoreTests/AssetUploaderTests.swift`:
 
@@ -870,12 +870,12 @@ extension URLRequest {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd apple/FilesNestCore && swift test --filter AssetUploaderTests`
 Expected: FAIL — `cannot find 'AssetUploader' in scope`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `apple/FilesNestCore/Sources/FilesNestCore/AssetUploader.swift`:
 
@@ -967,17 +967,17 @@ private actor LookAhead {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd apple/FilesNestCore && swift test --filter AssetUploaderTests`
 Expected: PASS — 3 tests
 
-- [ ] **Step 5: Verify strict build**
+- [x] **Step 5: Verify strict build**
 
 Run: `cd apple/FilesNestCore && swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/x`
 Expected: exit 0
 
-- [ ] **Step 6: Commit** *(wait for the user's go-ahead)*
+- [x] **Step 6: Commit** *(wait for the user's go-ahead)*
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/AssetUploader.swift \
@@ -996,7 +996,7 @@ git commit -m "feat: add AssetUploader with actor-held look-ahead"
 - Consumes: everything from Task 6; `ServerClientError.backendLost`; `AssetUploaderError.concurrentSinkCall`
 - Produces: no new production symbols — Task 6's implementation should already satisfy these
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append inside `struct AssetUploaderTests` in `apple/FilesNestCore/Tests/FilesNestCoreTests/AssetUploaderTests.swift`:
 
@@ -1095,7 +1095,7 @@ Append inside `struct AssetUploaderTests` in `apple/FilesNestCore/Tests/FilesNes
     }
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `cd apple/FilesNestCore && swift test --filter AssetUploaderTests`
 
@@ -1103,12 +1103,12 @@ Expected: PASS — 8 tests total.
 
 If `rejectsConcurrentSinkCalls` does not throw, the `inFlight` guard is not doing its job — the four child tasks may be serializing by accident. Make the sink slower (add `try await Task.sleep(for: .milliseconds(5))` inside `consume` temporarily) to confirm the guard actually fires, then remove the sleep.
 
-- [ ] **Step 3: Verify strict build**
+- [x] **Step 3: Verify strict build**
 
 Run: `cd apple/FilesNestCore && swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/x`
 Expected: exit 0
 
-- [ ] **Step 4: Commit** *(wait for the user's go-ahead)*
+- [x] **Step 4: Commit** *(wait for the user's go-ahead)*
 
 ```bash
 git add apple/FilesNestCore/Tests/FilesNestCoreTests/AssetUploaderTests.swift
@@ -1128,7 +1128,7 @@ The point of the whole slice.
 - Consumes: `MemoryProbe` (Task 1), `FakeAssetDataSource` (Task 4), `AssetUploader` (Task 6), `URLRequest.httpBodyByteCount()` (Task 6)
 - Produces: nothing consumed by later tasks
 
-- [ ] **Step 1: Write the gate test**
+- [x] **Step 1: Write the gate test**
 
 Create `apple/FilesNestCore/Tests/FilesNestCoreTests/MemoryGateTests.swift`:
 
@@ -1213,7 +1213,7 @@ struct MemoryGateTests {
 }
 ```
 
-- [ ] **Step 2: Run the gate**
+- [x] **Step 2: Run the gate**
 
 Run: `cd apple/FilesNestCore && swift test --filter MemoryGateTests`
 
@@ -1225,7 +1225,7 @@ Expected: PASS — 2 tests. The 3 GB case moves ~3 GB of synthetic data through 
 3. Is `LookAhead.held` being cleared before the final `patchData` in `finish()`?
 4. Is `URLSession` retaining request bodies across requests?
 
-- [ ] **Step 3: Record the actual numbers**
+- [x] **Step 3: Record the actual numbers**
 
 Run the gate with verbose output and note the real peaks:
 
@@ -1235,12 +1235,12 @@ Add the observed values as a comment at the top of `MemoryGateTests.swift`, e.g.
 `// Observed 2026-07-24 on M-series: A=~12MB, B=~26MB, C=~27MB`.
 Spec §7.2 calls the 64 MB / 8 MB values starting points, not tuned constants — this is the data that lets a later pass tighten them.
 
-- [ ] **Step 4: Run the full suite**
+- [x] **Step 4: Run the full suite**
 
 Run: `cd apple/FilesNestCore && swift test`
 Expected: PASS — all tests, including the 34 pre-existing ServerClient tests
 
-- [ ] **Step 5: Commit** *(wait for the user's go-ahead)*
+- [x] **Step 5: Commit** *(wait for the user's go-ahead)*
 
 ```bash
 git add apple/FilesNestCore/Tests/FilesNestCoreTests/MemoryGateTests.swift
@@ -1261,7 +1261,7 @@ git commit -m "test: add size-independent peak memory gate"
 - Consumes: nothing
 - Produces: nothing
 
-- [ ] **Step 1: Rewrite constraint #1**
+- [x] **Step 1: Rewrite constraint #1**
 
 In `docs/architecture.md`, replace the constraint #1 paragraph:
 
@@ -1293,7 +1293,7 @@ with:
    per `CODE_AUDIT.md` §5.1, triggered it once per chunk.
 ```
 
-- [ ] **Step 2: Rewrite the Mac app streaming section**
+- [x] **Step 2: Rewrite the Mac app streaming section**
 
 In `docs/architecture.md`, replace the "Mac app: streaming without temp files" body (the numbered list describing `AsyncThrowingStream` and the 8MB buffer) with:
 
@@ -1324,7 +1324,7 @@ initial bytes up to `startOffset` using `OffsetSkip` and logs this clearly — i
 behavior, not a bug.
 ```
 
-- [ ] **Step 3: Fix the stale platform floor**
+- [x] **Step 3: Fix the stale platform floor**
 
 In `docs/plans/20260724-serverclient.md`, find `.macOS(.v15)` in Global Constraints and replace with:
 
@@ -1333,7 +1333,7 @@ In `docs/plans/20260724-serverclient.md`, find `.macOS(.v15)` in Global Constrai
   (`@Observable` requires 14).
 ```
 
-- [ ] **Step 4: Mark the resolved open items**
+- [x] **Step 4: Mark the resolved open items**
 
 In `docs/design/20260723-serverclient.md`, replace the §10 heading and its four items with:
 
@@ -1353,7 +1353,7 @@ In `docs/design/20260723-serverclient.md`, replace the §10 heading and its four
    `metadata` yet, so it is not sent.
 ```
 
-- [ ] **Step 5: Verify no stale claims remain**
+- [x] **Step 5: Verify no stale claims remain**
 
 Run:
 ```bash
@@ -1364,7 +1364,7 @@ grep -n "macOS(.v15)" docs/plans/20260724-serverclient.md || echo "OK: stale flo
 ```
 Expected: the first and third print "OK: ..."; the second shows only the *explanatory* mention in the "Why not `AsyncThrowingStream`?" paragraph, never a prescriptive one.
 
-- [ ] **Step 6: Commit** *(wait for the user's go-ahead)*
+- [x] **Step 6: Commit** *(wait for the user's go-ahead)*
 
 ```bash
 git add docs/architecture.md docs/plans/20260724-serverclient.md docs/design/20260723-serverclient.md
@@ -1377,10 +1377,10 @@ git commit -m "docs: correct no-temp-files constraint and streaming design"
 
 After Task 9:
 
-- [ ] Run the full verification: `cd apple/FilesNestCore && swift test && swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/x`
-- [ ] Run the server suite: `cd server && go test ./... && go vet ./...`
-- [ ] **Codex review at slice completion** (project convention — review the slice, not each task)
-- [ ] Verify any Codex findings against the actual Go/Swift source before acting on them
-- [ ] Open a PR only when the user asks
+- [x] Run the full verification: `cd apple/FilesNestCore && swift test && swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/x`
+- [x] Run the server suite: `cd server && go test ./... && go vet ./...`
+- [x] **Codex review at slice completion** (project convention — review the slice, not each task)
+- [x] Verify any Codex findings against the actual Go/Swift source before acting on them
+- [x] Open a PR only when the user asks
 
 **Deferred to the adapter slice, deliberately:** `PhotosAssetDataSource`, real iCloud disk-delta numbers, the free-space pre-flight guard (needs resource size, which only the real adapter supplies), Xcode project setup, Photos entitlements, TCC consent. This slice builds the instrument; it does not answer the PhotoKit question in spec §3.3.

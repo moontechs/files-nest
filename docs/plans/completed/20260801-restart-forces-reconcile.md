@@ -40,7 +40,7 @@
 **Interfaces:**
 - Produces: `SyncEngine.reconcile() async`. On `LiveSyncEngine`, reconcile supersedes any in-flight count/sync, resets `incrementalAnchor`, and starts a fresh `.all` count (autoSync true, or false while paused). `StubSyncEngine.reconcile()` = `await start()`.
 
-- [ ] **Step 1: Add the protocol method + conformances (compile skeleton)**
+- [x] **Step 1: Add the protocol method + conformances (compile skeleton)**
 
 In `SyncEngine.swift`, add to the protocol (after `libraryDidChange`):
 
@@ -79,12 +79,12 @@ In `LiveSyncEngine.swift`:
     private func doReconcile() async { await doStart() }   // TEMP: Step 3 makes it supersede
 ```
 
-- [ ] **Step 2: Run the full Core suite to confirm the skeleton is green**
+- [x] **Step 2: Run the full Core suite to confirm the skeleton is green**
 
 Run: `cd apple/FilesNestCore && swift test`
 Expected: PASS (reconcile currently behaves exactly like start; nothing regressed).
 
-- [ ] **Step 3: Write the stub test**
+- [x] **Step 3: Write the stub test**
 
 In `StubSyncEngineTests.swift`, add:
 
@@ -96,7 +96,7 @@ In `StubSyncEngineTests.swift`, add:
     }
 ```
 
-- [ ] **Step 4: Write the failing engine tests**
+- [x] **Step 4: Write the failing engine tests**
 
 In `LiveSyncEngineTests.swift`, add a new MARK section:
 
@@ -196,12 +196,12 @@ In `LiveSyncEngineTests.swift`, add a new MARK section:
     }
 ```
 
-- [ ] **Step 5: Run to verify they fail**
+- [x] **Step 5: Run to verify they fail**
 
 Run: `cd apple/FilesNestCore && swift test --filter "reconcileWhileSyncingSupersedesWithFreshAll"`
 Expected: FAIL (hangs — the temp `doReconcile` == `doStart` no-ops during a sync, so the second sync never starts; kill it after it stalls). Same for `reconcileWhileCountingSupersedesTheCount` and `reconcileResetsIncrementalAnchorSoNextChangeIsAll`. (`reconcileWhilePausedRefreshesWithoutUploading` passes already — paused behavior is shared with `start()`.)
 
-- [ ] **Step 6: Implement `doReconcile` + extract `resetToSignedOut`**
+- [x] **Step 6: Implement `doReconcile` + extract `resetToSignedOut`**
 
 In `LiveSyncEngine.swift`, replace `doStart`'s signed-out branch with a call to a shared helper. The current branch is:
 
@@ -270,14 +270,14 @@ Replace the temporary `doReconcile` with the real one:
     }
 ```
 
-- [ ] **Step 7: Run the new tests, then the full suite ×3**
+- [x] **Step 7: Run the new tests, then the full suite ×3**
 
 Run each: `cd apple/FilesNestCore && swift test --filter "reconcileWhileSyncingSupersedesWithFreshAll"` (then the other three reconcile tests, and `reconcileReconcilesCredentialsLikeStart`).
 Expected: PASS all.
 Run: `cd apple/FilesNestCore && swift test && swift test && swift test`
 Expected: PASS, 3× clean. `startWhileCountingDoesNotRestartAssess` and `startDuringSyncDoesNotStrandTheEngine` still pass (start() unchanged).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/SyncEngine.swift \
@@ -299,7 +299,7 @@ git commit -m "Restart forces reconcile: reconcile() supersedes an active run wi
 **Interfaces:**
 - Consumes: `SyncEngine.reconcile()` (Task 1).
 
-- [ ] **Step 1: Rewire `restart()` to `reconcile()`**
+- [x] **Step 1: Rewire `restart()` to `reconcile()`**
 
 In `AppModel.swift`, change:
 
@@ -315,12 +315,12 @@ to:
     func restart() { Task { await engine.reconcile() } }
 ```
 
-- [ ] **Step 2: Build the app**
+- [x] **Step 2: Build the app**
 
 Run: `xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build`
 Expected: BUILD SUCCEEDED.
 
-- [ ] **Step 3: Write the manual-verify checklist**
+- [x] **Step 3: Write the manual-verify checklist**
 
 Create `docs/plans/20260801-restart-forces-reconcile-verification.md`:
 
@@ -330,19 +330,19 @@ Create `docs/plans/20260801-restart-forces-reconcile-verification.md`:
 Prereqs: signed in; a photo library backed up to a steady state. Watch the console
 (`🟢 FN library: enumeration start (range=…)`, `🟣 FN engine`).
 
-- [ ] **Save Settings mid-sync.** Trigger a change so a sync is running, then open
+- [x] **Save Settings mid-sync.** Trigger a change so a sync is running, then open
       Settings and Save. The in-flight run is superseded and a fresh `range=all`
       count+sync starts immediately (not deferred).
-- [ ] **Change the server URL mid-sync** (point at a second, empty server) and Save.
+- [x] **Change the server URL mid-sync** (point at a second, empty server) and Save.
       The new server receives the full backup (`range=all`), not just a window.
-- [ ] **Save Settings while paused.** Reconcile refreshes Pending (`range=all` count)
+- [x] **Save Settings while paused.** Reconcile refreshes Pending (`range=all` count)
       but does NOT upload; status stays paused-then-watching without a sync.
-- [ ] **Save Settings while idle.** Behaves like before (an `.all` count + catch-up).
-- [ ] After a reconcile, the next library change first scans `range=all` (anchor
+- [x] **Save Settings while idle.** Behaves like before (an `.all` count + catch-up).
+- [x] After a reconcile, the next library change first scans `range=all` (anchor
       reset), then returns to `range=modifiedSince(…)` once a clean sync re-grounds it.
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apple/macos/FilesNest/FilesNest/AppModel.swift \
@@ -350,7 +350,7 @@ git add apple/macos/FilesNest/FilesNest/AppModel.swift \
 git commit -m "Restart forces reconcile: route AppModel.restart() to reconcile() + checklist"
 ```
 
-- [ ] **Step 5: Manual verification**
+- [x] **Step 5: Manual verification**
 
 Run the app and walk the checklist, recording surprises before opening the PR.
 

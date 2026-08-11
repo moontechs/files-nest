@@ -29,7 +29,7 @@
 **Interfaces:**
 - Produces: `SyncProgress(completed:total:currentItemName:bytesRemaining:)` with `var fraction: Double`; `enum SyncStatus` (cases above). Both `Sendable, Equatable`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `SyncStatusTests.swift`:
 
@@ -56,12 +56,12 @@ struct SyncStatusTests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd apple/FilesNestCore && swift test --filter SyncStatusTests`
 Expected: FAIL — `SyncProgress` / `SyncStatus` undefined.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `SyncStatus.swift`:
 
@@ -94,12 +94,12 @@ public enum SyncStatus: Sendable, Equatable {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd apple/FilesNestCore && swift test --filter SyncStatusTests`
 Expected: PASS (3 tests), no warnings.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/SyncStatus.swift apple/FilesNestCore/Tests/FilesNestCoreTests/SyncStatusTests.swift
@@ -119,7 +119,7 @@ git commit -m "feat: SyncStatus + SyncProgress model for shell"
 - Consumes: `CredentialStore`, `BasicCredentials` (existing).
 - Produces: `protocol ServerURLStore: Sendable { func load() -> URL?; func save(_ url: URL) }`; `final class UserDefaultsServerURLStore(defaults:)`; `struct StaticCredentialStore(_ credentials: BasicCredentials?)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `ShellStoresTests.swift`:
 
@@ -152,12 +152,12 @@ struct ShellStoresTests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd apple/FilesNestCore && swift test --filter ShellStoresTests`
 Expected: FAIL — types undefined.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `ServerURLStore.swift`:
 
@@ -200,12 +200,12 @@ public struct StaticCredentialStore: CredentialStore {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd apple/FilesNestCore && swift test --filter ShellStoresTests`
 Expected: PASS (3 tests), no warnings.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/ServerURLStore.swift apple/FilesNestCore/Sources/FilesNestCore/StaticCredentialStore.swift apple/FilesNestCore/Tests/FilesNestCoreTests/ShellStoresTests.swift
@@ -224,7 +224,7 @@ git commit -m "feat: ServerURLStore + StaticCredentialStore"
 - Consumes: `ServerClient`, `ServerClientError.unauthorized`, `StaticCredentialStore`, `BasicCredentials`.
 - Produces: `enum ConnectionResult: Sendable, Equatable { case ok; case unauthorized; case unreachable(String) }`; `struct ConnectionProbe(session:)` with `func probe(baseURL: URL, credentials: BasicCredentials) async -> ConnectionResult`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `ConnectionProbeTests.swift`:
 
@@ -269,12 +269,12 @@ struct ConnectionProbeTests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd apple/FilesNestCore && swift test --filter ConnectionProbeTests`
 Expected: FAIL — `ConnectionProbe` / `ConnectionResult` undefined.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `ConnectionProbe.swift`:
 
@@ -311,12 +311,12 @@ public struct ConnectionProbe: Sendable {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd apple/FilesNestCore && swift test --filter ConnectionProbeTests`
 Expected: PASS (3 tests), no warnings.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/ConnectionProbe.swift apple/FilesNestCore/Tests/FilesNestCoreTests/ConnectionProbeTests.swift
@@ -338,7 +338,7 @@ git commit -m "feat: ConnectionProbe for Test Connection"
   - `protocol SyncEngine: Sendable { func statusStream() -> AsyncStream<SyncStatus>; func start() async; func pause() async; func resume() async; func syncNow() async }`.
   - `final class StubSyncEngine(credentials:autoComplete:now:)` conforming to it. `start()` reconciles signed-in/out from `credentials`; `pause`→`.paused`; `resume`→`.watching`; `syncNow`→`.syncing(...)` (auto-advancing to `.watching` when `autoComplete`). No-ops while `.signedOut`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `StubSyncEngineTests.swift`:
 
@@ -391,12 +391,12 @@ struct StubSyncEngineTests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd apple/FilesNestCore && swift test --filter StubSyncEngineTests`
 Expected: FAIL — `SyncEngine` / `StubSyncEngine` undefined.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `SyncEngine.swift`:
 
@@ -499,17 +499,17 @@ public final class StubSyncEngine: SyncEngine, @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd apple/FilesNestCore && swift test --filter StubSyncEngineTests`
 Expected: PASS (5 tests), no warnings.
 
-- [ ] **Step 5: Run the full Core suite**
+- [x] **Step 5: Run the full Core suite**
 
 Run: `cd apple/FilesNestCore && swift test`
 Expected: PASS (all suites); confirm zero warnings with `swift build --build-tests 2>&1 | grep -i warning` (no output).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/SyncEngine.swift apple/FilesNestCore/Sources/FilesNestCore/StubSyncEngine.swift apple/FilesNestCore/Tests/FilesNestCoreTests/StubSyncEngineTests.swift
@@ -528,7 +528,7 @@ git commit -m "feat: SyncEngine seam + StubSyncEngine"
 - Consumes: `StubSyncEngine`, `KeychainStore`, `UserDefaultsServerURLStore`, `ConnectionProbe`, `SyncStatus`.
 - Produces: `@MainActor final class AppModel: ObservableObject` with `@Published private(set) var status: SyncStatus`, `func begin()`, `pause()`, `resume()`, `syncNow()`, and a `restart()` used after Settings save. `PanelView`/`SettingsView` are added in Tasks 6–7; this task uses a temporary inline placeholder body so the app compiles.
 
-- [ ] **Step 1: Write AppModel**
+- [x] **Step 1: Write AppModel**
 
 Create `AppModel.swift`:
 
@@ -562,7 +562,7 @@ final class AppModel: ObservableObject {
 }
 ```
 
-- [ ] **Step 2: Rewrite the app entry point**
+- [x] **Step 2: Rewrite the app entry point**
 
 Replace the entire contents of `FilesNestApp.swift`:
 
@@ -605,19 +605,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 ```
 
-- [ ] **Step 3: Compile the app target**
+- [x] **Step 3: Compile the app target**
 
 Run: `xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest -destination 'platform=macOS' -configuration Debug CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5`
 Expected: `** BUILD SUCCEEDED **`.
 
-- [ ] **Step 4: Manual verification**
+- [x] **Step 4: Manual verification**
 
 Launch the built app (or run from Xcode). Verify:
 - A menu-bar icon appears; **no Dock icon** and no window on launch.
 - Clicking the icon opens a small panel showing "FilesNest" and a status line (`signedOut`, since no creds yet).
 - Quit works.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apple/macos/FilesNest/FilesNest/FilesNestApp.swift apple/macos/FilesNest/FilesNest/AppModel.swift
@@ -635,7 +635,7 @@ git commit -m "feat: menu-bar agent scaffold + AppModel + composition root"
 **Interfaces:**
 - Consumes: `AppModel`, `SyncStatus`, `SyncProgress`. Uses SwiftUI `@EnvironmentObject`/parameter injection of `AppModel`. Opens Settings via `SettingsLink` (added when the Settings scene lands in Task 7 — until then the footer button is present but the Settings scene is wired in Task 7).
 
-- [ ] **Step 1: Write PanelView**
+- [x] **Step 1: Write PanelView**
 
 Create `PanelView.swift` (renders Variant B from `docs/design/mockups/20260726-menubar-panel.html`):
 
@@ -776,7 +776,7 @@ struct PanelView: View {
 }
 ```
 
-- [ ] **Step 2: Swap the placeholder for PanelView**
+- [x] **Step 2: Swap the placeholder for PanelView**
 
 In `FilesNestApp.swift`, replace the placeholder `VStack { … }` inside `MenuBarExtra` with:
 
@@ -784,16 +784,16 @@ In `FilesNestApp.swift`, replace the placeholder `VStack { … }` inside `MenuBa
             PanelView(model: model).task { model.begin() }
 ```
 
-- [ ] **Step 3: Compile the app target**
+- [x] **Step 3: Compile the app target**
 
 Run: `xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest -destination 'platform=macOS' -configuration Debug CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5`
 Expected: `** BUILD SUCCEEDED **`.
 
-- [ ] **Step 4: Manual verification**
+- [x] **Step 4: Manual verification**
 
 Launch. Because there are no credentials yet, the panel shows the **signed-out** hero ("Sign in in Settings", Pause/Sync disabled). To see other states before Settings exists, temporarily construct the engine with creds (`StubSyncEngine(credentials: StaticCredentialStore(.init(username:"u",password:"p")))`) and confirm: green ✓ up-to-date; **Sync Now** animates the ring + shows the current-item strip; **Pause** → amber ⏸; **Resume** → green. Revert the temporary change. Compare layout against the mockup.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apple/macos/FilesNest/FilesNest/PanelView.swift apple/macos/FilesNest/FilesNest/FilesNestApp.swift
@@ -813,7 +813,7 @@ git commit -m "feat: PanelView (Variant B) bound to AppModel"
 - Consumes: `UserDefaultsServerURLStore`, `KeychainStore`, `ConnectionProbe`, `ConnectionResult`, `BasicCredentials`, `AppModel`.
 - Produces: `@MainActor final class SettingsModel: ObservableObject` (`serverURL`, `username`, `password`, `testResult`, `isTesting`, `load()`, `test()`, `save()`, `onSaved`); `SettingsView`.
 
-- [ ] **Step 1: Write SettingsModel**
+- [x] **Step 1: Write SettingsModel**
 
 Create `SettingsModel.swift`:
 
@@ -867,7 +867,7 @@ final class SettingsModel: ObservableObject {
 }
 ```
 
-- [ ] **Step 2: Write SettingsView**
+- [x] **Step 2: Write SettingsView**
 
 Create `SettingsView.swift`:
 
@@ -926,7 +926,7 @@ struct SettingsView: View {
 }
 ```
 
-- [ ] **Step 3: Wire the Settings scene**
+- [x] **Step 3: Wire the Settings scene**
 
 In `FilesNestApp.swift`: build a `SettingsModel` in `init()` alongside `AppModel`, set its `onSaved` to call `model.restart()`, hold it in a `@StateObject`, and add a `Settings` scene. Updated `FilesNestApp.swift`:
 
@@ -969,19 +969,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 ```
 
-- [ ] **Step 4: Compile the app target**
+- [x] **Step 4: Compile the app target**
 
 Run: `xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest -destination 'platform=macOS' -configuration Debug CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5`
 Expected: `** BUILD SUCCEEDED **`.
 
-- [ ] **Step 5: Manual verification**
+- [x] **Step 5: Manual verification**
 
 Launch. Open Settings from the panel footer (or ⌘,):
 - Enter server URL + username + password. **Test Connection** shows green "Connected" against a reachable+authed server, red "401 Unauthorized" against bad creds, red reason against an unreachable host.
 - **Save** → panel leaves signed-out and shows "Up to date" (engine `restart()` picked up the creds via Keychain). Relaunch the app → still signed in (creds persisted, prefilled on reopen).
 - Toggle **Launch at login** → confirm the login item appears/disappears (System Settings › General › Login Items).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apple/macos/FilesNest/FilesNest/SettingsModel.swift apple/macos/FilesNest/FilesNest/SettingsView.swift apple/macos/FilesNest/FilesNest/FilesNestApp.swift
@@ -995,22 +995,22 @@ git commit -m "feat: SettingsView + SettingsModel + Settings scene"
 **Files:**
 - Create: `docs/plans/20260726-menubar-shell-verification.md`
 
-- [ ] **Step 1: Full Core suite + zero-warning check**
+- [x] **Step 1: Full Core suite + zero-warning check**
 
 Run: `cd apple/FilesNestCore && swift test 2>&1 | grep -E "Test run with"`
 Then: `swift build --build-tests 2>&1 | grep -i warning` (expect no output).
 Expected: all tests pass; no warnings.
 
-- [ ] **Step 2: App build**
+- [x] **Step 2: App build**
 
 Run: `xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest -destination 'platform=macOS' -configuration Debug CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -3`
 Expected: `** BUILD SUCCEEDED **`.
 
-- [ ] **Step 3: Write the manual-verification checklist**
+- [x] **Step 3: Write the manual-verification checklist**
 
 Create `docs/plans/20260726-menubar-shell-verification.md` capturing the manual steps from Tasks 5–7 as a runnable checklist (menu-bar agent / no Dock icon; panel states; Settings Test Connection outcomes; Save persistence across relaunch; Launch-at-login), for use whenever the shell changes.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/plans/20260726-menubar-shell-verification.md

@@ -59,7 +59,7 @@ apple/FilesNestCore/
 **Interfaces:**
 - Produces: a buildable package named `FilesNestCore` with a `FilesNestCore` library target and `FilesNestCoreTests` test target.
 
-- [ ] **Step 1: Write `Package.swift`**
+- [x] **Step 1: Write `Package.swift`**
 
 ```swift
 // swift-tools-version: 6.0
@@ -78,14 +78,14 @@ let package = Package(
 )
 ```
 
-- [ ] **Step 2: Add a temporary marker source** (`Sources/FilesNestCore/FilesNestCore.swift`)
+- [x] **Step 2: Add a temporary marker source** (`Sources/FilesNestCore/FilesNestCore.swift`)
 
 ```swift
 // Placeholder; replaced by real types in Task 2.
 enum FilesNestCore {}
 ```
 
-- [ ] **Step 3: Write a smoke test** (`Tests/FilesNestCoreTests/SmokeTests.swift`)
+- [x] **Step 3: Write a smoke test** (`Tests/FilesNestCoreTests/SmokeTests.swift`)
 
 ```swift
 import Testing
@@ -96,12 +96,12 @@ import Testing
 }
 ```
 
-- [ ] **Step 4: Build and test**
+- [x] **Step 4: Build and test**
 
 Run: `cd apple/FilesNestCore && swift test`
 Expected: builds with no warnings; 1 test passes.
 
-- [ ] **Step 5: Remove the `.gitkeep`, commit**
+- [x] **Step 5: Remove the `.gitkeep`, commit**
 
 ```bash
 git rm apple/FilesNestCore/.gitkeep
@@ -127,7 +127,7 @@ git commit -m "feat(core): scaffold FilesNestCore SwiftPM package (Swift 6)"
   - `struct UploadOffset: Sendable, Equatable` — `offset: Int64; length: Int64?`
   - `struct BasicCredentials: Sendable, Equatable` — `username, password: String`
 
-- [ ] **Step 1: Write failing decode test** (`ModelCodingTests.swift`)
+- [x] **Step 1: Write failing decode test** (`ModelCodingTests.swift`)
 
 ```swift
 import Testing
@@ -165,12 +165,12 @@ import Foundation
 }
 ```
 
-- [ ] **Step 2: Run, verify failure**
+- [x] **Step 2: Run, verify failure**
 
 Run: `swift test --filter ModelCodingTests`
 Expected: FAIL (types don't exist).
 
-- [ ] **Step 3: Implement the models**
+- [x] **Step 3: Implement the models**
 
 `UploadStatus.swift`:
 ```swift
@@ -261,12 +261,12 @@ public struct BasicCredentials: Sendable, Equatable {
 
 Then delete the placeholder: `rm Sources/FilesNestCore/FilesNestCore.swift`.
 
-- [ ] **Step 4: Run tests, verify pass**
+- [x] **Step 4: Run tests, verify pass**
 
 Run: `swift test --filter ModelCodingTests`
 Expected: PASS. Also `swift build` — zero warnings.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apple/FilesNestCore
@@ -286,7 +286,7 @@ git commit -m "feat(core): add ServerClient data models"
   - `enum ServerClientError: Error, Sendable, Equatable` with cases: `unauthorized, notFound, backendLost, alreadyCompleted, notUploading, offsetConflict, badRequest(message: String), requestTooLarge, unexpectedStatus(code: Int, message: String?), decoding(String), transport(String)`
   - `static func map(status: Int, body: Data) -> ServerClientError?` — returns the error for a non-2xx status (nil for 2xx). Uses substring matching on the `{"error":...}` body for 409.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```swift
 import Testing
@@ -318,9 +318,9 @@ private func body(_ s: String) -> Data { #"{"error":"\#(s)"}"#.data(using: .utf8
 }
 ```
 
-- [ ] **Step 2: Run, verify failure** — `swift test --filter ServerClientErrorTests` → FAIL.
+- [x] **Step 2: Run, verify failure** — `swift test --filter ServerClientErrorTests` → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```swift
 import Foundation
@@ -364,9 +364,9 @@ public enum ServerClientError: Error, Sendable, Equatable {
 }
 ```
 
-- [ ] **Step 4: Run tests, verify pass** — `swift test --filter ServerClientErrorTests` → PASS.
+- [x] **Step 4: Run tests, verify pass** — `swift test --filter ServerClientErrorTests` → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apple/FilesNestCore
@@ -384,7 +384,7 @@ git commit -m "feat(core): add ServerClientError with 409 branching"
 **Interfaces:**
 - Produces: `public protocol CredentialStore: Sendable { func basicCredentials() async throws -> BasicCredentials? }`
 
-- [ ] **Step 1: Write the protocol**
+- [x] **Step 1: Write the protocol**
 
 ```swift
 public protocol CredentialStore: Sendable {
@@ -392,7 +392,7 @@ public protocol CredentialStore: Sendable {
 }
 ```
 
-- [ ] **Step 2: Add a test fake** (top of `ServerClientTests.swift`)
+- [x] **Step 2: Add a test fake** (top of `ServerClientTests.swift`)
 
 ```swift
 import Testing
@@ -410,9 +410,9 @@ struct FakeCredentialStore: CredentialStore {
 }
 ```
 
-- [ ] **Step 3: Run** — `swift test --filter ServerClientTests` → PASS.
+- [x] **Step 3: Run** — `swift test --filter ServerClientTests` → PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apple/FilesNestCore
@@ -436,7 +436,7 @@ git commit -m "feat(core): add CredentialStore auth seam"
   - `authorizedRequest(_ url: URL, method: String) async throws -> URLRequest` that adds `Authorization: Basic ...` when creds exist (internal, tested directly)
 - Consumes: `CredentialStore`, `BasicCredentials`.
 
-- [ ] **Step 1: Write `MockURLProtocol`**
+- [x] **Step 1: Write `MockURLProtocol`**
 
 ```swift
 import Foundation
@@ -473,7 +473,7 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 2: Write failing tests for URL join + auth header**
+- [x] **Step 2: Write failing tests for URL join + auth header**
 
 ```swift
 @Test func dataURLJoinsWithoutDoubleSlash() throws {
@@ -506,7 +506,7 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
 
 *(These test `dataURL` and `authorizedRequest` directly via `@testable import` — no network, no forward dependency on later tasks.)*
 
-- [ ] **Step 3: Implement the skeleton**
+- [x] **Step 3: Implement the skeleton**
 
 ```swift
 import Foundation
@@ -555,9 +555,9 @@ public struct ServerClient: Sendable {
 }
 ```
 
-- [ ] **Step 4: Run** — `swift test --filter ServerClientTests` → URL-join and auth-header tests pass (they exercise `dataURL` / `authorizedRequest` directly, no network).
+- [x] **Step 4: Run** — `swift test --filter ServerClientTests` → URL-join and auth-header tests pass (they exercise `dataURL` / `authorizedRequest` directly, no network).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apple/FilesNestCore
@@ -578,7 +578,7 @@ git commit -m "feat(core): ServerClient skeleton with URL join + Basic auth"
   - `func listUploads(cursor: String?) async throws -> UploadPage`
   - `func getUpload(id: String) async throws -> UploadRecord`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```swift
 @Test func createUploadPostsBodyAndDecodes() async throws {
@@ -640,9 +640,9 @@ extension URLRequest {
 }
 ```
 
-- [ ] **Step 2: Run, verify failure** — `swift test --filter ServerClientTests` → FAIL.
+- [x] **Step 2: Run, verify failure** — `swift test --filter ServerClientTests` → FAIL.
 
-- [ ] **Step 3: Implement the three methods** (append to `ServerClient`)
+- [x] **Step 3: Implement the three methods** (append to `ServerClient`)
 
 ```swift
 public func createUpload(_ request: CreateUploadRequest) async throws -> UploadRecord {
@@ -671,9 +671,9 @@ public func getUpload(id: String) async throws -> UploadRecord {
 }
 ```
 
-- [ ] **Step 4: Run tests, verify pass** — `swift test --filter ServerClientTests` → PASS (incl. Task 5's auth tests).
+- [x] **Step 4: Run tests, verify pass** — `swift test --filter ServerClientTests` → PASS (incl. Task 5's auth tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apple/FilesNestCore
@@ -690,7 +690,7 @@ git commit -m "feat(core): createUpload, listUploads, getUpload"
 **Interfaces:**
 - Produces: `func offset(forUploadID id: String) async throws -> UploadOffset`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```swift
 @Test func headParsesOffsetAndLength() async throws {
@@ -724,9 +724,9 @@ git commit -m "feat(core): createUpload, listUploads, getUpload"
 }
 ```
 
-- [ ] **Step 2: Run, verify failure.**
+- [x] **Step 2: Run, verify failure.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```swift
 public func offset(forUploadID id: String) async throws -> UploadOffset {
@@ -741,9 +741,9 @@ public func offset(forUploadID id: String) async throws -> UploadOffset {
 }
 ```
 
-- [ ] **Step 4: Run tests, verify pass.**
+- [x] **Step 4: Run tests, verify pass.**
 
-- [ ] **Step 5: Commit** — `git commit -m "feat(core): offset(forUploadID:) via TUS HEAD"`
+- [x] **Step 5: Commit** — `git commit -m "feat(core): offset(forUploadID:) via TUS HEAD"`
 
 ---
 
@@ -755,7 +755,7 @@ public func offset(forUploadID id: String) async throws -> UploadOffset {
 **Interfaces:**
 - Produces: `func patchData(uploadID id: String, offset: Int64, data: Data, finalLength: Int64?) async throws -> Int64`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```swift
 @Test func patchSendsTusHeadersAndReturnsNewOffset() async throws {
@@ -795,9 +795,9 @@ public func offset(forUploadID id: String) async throws -> UploadOffset {
 }
 ```
 
-- [ ] **Step 2: Run, verify failure.**
+- [x] **Step 2: Run, verify failure.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```swift
 public func patchData(uploadID id: String, offset: Int64, data: Data, finalLength: Int64?) async throws -> Int64 {
@@ -815,9 +815,9 @@ public func patchData(uploadID id: String, offset: Int64, data: Data, finalLengt
 }
 ```
 
-- [ ] **Step 4: Run tests, verify pass.**
+- [x] **Step 4: Run tests, verify pass.**
 
-- [ ] **Step 5: Commit** — `git commit -m "feat(core): patchData via TUS PATCH"`
+- [x] **Step 5: Commit** — `git commit -m "feat(core): patchData via TUS PATCH"`
 
 ---
 
@@ -829,7 +829,7 @@ public func patchData(uploadID id: String, offset: Int64, data: Data, finalLengt
 **Interfaces:**
 - Produces: `func markComplete(uploadID id: String) async throws`, `func deleteUpload(id: String) async throws`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```swift
 @Test func markCompletePatchesStatus() async throws {
@@ -867,9 +867,9 @@ public func patchData(uploadID id: String, offset: Int64, data: Data, finalLengt
 }
 ```
 
-- [ ] **Step 2: Run, verify failure.**
+- [x] **Step 2: Run, verify failure.**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```swift
 public func markComplete(uploadID id: String) async throws {
@@ -886,9 +886,9 @@ public func deleteUpload(id: String) async throws {
 }
 ```
 
-- [ ] **Step 4: Run tests, verify pass.**
+- [x] **Step 4: Run tests, verify pass.**
 
-- [ ] **Step 5: Commit** — `git commit -m "feat(core): markComplete + deleteUpload"`
+- [x] **Step 5: Commit** — `git commit -m "feat(core): markComplete + deleteUpload"`
 
 ---
 
@@ -896,18 +896,18 @@ public func deleteUpload(id: String) async throws {
 
 **Files:** none new — verification task.
 
-- [ ] **Step 1: Run the whole suite** — `cd apple/FilesNestCore && swift test` → all tests pass.
-- [ ] **Step 2: Warnings sweep** — `swift build -Xswiftc -warnings-as-errors` → builds clean (no concurrency or unused warnings).
-- [ ] **Step 3: Confirm no forbidden deps** — `grep -rE "import (Security|Photos|SwiftUI|AppKit|UIKit)" Sources/` returns nothing.
-- [ ] **Step 4: Commit** (if the sweep required fixes) — `git commit -m "chore(core): ServerClient warnings sweep"`
+- [x] **Step 1: Run the whole suite** — `cd apple/FilesNestCore && swift test` → all tests pass.
+- [x] **Step 2: Warnings sweep** — `swift build -Xswiftc -warnings-as-errors` → builds clean (no concurrency or unused warnings).
+- [x] **Step 3: Confirm no forbidden deps** — `grep -rE "import (Security|Photos|SwiftUI|AppKit|UIKit)" Sources/` returns nothing.
+- [x] **Step 4: Commit** (if the sweep required fixes) — `git commit -m "chore(core): ServerClient warnings sweep"`
 
 ---
 
 ## Verification checklist (maps to spec §9)
 
-- [ ] All 7 endpoints implemented as `async throws` (Tasks 6–9).
-- [ ] Typed error mapping incl. 409 branching (Task 3, exercised in 6–9).
-- [ ] Basic Auth via injected `CredentialStore` (Tasks 4–5).
-- [ ] Swift 6 language mode, zero warnings (Tasks 1, 10).
-- [ ] `swift test` green (Task 10).
-- [ ] No Keychain / PhotoKit / UI deps (Task 10 Step 3).
+- [x] All 7 endpoints implemented as `async throws` (Tasks 6–9).
+- [x] Typed error mapping incl. 409 branching (Task 3, exercised in 6–9).
+- [x] Basic Auth via injected `CredentialStore` (Tasks 4–5).
+- [x] Swift 6 language mode, zero warnings (Tasks 1, 10).
+- [x] `swift test` green (Task 10).
+- [x] No Keychain / PhotoKit / UI deps (Task 10 Step 3).

@@ -29,7 +29,7 @@
 **Interfaces:**
 - Produces: `SyncProgress.currentItemID: String?` (PHAsset local id); coordinator sets it to `item.resource.key.localIdentifier`.
 
-- [ ] **Step 1: Update the failing test** — `progressFiresOncePerUploadInPlanOrder` expects the id:
+- [x] **Step 1: Update the failing test** — `progressFiresOncePerUploadInPlanOrder` expects the id:
 
 ```swift
 #expect(box.values == [
@@ -38,9 +38,9 @@
 ])
 ```
 
-- [ ] **Step 2: Run it — verify fail** — `swift test --filter progressFiresOncePerUploadInPlanOrder` → FAIL (unknown arg `currentItemID`, then value mismatch once the field exists).
+- [x] **Step 2: Run it — verify fail** — `swift test --filter progressFiresOncePerUploadInPlanOrder` → FAIL (unknown arg `currentItemID`, then value mismatch once the field exists).
 
-- [ ] **Step 3: Add the field to `SyncProgress`** (last init param, defaulted):
+- [x] **Step 3: Add the field to `SyncProgress`** (last init param, defaulted):
 
 ```swift
 public let currentItemName: String?
@@ -57,7 +57,7 @@ public init(completed: Int, total: Int, currentItemName: String?,
 }
 ```
 
-- [ ] **Step 4: Populate it in `SyncCoordinator`** — the upload-progress callback:
+- [x] **Step 4: Populate it in `SyncCoordinator`** — the upload-progress callback:
 
 ```swift
 onProgress(SyncProgress(completed: uploaded.count,
@@ -67,9 +67,9 @@ onProgress(SyncProgress(completed: uploaded.count,
                         currentItemID: item.resource.key.localIdentifier))
 ```
 
-- [ ] **Step 5: Run the suite** — `swift test` → PASS (all existing `SyncProgress(...)` sites compile via the default; the updated test passes).
+- [x] **Step 5: Run the suite** — `swift test` → PASS (all existing `SyncProgress(...)` sites compile via the default; the updated test passes).
 
-- [ ] **Step 6: Commit** — `git commit -m "feat(core): SyncProgress.currentItemID (PHAsset id for thumbnails)"`.
+- [x] **Step 6: Commit** — `git commit -m "feat(core): SyncProgress.currentItemID (PHAsset id for thumbnails)"`.
 
 ---
 
@@ -81,7 +81,7 @@ onProgress(SyncProgress(completed: uploaded.count,
 **Interfaces:**
 - Produces: `final class ThumbnailLoader` with `func thumbnail(for id: String, size: CGSize) async -> NSImage?`.
 
-- [ ] **Step 1: Create the loader:**
+- [x] **Step 1: Create the loader:**
 
 ```swift
 import AppKit
@@ -123,9 +123,9 @@ private final class ResumeOnce: @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 2: Build the app** — app builds (loader unused yet). BUILD SUCCEEDED.
+- [x] **Step 2: Build the app** — app builds (loader unused yet). BUILD SUCCEEDED.
 
-- [ ] **Step 3: Commit** — `git commit -m "feat(app): ThumbnailLoader (PHImageManager + NSCache)"`.
+- [x] **Step 3: Commit** — `git commit -m "feat(app): ThumbnailLoader (PHImageManager + NSCache)"`.
 
 ---
 
@@ -141,7 +141,7 @@ private final class ResumeOnce: @unchecked Sendable {
 **Interfaces:**
 - Consumes: `ThumbnailLoader` (Task 2), `SyncProgress.currentItemID` (Task 1), `FailedItem.key.localIdentifier`.
 
-- [ ] **Step 1: Create `ThumbnailView`:**
+- [x] **Step 1: Create `ThumbnailView`:**
 
 ```swift
 import SwiftUI
@@ -174,9 +174,9 @@ struct ThumbnailView: View {
 }
 ```
 
-- [ ] **Step 2: Thread the loader from `FilesNestApp`** — add `let thumbnails = ThumbnailLoader()` in `init()` and pass it: `PanelView(model: model, settings: settings, thumbnails: thumbnails)`.
+- [x] **Step 2: Thread the loader from `FilesNestApp`** — add `let thumbnails = ThumbnailLoader()` in `init()` and pass it: `PanelView(model: model, settings: settings, thumbnails: thumbnails)`.
 
-- [ ] **Step 3: `PanelView`** — add `let thumbnails: ThumbnailLoader` stored property; in `currentItem(_:)` replace the gradient `RoundedRectangle(...).frame(width: 34, height: 34)` with:
+- [x] **Step 3: `PanelView`** — add `let thumbnails: ThumbnailLoader` stored property; in `currentItem(_:)` replace the gradient `RoundedRectangle(...).frame(width: 34, height: 34)` with:
 
 ```swift
 ThumbnailView(id: p.currentItemID, size: 34, loader: thumbnails)
@@ -184,7 +184,7 @@ ThumbnailView(id: p.currentItemID, size: 34, loader: thumbnails)
 
 and pass the loader into the failed branch: `FailedItemsView(items: model.summary.failed, thumbnails: thumbnails, onDone: { … })`.
 
-- [ ] **Step 4: `FailedItemsView`** — add `let thumbnails: ThumbnailLoader`; give each row a leading thumbnail:
+- [x] **Step 4: `FailedItemsView`** — add `let thumbnails: ThumbnailLoader`; give each row a leading thumbnail:
 
 ```swift
 HStack(spacing: 10) {
@@ -196,22 +196,22 @@ HStack(spacing: 10) {
 }
 ```
 
-- [ ] **Step 5: Build the app** — BUILD SUCCEEDED.
+- [x] **Step 5: Build the app** — BUILD SUCCEEDED.
 
-- [ ] **Step 6: Write the manual-verification checklist** — `docs/plans/20260729-sync-thumbnails-verification.md`: real photo shows in the sync strip during a sync; failed rows show thumbnails; a deleted/missing asset falls back to the gradient; failed-list scrolling stays smooth.
+- [x] **Step 6: Write the manual-verification checklist** — `docs/plans/20260729-sync-thumbnails-verification.md`: real photo shows in the sync strip during a sync; failed rows show thumbnails; a deleted/missing asset falls back to the gradient; failed-list scrolling stays smooth.
 
-- [ ] **Step 7: Commit** — `git commit -m "feat(app): real photo thumbnails in sync strip + failed list"`.
+- [x] **Step 7: Commit** — `git commit -m "feat(app): real photo thumbnails in sync strip + failed list"`.
 
 ---
 
 ### Task 4: Verify, review, finish
 
-- [ ] **Step 1: Hammer Core** — `for i in 1 2 3; do perl -e 'alarm 240; exec @ARGV' swift test; done` → green.
-- [ ] **Step 2: Build app** → BUILD SUCCEEDED.
-- [ ] **Step 3: Push** — `git push -u origin apple/sync-thumbnails`.
-- [ ] **Step 4: Codex review** — scoped `codex exec` covering: `SyncProgress.currentItemID` threading + coordinator population; `ThumbnailLoader` continuation-resumes-once under `.opportunistic` multi-callback, cache correctness, Sendable; `ThumbnailView` `.task(id:)` reload + `@State` ownership; graceful nil/placeholder fallback. Address findings.
-- [ ] **Step 5: Manual UI verification** — walk the Task 3 Step 6 checklist on the real app.
-- [ ] **Step 6: Finish** — superpowers:finishing-a-development-branch → PR `Apple clients: Sync thumbnails (#N)`; merge on approval; update `active-codebase` memory.
+- [x] **Step 1: Hammer Core** — `for i in 1 2 3; do perl -e 'alarm 240; exec @ARGV' swift test; done` → green.
+- [x] **Step 2: Build app** → BUILD SUCCEEDED.
+- [x] **Step 3: Push** — `git push -u origin apple/sync-thumbnails`.
+- [x] **Step 4: Codex review** — scoped `codex exec` covering: `SyncProgress.currentItemID` threading + coordinator population; `ThumbnailLoader` continuation-resumes-once under `.opportunistic` multi-callback, cache correctness, Sendable; `ThumbnailView` `.task(id:)` reload + `@State` ownership; graceful nil/placeholder fallback. Address findings.
+- [x] **Step 5: Manual UI verification** — walk the Task 3 Step 6 checklist on the real app.
+- [x] **Step 6: Finish** — superpowers:finishing-a-development-branch → PR `Apple clients: Sync thumbnails (#N)`; merge on approval; update `active-codebase` memory.
 
 ---
 

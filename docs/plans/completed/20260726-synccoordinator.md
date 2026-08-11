@@ -36,7 +36,7 @@
 - Consumes: `ResourceKey` (existing, `Sendable & Equatable`).
 - Produces: `AssetResource(key:filename:creationDate:bundleID:)`, `enum SyncRange { case all; case dates(ClosedRange<Date>) }`, `protocol AssetLibrary { func resources(in: SyncRange) async throws -> [AssetResource] }`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `SyncValueTypeTests.swift`:
 
@@ -64,12 +64,12 @@ struct SyncValueTypeTests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd apple/FilesNestCore && swift test --filter SyncValueTypeTests`
 Expected: FAIL — `cannot find 'AssetResource' in scope` / `cannot find type 'SyncRange'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 `Models/AssetResource.swift`:
 
@@ -116,12 +116,12 @@ public protocol AssetLibrary: Sendable {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd apple/FilesNestCore && swift test --filter SyncValueTypeTests`
 Expected: PASS (2 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd apple/FilesNestCore && swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/scc-build
@@ -149,7 +149,7 @@ git commit -m "Apple clients: SyncCoordinator value types (AssetResource, SyncRa
   - `PlannedDelete(uploadID:String, key:ResourceKey)`
   - `SyncPlanner.plan(library:[AssetResource], server:[UploadRecord], range:SyncRange) -> SyncPlan`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `SyncPlannerTests.swift`:
 
@@ -271,12 +271,12 @@ struct SyncPlannerTests {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd apple/FilesNestCore && swift test --filter SyncPlannerTests`
 Expected: FAIL — `cannot find 'SyncPlanner' in scope` / `cannot find type 'SyncPlan'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 `SyncPlan.swift`:
 
@@ -385,17 +385,17 @@ public enum SyncPlanner {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd apple/FilesNestCore && swift test --filter SyncPlannerTests`
 Expected: PASS (all cases, including the parameterized ones).
 
-- [ ] **Step 5: Verify a test can fail (spec §7 discipline)**
+- [x] **Step 5: Verify a test can fail (spec §7 discipline)**
 
 Temporarily change `.deleted, .completing:` `continue` in `SyncPlanner` to only `.deleted:` and rerun `datesRangeDoesNotDeleteRecordsOutsideWindow` + `deletedOrCompletingAbsentRecordsAreLeftAlone`.
 Expected: `deletedOrCompletingAbsentRecordsAreLeftAlone` FAILS for `.completing`. Revert the change; rerun; PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd apple/FilesNestCore && swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/scc-build
@@ -417,7 +417,7 @@ git commit -m "Apple clients: SyncPlanner pure diff with range-scoped deletes"
 **Interfaces:**
 - Produces: `protocol SyncStateStore { func loadLastSyncStarted() -> Date?; func saveLastSyncStarted(_:Date) }`, `UserDefaultsSyncStateStore(defaults:UserDefaults)`, and test support `InMemorySyncStateStore()`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `SyncStateStoreTests.swift`:
 
@@ -447,12 +447,12 @@ struct SyncStateStoreTests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd apple/FilesNestCore && swift test --filter SyncStateStoreTests`
 Expected: FAIL — `cannot find 'UserDefaultsSyncStateStore'` / `cannot find 'InMemorySyncStateStore'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 `Sources/FilesNestCore/SyncStateStore.swift`:
 
@@ -503,12 +503,12 @@ final class InMemorySyncStateStore: SyncStateStore, @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd apple/FilesNestCore && swift test --filter SyncStateStoreTests`
 Expected: PASS (2 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd apple/FilesNestCore && swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/scc-build
@@ -537,7 +537,7 @@ This task builds the stateful in-memory server that later coordinator tests driv
   - `FakeAssetLibrary(items:[AssetResource], error:(any Error)?)`.
   - `URLRequest.httpBodyData()` helper.
 
-- [ ] **Step 1: Write the failing self-test**
+- [x] **Step 1: Write the failing self-test**
 
 Create `FakeServerTests.swift`:
 
@@ -623,12 +623,12 @@ struct FakeServerTests {
 }
 ```
 
-- [ ] **Step 2: Run the self-test to verify it fails**
+- [x] **Step 2: Run the self-test to verify it fails**
 
 Run: `cd apple/FilesNestCore && swift test --filter FakeServerTests`
 Expected: FAIL — `cannot find 'FakeServer'` / `cannot find 'FakeAssetLibrary'`.
 
-- [ ] **Step 3: Write the harness**
+- [x] **Step 3: Write the harness**
 
 `Tests/FilesNestCoreTests/Support/FakeAssetLibrary.swift`:
 
@@ -832,12 +832,12 @@ extension URLRequest {
 }
 ```
 
-- [ ] **Step 4: Run the self-test to verify it passes**
+- [x] **Step 4: Run the self-test to verify it passes**
 
 Run: `cd apple/FilesNestCore && swift test --filter FakeServerTests`
 Expected: PASS (5 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd apple/FilesNestCore && swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/scc-build
@@ -862,7 +862,7 @@ git commit -m "Apple clients: FakeServer test harness + FakeAssetLibrary"
   - `SyncReport(uploaded:[ResourceKey], deleted:[ResourceKey], failed:[FailedItem], skipped:Int)`, `FailedItem(key:ResourceKey, reason:String)`.
   - `SyncCoordinator(client:library:uploader:state:now:)` with `func sync(range:SyncRange) async throws -> SyncReport`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `SyncCoordinatorTests.swift`:
 
@@ -967,12 +967,12 @@ struct SyncCoordinatorTests {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd apple/FilesNestCore && swift test --filter SyncCoordinatorTests`
 Expected: FAIL — `cannot find 'SyncCoordinator'` / `cannot find 'SyncReport'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 `Sources/FilesNestCore/SyncReport.swift`:
 
@@ -1120,17 +1120,17 @@ public struct SyncCoordinator: Sendable {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd apple/FilesNestCore && swift test --filter SyncCoordinatorTests`
 Expected: PASS (6 tests).
 
-- [ ] **Step 5: Verify the ordering test can fail**
+- [x] **Step 5: Verify the ordering test can fail**
 
 Temporarily move the delete loop **above** the upload loop in `sync(range:)` and rerun `absentServerRecordIsDeletedAfterUploads`.
 Expected: FAIL on the `deleteIdx > lastUploadIdx` assertion. Revert; rerun; PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd apple/FilesNestCore && swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/scc-build
@@ -1151,7 +1151,7 @@ git commit -m "Apple clients: SyncCoordinator core (create/resume/skip/delete + 
 **Interfaces:**
 - Consumes: everything from Task 5 plus `FakeServer.backendLostIDs`, `FakeServer.seed`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `SyncCoordinatorTests.swift`:
 
@@ -1202,17 +1202,17 @@ extension SyncCoordinatorTests {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail (then pass)**
+- [x] **Step 2: Run tests to verify they fail (then pass)**
 
 Run: `cd apple/FilesNestCore && swift test --filter SyncCoordinatorTests`
 Expected: first FAIL — the three new tests do not yet exist as symbols? No: they compile (all machinery shipped in Tasks 4–5). Expected PASS for all three. If `backendLostRecordIsRecoveredProactively` or `backendLostDuringResumeIsRecoveredReactively` fails, the recovery bug is in `SyncCoordinator.uploadWithRecovery`/`recover` — fix minimally. `recoveryThatFailsAgainRecordsFailure` proves the "recover once, then give up" boundary.
 
-- [ ] **Step 3: Verify a recovery test can fail**
+- [x] **Step 3: Verify a recovery test can fail**
 
 Temporarily change `uploadWithRecovery`'s `catch ServerClientError.backendLost` to rethrow (`catch ServerClientError.backendLost { throw ServerClientError.backendLost }`) and rerun `backendLostDuringResumeIsRecoveredReactively`.
 Expected: FAIL — item goes to `failed`, `uploaded` empty. Revert; rerun; PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd apple/FilesNestCore && swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/scc-build
@@ -1231,7 +1231,7 @@ git commit -m "Apple clients: SyncCoordinator backend_lost recovery (proactive +
 **Interfaces:**
 - Consumes: Task 5/6 machinery; `FakeAssetDataSource(totalBytes:blobSize:failAfterBlobs:)` (existing — see AssetUploaderTests `propagatesSourceErrors`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `SyncCoordinatorTests.swift`:
 
@@ -1295,17 +1295,17 @@ extension SyncCoordinatorTests {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they pass**
+- [x] **Step 2: Run tests to verify they pass**
 
 Run: `perl -e 'alarm 120; exec @ARGV' swift test --filter SyncCoordinatorTests` (run from `apple/FilesNestCore`; the `perl` guard covers the cancellation test).
 Expected: all PASS (the machinery — `failDeleteIDs`, `FakeAssetDataSource(failAfterBlobs:)`, cancellation handling — shipped in Tasks 4–5). If `cancellationStopsAndThrows` fails or hangs, the cancellation catch is wrong — fix `SyncCoordinator` minimally.
 
-- [ ] **Step 3: Verify the cancellation test can fail**
+- [x] **Step 3: Verify the cancellation test can fail**
 
 Temporarily replace the sync loop's `catch is CancellationError { throw CancellationError() }` (upload loop) with the general `catch` (i.e. delete the `CancellationError` catch) and rerun `cancellationStopsAndThrows`.
 Expected: the test FAILS or hangs (cancellation gets recorded as a failed item instead of thrown) — the `perl` alarm bounds any hang. Revert; rerun; PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd apple/FilesNestCore && swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/scc-build
@@ -1324,7 +1324,7 @@ git commit -m "Apple clients: SyncCoordinator failure policy (skip-and-continue 
 **Interfaces:**
 - Consumes: all prior tasks.
 
-- [ ] **Step 1: Write the failing integration test**
+- [x] **Step 1: Write the failing integration test**
 
 Append to `SyncCoordinatorTests.swift`:
 
@@ -1349,17 +1349,17 @@ extension SyncCoordinatorTests {
 }
 ```
 
-- [ ] **Step 2: Run to verify it passes (planner logic already implements it)**
+- [x] **Step 2: Run to verify it passes (planner logic already implements it)**
 
 Run: `cd apple/FilesNestCore && swift test --filter januarySyncDoesNotDeleteFebruaryBackup`
 Expected: PASS. (If it fails, the bug is in `SyncPlanner` range scoping — fix there.)
 
-- [ ] **Step 3: Verify it can fail**
+- [x] **Step 3: Verify it can fail**
 
 Temporarily change the coordinator call to pass `range: .all` instead of `.dates(jan)` and rerun.
 Expected: FAIL — February record is now deleted (`report.deleted` non-empty). Revert; rerun; PASS.
 
-- [ ] **Step 4: Correct `architecture.md`**
+- [x] **Step 4: Correct `architecture.md`**
 
 In `docs/architecture.md`, "Mac app: sync logic" step 8, replace the sentence:
 
@@ -1371,7 +1371,7 @@ with:
 
 Use Serena `replace_content` for this edit (it is a docs file, but stay consistent with tooling).
 
-- [ ] **Step 5: Full suite + build gate**
+- [x] **Step 5: Full suite + build gate**
 
 Run:
 ```bash
@@ -1381,7 +1381,7 @@ swift build -Xswiftc -warnings-as-errors --scratch-path /tmp/scc-build
 ```
 Expected: ALL tests pass (the 93 pre-existing + the new SyncCoordinator/Planner/State/FakeServer/value-type tests); build clean with warnings-as-errors.
 
-- [ ] **Step 6: Server unaffected (sanity)**
+- [x] **Step 6: Server unaffected (sanity)**
 
 Run:
 ```bash
@@ -1389,7 +1389,7 @@ cd server && go test ./... && go vet ./...
 ```
 Expected: PASS — this slice touches no Go code; this only confirms the working tree is clean.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apple/FilesNestCore/Tests/FilesNestCoreTests/SyncCoordinatorTests.swift docs/architecture.md

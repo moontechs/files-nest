@@ -32,7 +32,7 @@
 **Interfaces:**
 - Produces: `struct Assessment { backedUp: Int; pending: Int; resourceTotal: Int }` (Sendable, Equatable, Codable); `SyncStateStore.loadAssessment() -> Assessment?` / `saveAssessment(_:)`.
 
-- [ ] **Step 1: Write failing cache tests** — append to `SyncStateStoreTests`:
+- [x] **Step 1: Write failing cache tests** — append to `SyncStateStoreTests`:
 
 ```swift
 @Test func assessmentRoundTripsCodable() throws {
@@ -59,9 +59,9 @@
 }
 ```
 
-- [ ] **Step 2: Run tests, verify they fail** — `swift test --filter SyncStateStoreTests` → FAIL (`Assessment` / `loadAssessment` undefined).
+- [x] **Step 2: Run tests, verify they fail** — `swift test --filter SyncStateStoreTests` → FAIL (`Assessment` / `loadAssessment` undefined).
 
-- [ ] **Step 3: Create `Assessment.swift`:**
+- [x] **Step 3: Create `Assessment.swift`:**
 
 ```swift
 import Foundation
@@ -81,7 +81,7 @@ public struct Assessment: Sendable, Equatable, Codable {
 }
 ```
 
-- [ ] **Step 4: Extend the protocol + both stores.** In `SyncStateStore.swift` add to the protocol:
+- [x] **Step 4: Extend the protocol + both stores.** In `SyncStateStore.swift` add to the protocol:
 
 ```swift
     func loadAssessment() -> Assessment?
@@ -111,9 +111,9 @@ Add to `InMemorySyncStateStore` (new property behind the existing lock):
     func saveAssessment(_ assessment: Assessment) { lock.lock(); defer { lock.unlock() }; _assessment = assessment }
 ```
 
-- [ ] **Step 5: Run tests, verify pass** — `swift test --filter SyncStateStoreTests` → PASS.
+- [x] **Step 5: Run tests, verify pass** — `swift test --filter SyncStateStoreTests` → PASS.
 
-- [ ] **Step 6: Commit** — `git add` the four files; `git commit -m "feat(core): Assessment type + SyncStateStore assessment cache"`.
+- [x] **Step 6: Commit** — `git add` the four files; `git commit -m "feat(core): Assessment type + SyncStateStore assessment cache"`.
 
 ---
 
@@ -129,7 +129,7 @@ Add to `InMemorySyncStateStore` (new property behind the existing lock):
 - Produces: `SyncSummary { backedUp: Int; pending: Int?; failed: [FailedItem] }`, `init(backedUp:pending:failed:)`, `.empty` with `pending: nil`.
 - Consumes: nothing new.
 
-- [ ] **Step 1: Update `SyncSummary`:**
+- [x] **Step 1: Update `SyncSummary`:**
 
 ```swift
 public struct SyncSummary: Sendable, Equatable {
@@ -147,23 +147,23 @@ public struct SyncSummary: Sendable, Equatable {
 }
 ```
 
-- [ ] **Step 2: Fix `LiveSyncEngine` call sites** (add `pending:`):
+- [x] **Step 2: Fix `LiveSyncEngine` call sites** (add `pending:`):
   - Live climb (`.progress` handler): `SyncSummary(backedUp: syncBaseBackedUp + p.completed, pending: currentSummary.pending, failed: currentSummary.failed)` (preserve the last known pending during a climb).
   - `.summaryRefreshed` handler (still present until Task 4): `SyncSummary(backedUp: backedUp, pending: currentSummary.pending, failed: currentSummary.failed)`.
   - `finishSync`: `SyncSummary(backedUp: report.skipped + report.uploaded.count, pending: report.failed.count, failed: report.failed)` — the final, correct at-rest pending after an `.all` sync.
 
-- [ ] **Step 3: Fix `StubSyncEngine`** — `setSummary(SyncSummary(backedUp: 1_240, pending: 900, failed: []))` (canned non-nil so previews show a Pending number).
+- [x] **Step 3: Fix `StubSyncEngine`** — `setSummary(SyncSummary(backedUp: 1_240, pending: 900, failed: []))` (canned non-nil so previews show a Pending number).
 
-- [ ] **Step 4: Fix test assertions** — every `SyncSummary(...)` in `LiveSyncEngineTests` gains `pending:`. Specifically:
+- [x] **Step 4: Fix test assertions** — every `SyncSummary(...)` in `LiveSyncEngineTests` gains `pending:`. Specifically:
   - `.empty` comparisons are unchanged (still `== .empty`).
   - `startRefreshesBackedUpFromServer`: `== SyncSummary(backedUp: 7, pending: nil, failed: [])` (refresh doesn't set pending yet — Task 4 changes this test).
   - The fallback test: `== SyncSummary(backedUp: 4, pending: nil, failed: [])`.
   - `signOutClearsSummary`: `== SyncSummary(backedUp: 9, pending: nil, failed: [])`.
   - Any test asserting the post-sync summary now also asserts `pending` matches `report.failed.count`.
 
-- [ ] **Step 5: Run full Core suite** — `swift test` → PASS (compile + green).
+- [x] **Step 5: Run full Core suite** — `swift test` → PASS (compile + green).
 
-- [ ] **Step 6: Commit** — `git commit -m "feat(core): SyncSummary.pending (exact at-rest backlog; finishSync fills it from the report)"`.
+- [x] **Step 6: Commit** — `git commit -m "feat(core): SyncSummary.pending (exact at-rest backlog; finishSync fills it from the report)"`.
 
 ---
 
@@ -180,13 +180,13 @@ public struct SyncSummary: Sendable, Equatable {
 - Produces: `SyncStatus.counting(done: Int, total: Int)`; `AssetLibrary.resources(in:onProgress:)` requirement + `resources(in:)` convenience extension.
 - Consumes: nothing new. `SyncCoordinator.sync` keeps calling `library.resources(in: range)` (resolves to the extension).
 
-- [ ] **Step 1: Add the `.counting` case** to `SyncStatus`:
+- [x] **Step 1: Add the `.counting` case** to `SyncStatus`:
 
 ```swift
     case counting(done: Int, total: Int)   // launch scan in progress
 ```
 
-- [ ] **Step 2: Write a failing equality test** in `SyncStatusTests`:
+- [x] **Step 2: Write a failing equality test** in `SyncStatusTests`:
 
 ```swift
 @Test func countingEquatable() {
@@ -197,7 +197,7 @@ public struct SyncSummary: Sendable, Equatable {
 
 Run `swift test --filter SyncStatusTests` → FAIL until the case exists (Step 1), then PASS.
 
-- [ ] **Step 3: Change the `AssetLibrary` protocol + add convenience:**
+- [x] **Step 3: Change the `AssetLibrary` protocol + add convenience:**
 
 ```swift
 public protocol AssetLibrary: Sendable {
@@ -213,7 +213,7 @@ public extension AssetLibrary {
 }
 ```
 
-- [ ] **Step 4: Update `FakeAssetLibrary`** to the two-arg requirement (emit a single deterministic progress tick so tests can observe the hook if needed):
+- [x] **Step 4: Update `FakeAssetLibrary`** to the two-arg requirement (emit a single deterministic progress tick so tests can observe the hook if needed):
 
 ```swift
 func resources(in range: SyncRange,
@@ -225,7 +225,7 @@ func resources(in range: SyncRange,
 }
 ```
 
-- [ ] **Step 5: Update `PhotosAssetLibrary`** — new signature; capture `total = assets.count`; emit throttled progress inside `enumerateObjects`:
+- [x] **Step 5: Update `PhotosAssetLibrary`** — new signature; capture `total = assets.count`; emit throttled progress inside `enumerateObjects`:
 
 ```swift
 func resources(in range: SyncRange,
@@ -269,9 +269,9 @@ func resources(in range: SyncRange,
 
 (Keep the existing `#if DEBUG` logging lines.)
 
-- [ ] **Step 6: Run Core suite** — `swift test` → PASS (SyncCoordinator tests still green via the extension). App target intentionally not built yet.
+- [x] **Step 6: Run Core suite** — `swift test` → PASS (SyncCoordinator tests still green via the extension). App target intentionally not built yet.
 
-- [ ] **Step 7: Commit** — `git commit -m "feat(core): SyncStatus.counting + AssetLibrary progress hook"`.
+- [x] **Step 7: Commit** — `git commit -m "feat(core): SyncStatus.counting + AssetLibrary progress hook"`.
 
 ---
 
@@ -285,7 +285,7 @@ func resources(in range: SyncRange,
 - Consumes: `Assessment` (Task 1), `SyncStatus.counting` (Task 3), `SyncSummary.pending` (Task 2).
 - Produces: `LiveSyncEngine.init(..., assess:, cachedAssessment:, now:)` replacing `refreshBackedUp:`. `assess: (@Sendable (_ onProgress: @Sendable (Int, Int) -> Void) async throws -> Assessment)?`; `cachedAssessment: (@Sendable () -> Assessment?)?`.
 
-- [ ] **Step 1: Write failing engine tests** (swap `refreshBackedUp:` for the new seams, add the new coverage). Key tests:
+- [x] **Step 1: Write failing engine tests** (swap `refreshBackedUp:` for the new seams, add the new coverage). Key tests:
 
 ```swift
 @Test func startCountsThenAssesses() async {
@@ -348,9 +348,9 @@ func resources(in range: SyncRange,
 
 Also **rewrite** the migrated tests: `startRefreshesBackedUpFromServer` → uses `assess:` returning `Assessment(backedUp: 7, pending: 2, resourceTotal: 9)` and asserts `awaitSummary { $0.pending == 2 }.backedUp == 7`; the throw-fallback test uses `assess: { _ in throw Boom() }` and asserts the summary keeps the seeded/`.empty` values and status settles to `.watching`; the integration test's `refreshBackedUp` closure becomes an `assess` closure returning an `Assessment` (backedUp from server completes, pending from `SyncPlanner`, resourceTotal from the scan count).
 
-- [ ] **Step 2: Run tests, verify they fail** — `swift test --filter LiveSyncEngineTests` → FAIL (compile: `assess:` param unknown).
+- [x] **Step 2: Run tests, verify they fail** — `swift test --filter LiveSyncEngineTests` → FAIL (compile: `assess:` param unknown).
 
-- [ ] **Step 3: Swap the seam** — in `LiveSyncEngine` replace the `refreshBackedUp` property + init param with:
+- [x] **Step 3: Swap the seam** — in `LiveSyncEngine` replace the `refreshBackedUp` property + init param with:
 
 ```swift
     private let assess: (@Sendable (_ onProgress: @Sendable (Int, Int) -> Void) async throws -> Assessment)?
@@ -366,7 +366,7 @@ and the init params (keep `now:` last):
 
 with `self.assess = assess; self.cachedAssessment = cachedAssessment`.
 
-- [ ] **Step 4: Replace the command + add state.** In `enum Command` remove `.summaryRefreshed` and add:
+- [x] **Step 4: Replace the command + add state.** In `enum Command` remove `.summaryRefreshed` and add:
 
 ```swift
         case counting(gen: UInt64, done: Int, total: Int)
@@ -375,7 +375,7 @@ with `self.assess = assess; self.cachedAssessment = cachedAssessment`.
 
 Add consumer state near `syncChild`: `private var assessChild: Task<Void, Never>?`. In `deinit` also `assessChild?.cancel()`.
 
-- [ ] **Step 5: Handlers.** Replace the `.summaryRefreshed` handler with:
+- [x] **Step 5: Handlers.** Replace the `.summaryRefreshed` handler with:
 
 ```swift
         case .counting(let gen, let done, let total):
@@ -388,7 +388,7 @@ Add consumer state near `syncChild`: `private var assessChild: Task<Void, Never>
             }
 ```
 
-- [ ] **Step 6: `doStart` idle branch → count.** Replace the `if !isSyncingStatus { … scheduleBackedUpRefresh }` block with:
+- [x] **Step 6: `doStart` idle branch → count.** Replace the `if !isSyncingStatus { … scheduleBackedUpRefresh }` block with:
 
 ```swift
         if !isSyncingStatus && !isCountingStatus {
@@ -422,11 +422,11 @@ Add helpers:
     }
 ```
 
-- [ ] **Step 7: Supersession.** In the sign-out branch of `doStart`, and in `doPause`, `doResume`, `doSyncNow`, add `assessChild?.cancel(); assessChild = nil` alongside the existing `syncChild` handling (each already bumps `generation`, so late `.counting`/`.assessFinished` are gated out). Remove `finishSync`'s `scheduleBackedUpRefresh(gen:)` call and delete the `scheduleBackedUpRefresh` method entirely (`finishSync` already sets the summary with `pending` from the report — Task 2).
+- [x] **Step 7: Supersession.** In the sign-out branch of `doStart`, and in `doPause`, `doResume`, `doSyncNow`, add `assessChild?.cancel(); assessChild = nil` alongside the existing `syncChild` handling (each already bumps `generation`, so late `.counting`/`.assessFinished` are gated out). Remove `finishSync`'s `scheduleBackedUpRefresh(gen:)` call and delete the `scheduleBackedUpRefresh` method entirely (`finishSync` already sets the summary with `pending` from the report — Task 2).
 
-- [ ] **Step 8: Run tests** — `swift test --filter LiveSyncEngineTests` → PASS; then full `swift test` → PASS.
+- [x] **Step 8: Run tests** — `swift test --filter LiveSyncEngineTests` → PASS; then full `swift test` → PASS.
 
-- [ ] **Step 9: Commit** — `git commit -m "feat(core): LiveSyncEngine assess pass (counting state + exact pending)"`.
+- [x] **Step 9: Commit** — `git commit -m "feat(core): LiveSyncEngine assess pass (counting state + exact pending)"`.
 
 ---
 
@@ -438,7 +438,7 @@ Add helpers:
 **Interfaces:**
 - Consumes: `LiveSyncEngine(assess:cachedAssessment:)` (Task 4), `SyncStateStore` cache (Task 1), `SyncPlanner`, `PhotosAssetLibrary.resources(in:onProgress:)`.
 
-- [ ] **Step 1: Replace the `refreshBackedUp:` closure** in the `LiveSyncEngine(...)` init with `assess:` + `cachedAssessment:`:
+- [x] **Step 1: Replace the `refreshBackedUp:` closure** in the `LiveSyncEngine(...)` init with `assess:` + `cachedAssessment:`:
 
 ```swift
             assess: { onProgress in
@@ -468,11 +468,11 @@ Add helpers:
 
 (Confirm `UploadRecord`, `ServerClient.listUploads`, `SyncPlanner`, `.all` are the exact names in use; adjust if the API differs.)
 
-- [ ] **Step 2: Verify the type of `stateStore`** — it must be the `UserDefaultsSyncStateStore` instance already created in `init()` (the same one passed as `state:`), so the cache and last-sync share storage. No new store.
+- [x] **Step 2: Verify the type of `stateStore`** — it must be the `UserDefaultsSyncStateStore` instance already created in `init()` (the same one passed as `state:`), so the cache and last-sync share storage. No new store.
 
-- [ ] **Step 3: Build** — app target won't fully build until Task 6 (PanelView). If desired, defer the build check to Task 6. Otherwise verify no *new* errors in `FilesNestApp.swift` by inspection.
+- [x] **Step 3: Build** — app target won't fully build until Task 6 (PanelView). If desired, defer the build check to Task 6. Otherwise verify no *new* errors in `FilesNestApp.swift` by inspection.
 
-- [ ] **Step 4: Commit** — `git commit -m "feat(app): assess closure (scan + server diff → exact pending) + assessment cache"`.
+- [x] **Step 4: Commit** — `git commit -m "feat(app): assess closure (scan + server diff → exact pending) + assessment cache"`.
 
 ---
 
@@ -485,18 +485,18 @@ Add helpers:
 **Interfaces:**
 - Consumes: `SyncStatus.counting`, `SyncSummary.pending`.
 
-- [ ] **Step 1: Invoke the SwiftUI skill** — announce and load `swiftui-expert:swiftui-expert-skill` for the hero/state changes.
+- [x] **Step 1: Invoke the SwiftUI skill** — announce and load `swiftui-expert:swiftui-expert-skill` for the hero/state changes.
 
-- [ ] **Step 2: Handle `.counting` in every `SyncStatus` switch** in `PanelView`:
+- [x] **Step 2: Handle `.counting` in every `SyncStatus` switch** in `PanelView`:
   - `glyph`: `.counting` → `""` (ring shows a spinner/progress, no glyph).
   - `title`: `.counting` → `"Counting…"`.
   - `subtitle`: `.counting(let done, let total)` → `total > 0 ? "\(done.formatted()) of \(total.formatted())" : "Scanning library…"`.
   - `ringColor`: `.counting` → `.blue`.
   - `ringFraction`: `.counting(let done, let total)` → `total > 0 ? CGFloat(done)/CGFloat(total) : 0`.
 
-- [ ] **Step 3: Hero determinate ring while counting.** Extend `isScanning`-style handling: when `.counting` with `total == 0`, show the indeterminate `ProgressView` (as scanning does); when `total > 0`, show the trimmed ring at `ringFraction`. Add a computed `isCounting` and include it wherever `isScanning` drives the spinner.
+- [x] **Step 3: Hero determinate ring while counting.** Extend `isScanning`-style handling: when `.counting` with `total == 0`, show the indeterminate `ProgressView` (as scanning does); when `total > 0`, show the trimmed ring at `ringFraction`. Add a computed `isCounting` and include it wherever `isScanning` drives the spinner.
 
-- [ ] **Step 4: Pending tile from the summary.** Replace `pendingText`'s at-rest branch:
+- [x] **Step 4: Pending tile from the summary.** Replace `pendingText`'s at-rest branch:
 
 ```swift
     private var pendingText: String {
@@ -510,24 +510,24 @@ Add helpers:
 
 Update the `pending` computed used for tile color similarly (`default:` → `model.summary.pending ?? 0`).
 
-- [ ] **Step 5: Disable Pause while counting** — the Pause/Resume button: `.disabled(isSignedOut || isCounting)` (a count isn't pausable work). Sync Now stays enabled (it supersedes the count).
+- [x] **Step 5: Disable Pause while counting** — the Pause/Resume button: `.disabled(isSignedOut || isCounting)` (a count isn't pausable work). Sync Now stays enabled (it supersedes the count).
 
-- [ ] **Step 6: Write the manual-verification checklist** — create `docs/plans/20260729-count-library-on-start-verification.md` covering: cold launch shows "Counting… N of M" ticking then the exact Pending; warm launch shows cached Backed up/Pending instantly then refreshes; Sync Now during counting interrupts and starts a sync; sign-out during counting → signed-out; Pause disabled during counting.
+- [x] **Step 6: Write the manual-verification checklist** — create `docs/plans/20260729-count-library-on-start-verification.md` covering: cold launch shows "Counting… N of M" ticking then the exact Pending; warm launch shows cached Backed up/Pending instantly then refreshes; Sync Now during counting interrupts and starts a sync; sign-out during counting → signed-out; Pause disabled during counting.
 
-- [ ] **Step 7: Build the app** — run the app build command → **BUILD SUCCEEDED**.
+- [x] **Step 7: Build the app** — run the app build command → **BUILD SUCCEEDED**.
 
-- [ ] **Step 8: Commit** — `git commit -m "feat(app): counting hero + exact at-rest Pending tile"`.
+- [x] **Step 8: Commit** — `git commit -m "feat(app): counting hero + exact at-rest Pending tile"`.
 
 ---
 
 ### Task 7: Verify, review, finish
 
-- [ ] **Step 1: Hammer the Core suite** — `for i in 1 2 3; do perl -e 'alarm 240; exec @ARGV' swift test; done` from `apple/FilesNestCore` → all green, no flakes.
-- [ ] **Step 2: Build the app** — app build command → BUILD SUCCEEDED.
-- [ ] **Step 3: Push the branch** — `git push -u origin apple/count-library-on-start`.
-- [ ] **Step 4: Codex review** (standing rule) — hand the user a scoped `codex exec '…'` command covering: the assess child's cancellation/supersession vs the sync child, generation gating of `.counting`/`.assessFinished`, `NSLock` never across `await`, the `!isSyncingStatus && !isCountingStatus` guard, cache read/write correctness, and the app assess closure's unit consistency (backedUp = complete records, pending = `plan.uploads.count`, both per-resource). Address findings; re-run tests.
-- [ ] **Step 5: Manual UI verification** — run the app; walk the Task 6 Step 6 checklist; capture that cold+warm launch behave as designed.
-- [ ] **Step 6: Finish** — use superpowers:finishing-a-development-branch → create PR titled `Apple clients: Count library on start (#N)` with a summary; merge on approval; update `active-codebase` memory (mark this slice merged; note which §9 deferrals remain).
+- [x] **Step 1: Hammer the Core suite** — `for i in 1 2 3; do perl -e 'alarm 240; exec @ARGV' swift test; done` from `apple/FilesNestCore` → all green, no flakes.
+- [x] **Step 2: Build the app** — app build command → BUILD SUCCEEDED.
+- [x] **Step 3: Push the branch** — `git push -u origin apple/count-library-on-start`.
+- [x] **Step 4: Codex review** (standing rule) — hand the user a scoped `codex exec '…'` command covering: the assess child's cancellation/supersession vs the sync child, generation gating of `.counting`/`.assessFinished`, `NSLock` never across `await`, the `!isSyncingStatus && !isCountingStatus` guard, cache read/write correctness, and the app assess closure's unit consistency (backedUp = complete records, pending = `plan.uploads.count`, both per-resource). Address findings; re-run tests.
+- [x] **Step 5: Manual UI verification** — run the app; walk the Task 6 Step 6 checklist; capture that cold+warm launch behave as designed.
+- [x] **Step 6: Finish** — use superpowers:finishing-a-development-branch → create PR titled `Apple clients: Count library on start (#N)` with a summary; merge on approval; update `active-codebase` memory (mark this slice merged; note which §9 deferrals remain).
 
 ---
 

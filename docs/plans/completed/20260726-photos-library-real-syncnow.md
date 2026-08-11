@@ -36,7 +36,7 @@ Add an additive, backward-compatible `onProgress` callback to `SyncCoordinator.s
 - Consumes: existing `SyncCoordinator.init(client:library:uploader:state:now:)`, `SyncPlan.uploads` (ordered `creationDate` asc then key), `SyncProgress(completed:total:currentItemName:bytesRemaining:)`, `AssetResource.filename`. Test harness: `FakeServer`, `makeCoordinator(server:library:state:now:)`, `date(_:)`.
 - Produces: `SyncCoordinator.sync(range:onProgress:) async throws -> SyncReport` where `onProgress: @Sendable (SyncProgress) -> Void = { _ in }`. Before upload item `i` of `N = plan.uploads.count`, calls `onProgress(SyncProgress(completed: i, total: N, currentItemName: resource.filename, bytesRemaining: nil))`. Fires zero times when `N == 0`.
 
-- [ ] **Step 1: Write the failing tests + helper**
+- [x] **Step 1: Write the failing tests + helper**
 
 Append to `apple/FilesNestCore/Tests/FilesNestCoreTests/SyncCoordinatorTests.swift` (after the last extension):
 
@@ -78,12 +78,12 @@ final class ProgressBox: @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd apple/FilesNestCore && swift test --filter SyncCoordinatorTests/progress 2>&1 | tail -20`
 Expected: **compile failure** — `sync(range:onProgress:)` does not exist (extra argument `onProgress`). This confirms the tests exercise the new API.
 
-- [ ] **Step 3: Add the `onProgress` parameter and emit per upload**
+- [x] **Step 3: Add the `onProgress` parameter and emit per upload**
 
 In `apple/FilesNestCore/Sources/FilesNestCore/SyncCoordinator.swift`, change the `sync` signature and the upload loop. The method currently starts:
 
@@ -137,12 +137,12 @@ with:
         }
 ```
 
-- [ ] **Step 4: Run the full coordinator suite to verify pass + no regression**
+- [x] **Step 4: Run the full coordinator suite to verify pass + no regression**
 
 Run: `cd apple/FilesNestCore && swift test --filter SyncCoordinatorTests 2>&1 | tail -20`
 Expected: **all pass** — the two new progress tests plus every pre-existing `SyncCoordinatorTests` (the default `onProgress` argument means the untouched tests still compile and pass).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/SyncCoordinator.swift \
@@ -164,7 +164,7 @@ The real `SyncEngine` for one-shot Sync Now. Pure `SyncStatus` choreography arou
 - Consumes: `SyncEngine` protocol (`statusStream/start/pause/resume/syncNow`), `SyncStatus`, `SyncProgress`, `SyncReport`, `FailedItem`, `CredentialStore.basicCredentials()`, `SyncStateStore.loadLastSyncStarted()`, `SyncRange`. Test doubles: `StaticCredentialStore`, `InMemorySyncStateStore`.
 - Produces: `LiveSyncEngine(credentials:state:perform:now:)` where `perform: @escaping @Sendable (SyncRange, @Sendable (SyncProgress) -> Void) async throws -> SyncReport`. `syncNow()` runs `perform(.all, …)`; success → `.watching(lastSync:)` (even with `report.failed` non-empty); throw → `.error`; `CancellationError` → `.watching`. No-op when signed out, paused, or already syncing.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `apple/FilesNestCore/Tests/FilesNestCoreTests/LiveSyncEngineTests.swift`:
 
@@ -325,12 +325,12 @@ actor Gate {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd apple/FilesNestCore && swift test --filter LiveSyncEngineTests 2>&1 | tail -20`
 Expected: **compile failure** — `cannot find 'LiveSyncEngine' in scope`.
 
-- [ ] **Step 3: Implement `LiveSyncEngine`**
+- [x] **Step 3: Implement `LiveSyncEngine`**
 
 Create `apple/FilesNestCore/Sources/FilesNestCore/LiveSyncEngine.swift`:
 
@@ -461,17 +461,17 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd apple/FilesNestCore && swift test --filter LiveSyncEngineTests 2>&1 | tail -20`
 Expected: **all pass**.
 
-- [ ] **Step 5: Run the whole Core suite (no regressions, no warnings)**
+- [x] **Step 5: Run the whole Core suite (no regressions, no warnings)**
 
 Run: `cd apple/FilesNestCore && swift test 2>&1 | tail -25`
 Expected: full suite green, **zero** Swift 6 warnings.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/LiveSyncEngine.swift \
@@ -494,7 +494,7 @@ Add the PhotoKit enumeration adapter, rewire the composition root from `StubSync
 - Consumes: `AssetLibrary`, `AssetResource`, `ResourceKey`, `ResourceKind`, `SyncRange`, `SyncCoordinator.sync(range:onProgress:)`, `LiveSyncEngine`, `ServerClient`, `AssetUploader`, `PhotosAssetDataSource`, `UserDefaultsServerURLStore.load()`, `KeychainStore` (a `CredentialStore`), `UserDefaultsSyncStateStore(defaults:)`, `AppModel(engine:)`, `SettingsModel(urlStore:credStore:probe:)`, `ConnectionProbe`.
 - Produces: `PhotosAssetLibrary()` conforming to `AssetLibrary`; a `LiveSyncEngine` wired into `AppModel`; `NotSignedInError`.
 
-- [ ] **Step 1: Create `PhotosAssetLibrary`**
+- [x] **Step 1: Create `PhotosAssetLibrary`**
 
 Create `apple/macos/FilesNest/FilesNest/PhotosAssetLibrary.swift`:
 
@@ -568,7 +568,7 @@ nonisolated struct PhotosAssetLibrary: AssetLibrary {
 }
 ```
 
-- [ ] **Step 2: Rewire the composition root to `LiveSyncEngine`**
+- [x] **Step 2: Rewire the composition root to `LiveSyncEngine`**
 
 In `apple/macos/FilesNest/FilesNest/FilesNestApp.swift`, replace the entire `init()` body with:
 
@@ -614,12 +614,12 @@ Then add this type at the end of `FilesNestApp.swift` (after the `AppDelegate` c
 struct NotSignedInError: Error {}
 ```
 
-- [ ] **Step 3: Build the macOS app**
+- [x] **Step 3: Build the macOS app**
 
 Run: `cd apple/macos/FilesNest && xcodebuild -project FilesNest.xcodeproj -scheme FilesNest -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -25`
 Expected: **BUILD SUCCEEDED**, no warnings from the new files. (`PhotosAssetLibrary.swift` is auto-included via the file-system-synchronized group.)
 
-- [ ] **Step 4: Write the manual verification checklist**
+- [x] **Step 4: Write the manual verification checklist**
 
 Create `docs/plans/20260726-photos-library-real-syncnow-verification.md`:
 
@@ -630,29 +630,29 @@ The PhotoKit enumeration adapter (`PhotosAssetLibrary`) is untestable in `swift 
 (it needs the real photo library + TCC). Verify by hand against a live FilesNest server.
 
 ## Setup
-- [ ] Build & run the app (`xcodebuild … build`, then launch the product, or Run in Xcode).
-- [ ] Confirm it launches as a background agent (menu-bar icon, no Dock icon).
-- [ ] In Settings, enter a valid server URL + Basic Auth creds; Test Connection → ok; Save.
+- [x] Build & run the app (`xcodebuild … build`, then launch the product, or Run in Xcode).
+- [x] Confirm it launches as a background agent (menu-bar icon, no Dock icon).
+- [x] In Settings, enter a valid server URL + Basic Auth creds; Test Connection → ok; Save.
 
 ## Authorization
-- [ ] First Sync Now triggers the macOS Photos permission prompt
+- [x] First Sync Now triggers the macOS Photos permission prompt
       (copy: "FilesNest reads your photo and video originals to back them up to your server.").
-- [ ] Grant access.
+- [x] Grant access.
 
 ## Real sync
-- [ ] Sync Now uploads real originals: the ring advances, and the current-item strip shows
+- [x] Sync Now uploads real originals: the ring advances, and the current-item strip shows
       real filenames (e.g. `IMG_xxxx.HEIC`).
-- [ ] On completion the panel returns to "watching" with a "last synced" timestamp.
-- [ ] Server side: uploaded files appear under the user's `year/month/day` tree.
-- [ ] A **Live Photo** produces two server records sharing a `bundleID` (the `#photo`
+- [x] On completion the panel returns to "watching" with a "last synced" timestamp.
+- [x] Server side: uploaded files appear under the user's `year/month/day` tree.
+- [x] A **Live Photo** produces two server records sharing a `bundleID` (the `#photo`
       and `#pairedVideo` resources).
-- [ ] Running Sync Now again with no new photos completes quickly with no new uploads
+- [x] Running Sync Now again with no new photos completes quickly with no new uploads
       (already-in-sync → skipped).
 
 ## Failure paths
-- [ ] Deny Photos access (reset via `tccutil reset Photos <bundle-id>` or System Settings),
+- [x] Deny Photos access (reset via `tccutil reset Photos <bundle-id>` or System Settings),
       Sync Now → panel shows an error state (not a crash).
-- [ ] Clear the server URL/creds → Sync Now → panel shows signed-out / error (not a crash).
+- [x] Clear the server URL/creds → Sync Now → panel shows signed-out / error (not a crash).
 
 ## Notes
 - `bytesRemaining` is intentionally `nil` (PhotoKit doesn't expose resource size publicly),
@@ -661,7 +661,7 @@ The PhotoKit enumeration adapter (`PhotosAssetLibrary`) is untestable in `swift 
   to the target; the usage string alone is already present.
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apple/macos/FilesNest/FilesNest/PhotosAssetLibrary.swift \
@@ -670,7 +670,7 @@ git add apple/macos/FilesNest/FilesNest/PhotosAssetLibrary.swift \
 git commit -m "feat: PhotoKit PhotosAssetLibrary + wire real Sync Now into the app"
 ```
 
-- [ ] **Step 6: Perform the manual verification**
+- [x] **Step 6: Perform the manual verification**
 
 Work through `docs/plans/20260726-photos-library-real-syncnow-verification.md` against a live server and check off each item. Record the outcome in the PR description.
 

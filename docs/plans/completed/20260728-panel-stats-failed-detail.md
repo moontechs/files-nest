@@ -38,7 +38,7 @@ Add a human-readable `filename` to `FailedItem` so the failed-items list can sho
 - Consumes: `PlannedUpload.resource.filename`, `PlannedDelete.key.encoded`, existing `SyncCoordinatorTests` harness (`makeCoordinator`, `FakeServer`, `resource(_:)` whose filename is `"IMG.jpg"`).
 - Produces: `FailedItem(key: ResourceKey, filename: String, reason: String)`. Upload failures set `filename = resource.filename`; delete failures set `filename = key.encoded`.
 
-- [ ] **Step 1: Extend the failing tests to assert filename**
+- [x] **Step 1: Extend the failing tests to assert filename**
 
 In `apple/FilesNestCore/Tests/FilesNestCoreTests/SyncCoordinatorTests.swift`, find `failedItemIsRecordedAndSyncContinues()` and add, after the existing `#expect(Set(report.failed.map { $0.key.localIdentifier }) == ["A", "B"])` line:
 
@@ -52,12 +52,12 @@ Find `failedDeleteIsRecordedAndOthersContinue()` and add, after `#expect(report.
         #expect(report.failed.map(\.filename) == ["GONE1#photo"])
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd apple/FilesNestCore && swift test --filter SyncCoordinatorTests 2>&1 | tail -20`
 Expected: **compile failure** — `FailedItem` has no member `filename`.
 
-- [ ] **Step 3: Add `filename` to `FailedItem`**
+- [x] **Step 3: Add `filename` to `FailedItem`**
 
 In `apple/FilesNestCore/Sources/FilesNestCore/SyncReport.swift`, replace the `FailedItem` struct with:
 
@@ -75,7 +75,7 @@ public struct FailedItem: Sendable, Equatable {
 }
 ```
 
-- [ ] **Step 4: Populate `filename` at both coordinator failure sites**
+- [x] **Step 4: Populate `filename` at both coordinator failure sites**
 
 In `apple/FilesNestCore/Sources/FilesNestCore/SyncCoordinator.swift`, replace the upload-failure line:
 
@@ -105,7 +105,7 @@ with:
                                          reason: String(describing: error)))
 ```
 
-- [ ] **Step 5: Fix the `LiveSyncEngineTests` call site so the suite compiles**
+- [x] **Step 5: Fix the `LiveSyncEngineTests` call site so the suite compiles**
 
 In `apple/FilesNestCore/Tests/FilesNestCoreTests/LiveSyncEngineTests.swift`, in `partialFailuresStillEndWatching()`, replace:
 
@@ -119,12 +119,12 @@ with:
             SyncReport(uploaded: [], deleted: [], failed: [FailedItem(key: key, filename: "X.jpg", reason: "boom")], skipped: 0)
 ```
 
-- [ ] **Step 6: Run the full Core suite to verify pass**
+- [x] **Step 6: Run the full Core suite to verify pass**
 
 Run: `cd apple/FilesNestCore && swift test 2>&1 | tail -6`
 Expected: all pass, zero warnings.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/SyncReport.swift \
@@ -151,7 +151,7 @@ Add the summary value type and a parallel stream on `SyncEngine`. `LiveSyncEngin
 - Consumes: `SyncReport.skipped`, `SyncReport.uploaded`, `SyncReport.failed`, `FailedItem` (with `filename` from Task 1).
 - Produces: `SyncSummary(backedUp: Int, failed: [FailedItem])` + `SyncSummary.empty`; `SyncEngine.summaryStream() -> AsyncStream<SyncSummary>` (yields current summary first, then each change). `LiveSyncEngine` publishes `SyncSummary(backedUp: report.skipped + report.uploaded.count, failed: report.failed)` after each successful sync.
 
-- [ ] **Step 1: Write the failing summary tests**
+- [x] **Step 1: Write the failing summary tests**
 
 Append to `apple/FilesNestCore/Tests/FilesNestCoreTests/LiveSyncEngineTests.swift` (inside the `LiveSyncEngineTests` struct, after the last `@Test`):
 
@@ -183,12 +183,12 @@ Append to `apple/FilesNestCore/Tests/FilesNestCoreTests/LiveSyncEngineTests.swif
     }
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd apple/FilesNestCore && swift test --filter LiveSyncEngineTests 2>&1 | tail -20`
 Expected: **compile failure** — `SyncSummary` unknown / `summaryStream` not a member of `SyncEngine`.
 
-- [ ] **Step 3: Add the `SyncSummary` type**
+- [x] **Step 3: Add the `SyncSummary` type**
 
 Create `apple/FilesNestCore/Sources/FilesNestCore/SyncSummary.swift`:
 
@@ -211,7 +211,7 @@ public struct SyncSummary: Sendable, Equatable {
 }
 ```
 
-- [ ] **Step 4: Add `summaryStream()` to the protocol**
+- [x] **Step 4: Add `summaryStream()` to the protocol**
 
 In `apple/FilesNestCore/Sources/FilesNestCore/SyncEngine.swift`, add the method inside the protocol, after `statusStream()`:
 
@@ -221,7 +221,7 @@ In `apple/FilesNestCore/Sources/FilesNestCore/SyncEngine.swift`, add the method 
     func summaryStream() -> AsyncStream<SyncSummary>
 ```
 
-- [ ] **Step 5: Implement in `LiveSyncEngine`**
+- [x] **Step 5: Implement in `LiveSyncEngine`**
 
 In `apple/FilesNestCore/Sources/FilesNestCore/LiveSyncEngine.swift`:
 
@@ -280,7 +280,7 @@ with:
             set(.watching(lastSync: lastSync))
 ```
 
-- [ ] **Step 6: Implement in `StubSyncEngine`**
+- [x] **Step 6: Implement in `StubSyncEngine`**
 
 In `apple/FilesNestCore/Sources/FilesNestCore/StubSyncEngine.swift`:
 
@@ -332,12 +332,12 @@ with:
     }
 ```
 
-- [ ] **Step 7: Run the summary tests + full suite**
+- [x] **Step 7: Run the summary tests + full suite**
 
 Run: `cd apple/FilesNestCore && swift test 2>&1 | tail -8`
 Expected: all pass (incl. `summaryStartsEmpty`, `summaryPublishedAfterSync`), zero warnings.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/SyncSummary.swift \
@@ -364,7 +364,7 @@ Bind the tiles to real data, make the Failed tile open a slide-in list, and docu
 - Consumes: `SyncEngine.summaryStream()`, `SyncSummary`, `FailedItem` (`key`, `filename`, `reason`), `SyncStatus`, existing `PanelView` slide infra (`slide`, `showingSettings`), `SettingsView` pattern.
 - Produces: `AppModel.summary: SyncSummary`; `FailedItemsView(items:onDone:)`.
 
-- [ ] **Step 1: Publish `summary` from `AppModel`**
+- [x] **Step 1: Publish `summary` from `AppModel`**
 
 In `apple/macos/FilesNest/FilesNest/AppModel.swift`, add a published property after the `status` line:
 
@@ -386,7 +386,7 @@ In `begin()`, inside the `guard streamTask == nil` block (after the existing `st
         }
 ```
 
-- [ ] **Step 2: Replace the hardcoded tiles in `PanelView`**
+- [x] **Step 2: Replace the hardcoded tiles in `PanelView`**
 
 In `apple/macos/FilesNest/FilesNest/PanelView.swift`, replace the `tiles` computed property:
 
@@ -441,7 +441,7 @@ with (Pending is live-during-sync, 0 at rest — design §4.3):
     }
 ```
 
-- [ ] **Step 3: Add the `showingFailed` state and slide branch**
+- [x] **Step 3: Add the `showingFailed` state and slide branch**
 
 In `PanelView`, add next to `@State private var showingSettings = false`:
 
@@ -488,7 +488,7 @@ with:
         .animation(slide, value: showingFailed)
 ```
 
-- [ ] **Step 4: Create `FailedItemsView`**
+- [x] **Step 4: Create `FailedItemsView`**
 
 Create `apple/macos/FilesNest/FilesNest/FailedItemsView.swift`:
 
@@ -532,12 +532,12 @@ struct FailedItemsView: View {
 }
 ```
 
-- [ ] **Step 5: Build the app**
+- [x] **Step 5: Build the app**
 
 Run: `cd apple/macos/FilesNest && xcodebuild -project FilesNest.xcodeproj -scheme FilesNest -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -iE "error:|BUILD SUCCEEDED|BUILD FAILED" | head`
 Expected: **BUILD SUCCEEDED** (the new file is auto-included via the file-system-synchronized group).
 
-- [ ] **Step 6: Write the manual verification checklist**
+- [x] **Step 6: Write the manual verification checklist**
 
 Create `docs/plans/20260728-panel-stats-failed-detail-verification.md`:
 
@@ -547,20 +547,20 @@ Create `docs/plans/20260728-panel-stats-failed-detail-verification.md`:
 SwiftUI panel behavior is manual-verify. Run the dev-signed app (Cmd+R) against a live server.
 
 ## Tiles
-- [ ] Signed out: Backed up and Pending show "—"; Failed shows "0" and is not tappable.
-- [ ] After Sign in + a successful Sync Now: Backed up shows the synced count, Pending is 0 at rest, Failed is 0.
-- [ ] During a sync: Pending counts down (total − completed) alongside the ring; it returns to 0 when done.
+- [x] Signed out: Backed up and Pending show "—"; Failed shows "0" and is not tappable.
+- [x] After Sign in + a successful Sync Now: Backed up shows the synced count, Pending is 0 at rest, Failed is 0.
+- [x] During a sync: Pending counts down (total − completed) alongside the ring; it returns to 0 when done.
 
 ## Failed items
-- [ ] Induce a failure if feasible (e.g. revoke access to one asset, or point at a server that rejects one item). Failed tile turns orange and becomes tappable.
-- [ ] Tap Failed → slides to "Failed items" showing each filename + reason.
-- [ ] Back returns to the dashboard with the left/right slide.
+- [x] Induce a failure if feasible (e.g. revoke access to one asset, or point at a server that rejects one item). Failed tile turns orange and becomes tappable.
+- [x] Tap Failed → slides to "Failed items" showing each filename + reason.
+- [x] Back returns to the dashboard with the left/right slide.
 
 ## Regression
-- [ ] Settings slide still works (Settings ⇄ dashboard) and is unaffected by the new Failed slide.
+- [x] Settings slide still works (Settings ⇄ dashboard) and is unaffected by the new Failed slide.
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apple/macos/FilesNest/FilesNest/AppModel.swift \
@@ -570,7 +570,7 @@ git add apple/macos/FilesNest/FilesNest/AppModel.swift \
 git commit -m "feat: real panel stat tiles + failed-items slide-in view"
 ```
 
-- [ ] **Step 8: Perform the manual verification**
+- [x] **Step 8: Perform the manual verification**
 
 Work through `docs/plans/20260728-panel-stats-failed-detail-verification.md` (Cmd+R, dev-signed) and record the outcome in the PR description.
 

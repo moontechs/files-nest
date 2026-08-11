@@ -44,7 +44,7 @@ Add the new case **alongside** `.dates` (adding an enum case does not break the 
 **Interfaces:**
 - Produces: `SyncRange.modifiedSince(Date)`. `SyncPlanner.plan(..., range: .modifiedSince(d))` returns the same uploads as `.all` but `deletes == []`. `PhotosAssetLibrary` filters `modificationDate >= d`.
 
-- [ ] **Step 1: Write the failing planner tests**
+- [x] **Step 1: Write the failing planner tests**
 
 In `SyncPlannerTests.swift`, add (near the range-scoping tests):
 
@@ -66,7 +66,7 @@ In `SyncPlannerTests.swift`, add (near the range-scoping tests):
     }
 ```
 
-- [ ] **Step 2: Add the enum case**
+- [x] **Step 2: Add the enum case**
 
 In `SyncRange.swift`:
 
@@ -78,12 +78,12 @@ public enum SyncRange: Sendable, Equatable {
 }
 ```
 
-- [ ] **Step 3: Run tests to verify they fail to compile / fail**
+- [x] **Step 3: Run tests to verify they fail to compile / fail**
 
 Run: `cd apple/FilesNestCore && swift test --filter modifiedSince`
 Expected: FAIL (planner does not yet special-case `.modifiedSince`; the delete side would treat the absent record like `.all` and delete it → `modifiedSinceUploadsMissingButNeverDeletes` fails).
 
-- [ ] **Step 4: Handle `.modifiedSince` in the planner**
+- [x] **Step 4: Handle `.modifiedSince` in the planner**
 
 In `SyncPlanner.swift`, replace the delete-side block. Current:
 
@@ -131,7 +131,7 @@ Change to (incremental produces no deletes; `.dates` scoping preserved for now):
         }
 ```
 
-- [ ] **Step 5: Add the `.modifiedSince` predicate to the adapter**
+- [x] **Step 5: Add the `.modifiedSince` predicate to the adapter**
 
 In `PhotosAssetLibrary.swift`, extend the range→predicate mapping. Current:
 
@@ -153,14 +153,14 @@ Change to:
                     }
 ```
 
-- [ ] **Step 6: Run planner tests + full Core suite + app build**
+- [x] **Step 6: Run planner tests + full Core suite + app build**
 
 Run: `cd apple/FilesNestCore && swift test`
 Expected: PASS (new `.modifiedSince` tests pass; all existing tests still pass — `.dates` untouched).
 Run: `xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build`
 Expected: BUILD SUCCEEDED.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/SyncRange.swift \
@@ -185,7 +185,7 @@ The count must be able to scan a windowed range. Give `assess` a `SyncRange` par
 - Consumes: `SyncRange.modifiedSince` (Task 1).
 - Produces: `assess: (@Sendable (SyncRange, AssessProgress) async throws -> Assessment)?`; `beginCounting(gen:range:)`. Callers pass `.all` (Task 3 threads real ranges).
 
-- [ ] **Step 1: Change the `assess` seam type**
+- [x] **Step 1: Change the `assess` seam type**
 
 In `LiveSyncEngine.swift`, the stored property (line ~47):
 
@@ -199,7 +199,7 @@ and the `init` parameter (line ~74):
                 assess: (@Sendable (_ range: SyncRange, _ progress: AssessProgress) async throws -> Assessment)? = nil,
 ```
 
-- [ ] **Step 2: Thread a range through `beginCounting`**
+- [x] **Step 2: Thread a range through `beginCounting`**
 
 Change `beginCounting(gen:)` to `beginCounting(gen:range:)`:
 
@@ -222,7 +222,7 @@ Change `beginCounting(gen:)` to `beginCounting(gen:range:)`:
 
 And in `startIdleCount`, pass `.all` for now (line ~294): `beginCounting(gen: generation, range: .all)`.
 
-- [ ] **Step 3: Update the composition-root `assess` closure**
+- [x] **Step 3: Update the composition-root `assess` closure**
 
 In `FilesNestApp.swift`, change the `assess` closure to take `range` and use it for the scan, preserving the full `resourceTotal` for windowed scans. Current opens `assess: { progress in` and does `let scan = try await library.resources(in: .all, onProgress: progress.report)`. Change the signature and the two range-dependent lines:
 
@@ -256,7 +256,7 @@ In `FilesNestApp.swift`, change the `assess` closure to take `range` and use it 
 
 (The signed-out early-return keeps `resourceTotal: scan.count` — signed-out is only reached with `.all` in practice, and there is no prior server truth to preserve.)
 
-- [ ] **Step 4: Migrate every test `assess` closure to the two-arg form**
+- [x] **Step 4: Migrate every test `assess` closure to the two-arg form**
 
 In `LiveSyncEngineTests.swift`, every `assess:` closure gains a leading range parameter (unused). Apply mechanically:
 - `assess: { _ in` → `assess: { _, _ in`
@@ -265,14 +265,14 @@ In `LiveSyncEngineTests.swift`, every `assess:` closure gains a leading range pa
 
 There are ~18 occurrences (the `grep -n "assess: {"` sites). None use the range yet.
 
-- [ ] **Step 5: Run full Core suite + app build**
+- [x] **Step 5: Run full Core suite + app build**
 
 Run: `cd apple/FilesNestCore && swift test`
 Expected: PASS — identical behavior; every count still scans `.all`.
 Run: `xcodebuild ... build`
 Expected: BUILD SUCCEEDED.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/LiveSyncEngine.swift \
@@ -295,7 +295,7 @@ Now wire the actual behavior: change-triggered cycles run incremental; launch/re
 - Consumes: `beginCounting(gen:range:)` (Task 2), `incrementalRange()`.
 - Produces: `autoSyncRange: SyncRange?` (replaces `autoSyncAfterCount`); `startIdleCount(range:autoSync:)`; `doSyncNow(range:)`; `currentSyncRange`; `incrementalRange()`. Change cycles use `.modifiedSince(lastSyncStarted − 60s)`; launch/restart/syncNow use `.all`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `LiveSyncEngineTests.swift`:
 
@@ -371,14 +371,14 @@ actor RangeBox {
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `cd apple/FilesNestCore && swift test --filter manualSyncNowUsesAll`
 Expected: PASS already (syncNow is `.all` today) — this one guards against regressions.
 Run: `cd apple/FilesNestCore && swift test --filter libraryChangeUsesModifiedSinceLaunchUsesAll`
 Expected: FAIL — the change cycle currently scans `.all` (recorded ranges are `.all`, not `.modifiedSince`). `incrementalSyncKeepsWholeLibraryBackedUp` hangs/times out (backedUp collapses to 1, never reaches 63001) — kill it after it stalls; the stall is the failure.
 
-- [ ] **Step 3: Replace `autoSyncAfterCount` with `autoSyncRange`**
+- [x] **Step 3: Replace `autoSyncAfterCount` with `autoSyncRange`**
 
 In `LiveSyncEngine.swift`:
 
@@ -391,7 +391,7 @@ Property (line ~58):
 
 (Delete the `autoSyncAfterCount` line.)
 
-- [ ] **Step 4: Add `incrementalRange()` + the margin, and range-aware `startIdleCount`**
+- [x] **Step 4: Add `incrementalRange()` + the margin, and range-aware `startIdleCount`**
 
 Add near `startIdleCount` (and its margin constant):
 
@@ -418,7 +418,7 @@ Change `startIdleCount` to carry the range:
     }
 ```
 
-- [ ] **Step 5: Range-aware `doSyncNow`**
+- [x] **Step 5: Range-aware `doSyncNow`**
 
 Change `doSyncNow()` to take a range, pass it to `perform`, and record it:
 
@@ -446,7 +446,7 @@ Change `doSyncNow()` to take a range, pass it to `perform`, and record it:
     }
 ```
 
-- [ ] **Step 6: Range-aware `finishSync`**
+- [x] **Step 6: Range-aware `finishSync`**
 
 Replace the `backedUp` derivation in `finishSync`:
 
@@ -464,7 +464,7 @@ Replace the `backedUp` derivation in `finishSync`:
         drainPendingChangeIfAny()
 ```
 
-- [ ] **Step 7: Wire the call sites**
+- [x] **Step 7: Wire the call sites**
 
 Update the handler and callers:
 
@@ -483,7 +483,7 @@ Update the handler and callers:
 - `doStart` idle branch: paused → `startIdleCount(range: .all, autoSync: false)`; else → `startIdleCount(range: .all, autoSync: true)`
 - `doStart` signed-out branch: replace `autoSyncAfterCount = false` with `autoSyncRange = nil`
 
-- [ ] **Step 8: Run the new tests, then the full suite ×3**
+- [x] **Step 8: Run the new tests, then the full suite ×3**
 
 Run: `cd apple/FilesNestCore && swift test --filter "libraryChangeUsesModifiedSinceLaunchUsesAll"`
 then `--filter incrementalSyncKeepsWholeLibraryBackedUp`, `--filter manualSyncNowUsesAll`
@@ -491,7 +491,7 @@ Expected: PASS all.
 Run: `cd apple/FilesNestCore && swift test && swift test && swift test`
 Expected: PASS (203 prior + 3 new = 206), 3× clean. Existing `.all` finishSync tests (`summaryReflectsReportAfterSync`, `pendingAfterSyncCountsUploadFailuresOnly`) still pass — `.all` sourcing unchanged.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/LiveSyncEngine.swift \
@@ -510,7 +510,7 @@ git commit -m "Incremental range: change cycles run .modifiedSince; range-aware 
 - Modify: `apple/macos/FilesNest/FilesNest/PhotosAssetLibrary.swift`
 - Modify tests: `SyncValueTypeTests`, `CachingAssetLibraryTests`, `SyncCoordinatorTests`, `SyncPlannerTests`
 
-- [ ] **Step 1: Migrate the mechanical `.dates` test references to `.modifiedSince`**
+- [x] **Step 1: Migrate the mechanical `.dates` test references to `.modifiedSince`**
 
 - `SyncValueTypeTests.swift` `syncRangeEquatable`:
 
@@ -536,7 +536,7 @@ git commit -m "Incremental range: change cycles run .modifiedSince; range-aware 
           #expect(lib.requestedRanges == [.modifiedSince(since)])
   ```
 
-- [ ] **Step 2: Retire the `.dates`-specific planner + coordinator delete-scoping tests**
+- [x] **Step 2: Retire the `.dates`-specific planner + coordinator delete-scoping tests**
 
 These test creationDate within-window deletes, which no longer exist (`.modifiedSince` is upload-only; Task 1 already covers "no deletes"). In `SyncPlannerTests.swift` delete the three tests `datesRangeDoesNotDeleteRecordsOutsideWindow`, `datesRangeDeletesRecordsInsideWindow`, `datesRangeEndpointsAreInclusive`. Rewrite `nilCreationDateNeverDeletedUnderDatesButDeletedUnderAll` to keep only the `.all` assertion:
 
@@ -565,7 +565,7 @@ In `SyncCoordinatorTests.swift` rewrite `januarySyncDoesNotDeleteFebruaryBackup`
     }
 ```
 
-- [ ] **Step 3: Remove the `.dates` case and its handlers**
+- [x] **Step 3: Remove the `.dates` case and its handlers**
 
 - `SyncRange.swift`: delete `case dates(ClosedRange<Date>)`.
 - `SyncPlanner.swift`: in the delete side, remove the `if case .dates(let window) = range { … }` guard, and simplify the `else` to `if case .all = range`:
@@ -596,14 +596,14 @@ In `SyncCoordinatorTests.swift` rewrite `januarySyncDoesNotDeleteFebruaryBackup`
   ```
 - `LiveSyncEngine.swift` `finishSync`: the switch `case .dates, .modifiedSince:` becomes `case .modifiedSince:` (now exhaustive with `.all`).
 
-- [ ] **Step 4: Run full Core suite ×3 + app build**
+- [x] **Step 4: Run full Core suite ×3 + app build**
 
 Run: `cd apple/FilesNestCore && swift test && swift test && swift test`
 Expected: PASS, 3× clean (no remaining `.dates` references; `grep -rn "\.dates(" apple` returns nothing).
 Run: `xcodebuild ... build`
 Expected: BUILD SUCCEEDED.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apple/FilesNestCore/Sources/FilesNestCore/SyncRange.swift \
@@ -624,7 +624,7 @@ git commit -m "Incremental range: remove the dead creationDate-based .dates case
 **Files:**
 - Create: `docs/plans/20260801-incremental-modified-since-verification.md`
 
-- [ ] **Step 1: Write the checklist**
+- [x] **Step 1: Write the checklist**
 
 Create `docs/plans/20260801-incremental-modified-since-verification.md`:
 
@@ -635,29 +635,29 @@ Prereqs: signed in; a **Limited Photos Library** (~10 selected) backed up to a
 steady state (Pending 0, Watching). Watch the `🟢 FN library:` console log for the
 range on each enumeration (`enumeration start (range=…)`).
 
-- [ ] **Add a recent photo** to the selected set. The change enumeration logs
+- [x] **Add a recent photo** to the selected set. The change enumeration logs
       `range=modifiedSince(…)` (not `.all`), counts + syncs it, Backed-up +1.
-- [ ] **Add a photo with an OLD capture date** (import/AirDrop something taken long
+- [x] **Add a photo with an OLD capture date** (import/AirDrop something taken long
       ago into the selected set). It is still caught — the window is on
       modificationDate, not creationDate — and backs up.
-- [ ] **Edit an existing photo** (crop/adjust). Its modificationDate bumps → the
+- [x] **Edit an existing photo** (crop/adjust). Its modificationDate bumps → the
       incremental cycle re-uploads it.
-- [ ] **Delete a backed-up photo** from the selection. The incremental cycle does
+- [x] **Delete a backed-up photo** from the selection. The incremental cycle does
       NOT remove the server record (upload-only). Relaunch the app → the launch
       `.all` (`range=all` in the log) reconciles and deletes the server record.
-- [ ] **Launch** always logs `range=all`; **Sync Now** always logs `range=all`.
-- [ ] Backed-up / Pending tiles stay whole-library correct across incremental
+- [x] **Launch** always logs `range=all`; **Sync Now** always logs `range=all`.
+- [x] Backed-up / Pending tiles stay whole-library correct across incremental
       cycles (they do not collapse to a small window count).
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/plans/20260801-incremental-modified-since-verification.md
 git commit -m "Incremental range: manual-verify checklist"
 ```
 
-- [ ] **Step 3: Perform the manual verification**
+- [x] **Step 3: Perform the manual verification**
 
 Run the app against a Limited Photos Library and walk the checklist, recording any surprises before opening the PR.
 
