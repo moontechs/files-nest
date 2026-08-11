@@ -139,15 +139,15 @@ from the embedded `*httptest.ResponseRecorder`.
 
 ### Task 2: Verify acceptance criteria
 
-- [ ] verify all three call sites (`CreateUpload`, `ForwardPatch`,
+- [x] verify all three call sites (`CreateUpload`, `ForwardPatch`,
       `TerminateOrCleanup`) use `newTusdRecorder()` — `grep -n
       "httptest.NewRecorder" server/internal/uploadbackend/tushandler.go`
       returns no matches outside the new constructor itself
-- [ ] verify no other file in the repo constructs a tusd-facing recorder
+- [x] verify no other file in the repo constructs a tusd-facing recorder
       directly — `grep -rn "handler.PostFile\|handler.PatchFile\|handler.DelFile"
       server/` to confirm `tushandler.go` is the only caller
-- [ ] run full test suite: `cd server && go test ./...`
-- [ ] run `cd server && go vet ./...`
+- [x] run full test suite: `cd server && go test ./...`
+- [x] run `cd server && go vet ./...`
 
 ### Task 3: [Final] Move plan
 
