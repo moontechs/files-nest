@@ -153,7 +153,7 @@ from the embedded `*httptest.ResponseRecorder`.
 
 No doc changes needed — internal adapter, no public API or behavior change.
 
-- [ ] move this plan to `docs/plans/completed/`
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 
