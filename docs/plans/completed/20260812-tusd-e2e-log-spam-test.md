@@ -191,4 +191,4 @@ in-process construction.
 
 No production code or doc changes needed — test-only addition.
 
-- [ ] move this plan to `docs/plans/completed/`
+- [x] move this plan to `docs/plans/completed/`
