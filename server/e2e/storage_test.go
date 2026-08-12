@@ -59,7 +59,9 @@ func requireDockerStorage(t testing.TB) storageAccess {
 
 	composeFile := os.Getenv("E2E_COMPOSE_FILE")
 	if composeFile == "" {
-		composeFile = "docker-compose.e2e.yml"
+		// go test ./e2e/... runs with cwd server/e2e/, one level below
+		// where docker-compose.e2e.yml actually lives (server/).
+		composeFile = "../docker-compose.e2e.yml"
 	}
 
 	service := os.Getenv("E2E_STORAGE_SERVICE")
