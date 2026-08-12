@@ -120,6 +120,22 @@ func (s storageAccess) fileExists(t testing.TB, organizedPath string) bool {
 	return false
 }
 
+// logs returns the full log history of the server container via
+// `docker compose logs`. It is used by the log-spam regression test to
+// assert that the real tusd logger's output (both the ChunkWriteStart
+// positive control and the absence of NetworkTimeoutError) is captured from
+// the running container, mirroring the exec.Command("docker", "compose", ...)
+// pattern used by readFile/fileExists.
+func (s storageAccess) logs(t testing.TB) string {
+	t.Helper()
+
+	cmd := exec.Command("docker", "compose", "-p", s.project, "-f", s.composeFile,
+		"logs", s.service)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "docker compose logs %s: %s", s.service, string(out))
+	return string(out)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
