@@ -4,7 +4,6 @@ package uploadbackend
 
 import (
 	"bytes"
-	"golang.org/x/exp/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/exp/slog"
 
 	"github.com/tus/tusd/v2/pkg/filestore"
 	"github.com/tus/tusd/v2/pkg/handler"
