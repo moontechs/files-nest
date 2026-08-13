@@ -23,6 +23,22 @@ import (
 	"github.com/tus/tusd/v2/pkg/memorylocker"
 )
 
+// tusdRecorder wraps httptest.ResponseRecorder to satisfy the deadline-setting
+// interface http.ResponseController probes for. tusd calls SetReadDeadline/
+// SetWriteDeadline on every body-read tick; ResponseRecorder doesn't implement
+// them, so tusd logs a NetworkTimeoutError WARN on every tick. There is no real
+// deadline to enforce for an in-process call, so these are no-ops.
+type tusdRecorder struct {
+	*httptest.ResponseRecorder
+}
+
+func newTusdRecorder() *tusdRecorder {
+	return &tusdRecorder{ResponseRecorder: httptest.NewRecorder()}
+}
+
+func (r *tusdRecorder) SetReadDeadline(time.Time) error  { return nil }
+func (r *tusdRecorder) SetWriteDeadline(time.Time) error { return nil }
+
 // UploadInfo contains full information about an upload from the backend.
 // This is a project-owned type that isolates callers from tusd's handler.FileInfo.
 type UploadInfo struct {
@@ -99,7 +115,7 @@ func New(storagePath string) (*TUSHandler, error) {
 // is not yet known). The metadata parameter is the raw Upload-Metadata header
 // value, or empty to omit. Returns the tusd upload ID (backend_id).
 func (h *TUSHandler) CreateUpload(metadata string) (backendID string, err error) {
-	rec := httptest.NewRecorder()
+	rec := newTusdRecorder()
 	req, _ := http.NewRequest("POST", "/", nil)
 	req.Header.Set("Tus-Resumable", "1.0.0")
 	req.Header.Set("Upload-Defer-Length", "1")
@@ -110,7 +126,7 @@ func (h *TUSHandler) CreateUpload(metadata string) (backendID string, err error)
 	h.handler.PostFile(rec, req)
 
 	if rec.Code != http.StatusCreated {
-		return "", extractTusdError(rec)
+		return "", extractTusdError(rec.ResponseRecorder)
 	}
 
 	location := rec.Header().Get("Location")
@@ -151,7 +167,7 @@ func (h *TUSHandler) GetOffset(backendID string) (int64, error) {
 // deferred-length uploads to finalize the size). Returns the new offset after
 // the chunk is written, or an error.
 func (h *TUSHandler) ForwardPatch(backendID string, body io.Reader, offset int64, uploadLength string) (newOffset int64, err error) {
-	rec := httptest.NewRecorder()
+	rec := newTusdRecorder()
 	req, _ := http.NewRequest("PATCH", "/"+backendID, body)
 	req.Header.Set("Tus-Resumable", "1.0.0")
 	req.Header.Set("Upload-Offset", strconv.FormatInt(offset, 10))
@@ -163,7 +179,7 @@ func (h *TUSHandler) ForwardPatch(backendID string, body io.Reader, offset int64
 	h.handler.PatchFile(rec, req)
 
 	if rec.Code != http.StatusNoContent {
-		return 0, extractTusdError(rec)
+		return 0, extractTusdError(rec.ResponseRecorder)
 	}
 
 	offsetStr := rec.Header().Get("Upload-Offset")
@@ -260,7 +276,7 @@ func (h *TUSHandler) FilePath(backendID string) (string, error) {
 // clean up), but can use it to branch on whether tusd state existed.
 func (h *TUSHandler) TerminateOrCleanup(backendID string) error {
 	// First, try proper termination through the tusd handler.
-	rec := httptest.NewRecorder()
+	rec := newTusdRecorder()
 	req, _ := http.NewRequest("DELETE", "/"+backendID, nil)
 	req.Header.Set("Tus-Resumable", "1.0.0")
 
@@ -281,7 +297,7 @@ func (h *TUSHandler) TerminateOrCleanup(backendID string) error {
 		}
 		return ErrNotFound
 	default:
-		return extractTusdError(rec)
+		return extractTusdError(rec.ResponseRecorder)
 	}
 }
 
