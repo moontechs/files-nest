@@ -131,11 +131,11 @@ Task 1 measured baseline (golangci-lint v2.12.2, `default: all`, only `wsl`/`gom
 **Files:**
 - Modify: `server/Makefile`
 
-- [ ] add `lint` target running `golangci-lint run ./...`, following existing `## comment` doc-style used by other targets
-- [ ] add `lint-fix` target running `golangci-lint fmt ./... && golangci-lint run --fix ./...`
-- [ ] add both to `.PHONY` and to the `make help` output block
-- [ ] no Go tests needed (Makefile-only); manually run `make lint` and confirm it exits 0
-- [ ] run `make test` - must still pass before task 7
+- [x] add `lint` target running `golangci-lint run ./...`, following existing `## comment` doc-style used by other targets
+- [x] add `lint-fix` target running `golangci-lint fmt ./... && golangci-lint run --fix ./...`
+- [x] add both to `.PHONY` and to the `make help` output block
+- [x] no Go tests needed (Makefile-only); manually run `make lint` and confirm it exits 0
+- [x] run `make test` - must still pass before task 7
 
 ### Task 7: Add pre-commit hook script
 
