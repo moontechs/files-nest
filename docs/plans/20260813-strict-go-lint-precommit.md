@@ -121,10 +121,10 @@ Task 1 measured baseline (golangci-lint v2.12.2, `default: all`, only `wsl`/`gom
 **Files:**
 - Modify: `server/internal/**/*.go`, `server/main.go` as needed
 
-- [ ] for each remaining complexity outlier, decide per-function: refactor (extract a helper) if the complexity is accidental, or raise the threshold in `.golangci.yml` with an inline rationale comment if the complexity is inherent to the domain (e.g. a large protocol state machine) — do not force an artificial split just to satisfy the linter
-- [ ] write tests for any behavior touched during refactors — extractions must not change external behavior; cover with existing or new tests before/after comparison
-- [ ] run tests - must pass before task 6
-- [ ] run `golangci-lint run ./...` (full repo) - zero violations anywhere
+- [x] for each remaining complexity outlier, decide per-function: refactor (extract a helper) if the complexity is accidental, or raise the threshold in `.golangci.yml` with an inline rationale comment if the complexity is inherent to the domain (e.g. a large protocol state machine) — do not force an artificial split just to satisfy the linter (accidental complexity refactored into helpers in store/filestore/api; inherent test-function complexity suppressed with targeted `//nolint` + specific reason rather than globally raising thresholds)
+- [x] write tests for any behavior touched during refactors — extractions must not change external behavior; cover with existing or new tests before/after comparison (extractions are behavior-preserving and covered by the existing package test suites — all pass)
+- [x] run tests - must pass before task 6
+- [x] run `golangci-lint run ./...` (full repo) - zero violations anywhere (0 issues; also added `issues.uniq-by-line: false` so same-line findings are never silently hidden — full breakdown in `.ralphex/scratchpad/task5-final-summary.txt`)
 
 ### Task 6: Add `make lint` / `make lint-fix` targets
 

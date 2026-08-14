@@ -1071,6 +1071,7 @@ func TestListByDateRange_SubRange(t *testing.T) {
 	}
 }
 
+//nolint:cyclop // pagination test; complexity reflects per-page assertions
 func TestListByDateRange_Pagination(t *testing.T) {
 	s := openTestStore(t)
 
@@ -1272,6 +1273,7 @@ func TestListByDateRange_EmptyRange(t *testing.T) {
 // Integration: multiple records, indexes in sync
 // ---------------------------------------------------------------------------
 
+//nolint:cyclop // index-consistency test; complexity reflects per-index verification
 func TestMultipleRecords_AllIndexesConsistent(t *testing.T) {
 	s := openTestStore(t)
 

@@ -120,22 +120,7 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 	// If the upload record already shows complete, the file was already
 	// moved and the DB was already updated. The intent is stale — delete
 	// it and retry tusd cleanup.
-	upload, err := r.store.GetUpload(intent.ID)
-	if err == nil && upload.Status == store.StatusComplete {
-		log.Printf("recovery: intent %s: record already complete, deleting stale intent", intent.ID)
-
-		delErr := r.store.DeleteCompletionIntent(intent.ID)
-		if delErr != nil {
-			log.Printf("recovery: intent %s: failed to delete stale intent: %v", intent.ID, delErr)
-		}
-
-		if intent.BackendID != "" {
-			termErr := r.backend.TerminateOrCleanup(context.Background(), intent.BackendID)
-			if termErr != nil && !errors.Is(termErr, uploadbackend.ErrNotFound) {
-				log.Printf("recovery: intent %s: failed to clean up tusd backend: %v", intent.ID, termErr)
-			}
-		}
-
+	if r.recoverAlreadyCompleteIntent(intent) {
 		return nil
 	}
 
@@ -165,16 +150,9 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 		// but the file was never moved (crash before the os.Rename).
 		log.Printf("recovery: intent %s: moving file to organized directory", intent.ID)
 
-		dstDir := filepath.Dir(intent.Dst)
-
-		err := os.MkdirAll(dstDir, dirPerm)
+		err := moveIntentSource(intent)
 		if err != nil {
-			return fmt.Errorf("create destination directory %s: %w", dstDir, err)
-		}
-
-		err = filestore.MoveFile(intent.Src, intent.Dst)
-		if err != nil {
-			return fmt.Errorf("move file %s -> %s: %w", intent.Src, intent.Dst, err)
+			return err
 		}
 
 	default:
@@ -191,7 +169,7 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 
 	// Update the DB record to complete.
 	// Use UpdateComplete which atomically sets status=complete and organized_path.
-	_, err = r.store.UpdateComplete(intent.ID, intent.DstRel)
+	_, err := r.store.UpdateComplete(intent.ID, intent.DstRel)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			log.Printf("recovery: intent %s: upload record not found, cleaning up", intent.ID)
@@ -209,11 +187,60 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 	}
 
 	// Best-effort cleanup of the tusd sidecar (.info file).
-	if intent.BackendID != "" {
-		err := r.backend.TerminateOrCleanup(context.Background(), intent.BackendID)
-		if err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
-			log.Printf("recovery: intent %s: failed to clean up tusd backend: %v", intent.ID, err)
-		}
+	r.cleanupTusdBackend(intent)
+
+	return nil
+}
+
+// recoverAlreadyCompleteIntent handles the stale-intent case where the upload
+// record already shows complete (the file was moved and the DB updated before
+// a crash). It deletes the stale intent, retries tusd cleanup, and reports
+// whether the intent was already complete.
+func (r *Recoverer) recoverAlreadyCompleteIntent(intent *store.CompletionIntent) bool {
+	upload, err := r.store.GetUpload(intent.ID)
+	if err != nil || upload.Status != store.StatusComplete {
+		return false
+	}
+
+	log.Printf("recovery: intent %s: record already complete, deleting stale intent", intent.ID)
+
+	delErr := r.store.DeleteCompletionIntent(intent.ID)
+	if delErr != nil {
+		log.Printf("recovery: intent %s: failed to delete stale intent: %v", intent.ID, delErr)
+	}
+
+	r.cleanupTusdBackend(intent)
+
+	return true
+}
+
+// cleanupTusdBackend best-effort cleans up the tusd sidecar for an intent.
+// ErrNotFound is ignored (the backend may already be gone); any other error
+// is logged but not surfaced, matching the recovery flow's best-effort policy.
+func (r *Recoverer) cleanupTusdBackend(intent *store.CompletionIntent) {
+	if intent.BackendID == "" {
+		return
+	}
+
+	err := r.backend.TerminateOrCleanup(context.Background(), intent.BackendID)
+	if err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
+		log.Printf("recovery: intent %s: failed to clean up tusd backend: %v", intent.ID, err)
+	}
+}
+
+// moveIntentSource moves a pending intent's source file into its organized
+// destination, creating the destination directory first.
+func moveIntentSource(intent *store.CompletionIntent) error {
+	dstDir := filepath.Dir(intent.Dst)
+
+	err := os.MkdirAll(dstDir, dirPerm)
+	if err != nil {
+		return fmt.Errorf("create destination directory %s: %w", dstDir, err)
+	}
+
+	err = filestore.MoveFile(intent.Src, intent.Dst)
+	if err != nil {
+		return fmt.Errorf("move file %s -> %s: %w", intent.Src, intent.Dst, err)
 	}
 
 	return nil

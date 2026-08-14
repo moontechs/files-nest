@@ -224,69 +224,22 @@ func (s *Store) PutUploadIfAbsent(upload *Upload) (*Upload, bool, error) {
 	)
 
 	err := s.db.Update(func(txn *badger.Txn) error {
-		key := localIndexKey(upload.LocalIdentifier)
-
-		item, err := txn.Get(key)
-		if err == nil {
-			// Record exists for this localIdentifier — return the existing record.
-			err := item.Value(func(val []byte) error {
-				if len(val) > 0 {
-					id := string(val)
-
-					recordItem, err := txn.Get(recordKey(id))
-					if err != nil {
-						if errors.Is(err, badger.ErrKeyNotFound) {
-							// Index inconsistent: local index points to missing record.
-							// Fall through to create-new path.
-							return nil
-						}
-
-						return fmt.Errorf("get existing record for local index: %w", err)
-					}
-
-					var rec Upload
-
-					err = recordItem.Value(func(val2 []byte) error {
-						return json.Unmarshal(val2, &rec)
-					})
-					if err != nil {
-						return fmt.Errorf("unmarshal existing record: %w", err)
-					}
-
-					existing = &rec
-				}
-
-				return nil
-			})
-			if err != nil {
-				return fmt.Errorf("read existing upload value: %w", err)
-			}
-
-			if existing != nil {
-				return nil // return existing, created=false
-			}
-			// Index was inconsistent — fall through to create.
-		} else if !errors.Is(err, badger.ErrKeyNotFound) {
-			return fmt.Errorf("check local index: %w", err)
+		rec, found, loadErr := s.loadExistingUpload(txn, upload.LocalIdentifier)
+		if loadErr != nil {
+			return loadErr
 		}
 
-		// No existing record — create a new one.
-		recordVal, err := json.Marshal(upload)
-		if err != nil {
-			return fmt.Errorf("marshal upload: %w", err)
+		if found {
+			existing = rec
+
+			return nil // return existing, created=false
 		}
 
-		err = txn.Set(recordKey(upload.ID), recordVal)
-		if err != nil {
-			return fmt.Errorf("set record: %w", err)
-		}
-
-		reg := newIndexRegistry()
-		for _, entry := range reg.writeEntries(upload) {
-			err := txn.Set(entry.Key, entry.Value)
-			if err != nil {
-				return fmt.Errorf("set index %s: %w", string(entry.Key), err)
-			}
+		// No existing record (or a local index pointing at a missing record) —
+		// create a new one.
+		writeErr := s.writeNewUpload(txn, upload)
+		if writeErr != nil {
+			return writeErr
 		}
 
 		created = true
@@ -302,6 +255,84 @@ func (s *Store) PutUploadIfAbsent(upload *Upload) (*Upload, bool, error) {
 	}
 
 	return existing, false, nil
+}
+
+// loadExistingUpload resolves the upload record for a local identifier within
+// an open transaction. It reports found=false when no record exists, or when
+// the local index points at a missing record (an inconsistency that callers
+// treat as "create new"). Any other read/unmarshal error is returned.
+func (s *Store) loadExistingUpload(txn *badger.Txn, localIdentifier string) (*Upload, bool, error) {
+	item, err := txn.Get(localIndexKey(localIdentifier))
+	if err != nil {
+		if errors.Is(err, badger.ErrKeyNotFound) {
+			return nil, false, nil
+		}
+
+		return nil, false, fmt.Errorf("check local index: %w", err)
+	}
+
+	var existing *Upload
+
+	err = item.Value(func(val []byte) error {
+		if len(val) == 0 {
+			return nil
+		}
+
+		id := string(val)
+
+		recordItem, err := txn.Get(recordKey(id))
+		if err != nil {
+			if errors.Is(err, badger.ErrKeyNotFound) {
+				// Index inconsistent: local index points to a missing record.
+				// Return not-found so the caller falls through to create-new.
+				return nil
+			}
+
+			return fmt.Errorf("get existing record for local index: %w", err)
+		}
+
+		var rec Upload
+
+		err = recordItem.Value(func(val2 []byte) error {
+			return json.Unmarshal(val2, &rec)
+		})
+		if err != nil {
+			return fmt.Errorf("unmarshal existing record: %w", err)
+		}
+
+		existing = &rec
+
+		return nil
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("read existing upload value: %w", err)
+	}
+
+	return existing, existing != nil, nil
+}
+
+// writeNewUpload persists a new upload record and all of its index entries
+// within an open transaction.
+func (s *Store) writeNewUpload(txn *badger.Txn, upload *Upload) error {
+	recordVal, err := json.Marshal(upload)
+	if err != nil {
+		return fmt.Errorf("marshal upload: %w", err)
+	}
+
+	err = txn.Set(recordKey(upload.ID), recordVal)
+	if err != nil {
+		return fmt.Errorf("set record: %w", err)
+	}
+
+	reg := newIndexRegistry()
+	for _, entry := range reg.writeEntries(upload) {
+		err := txn.Set(entry.Key, entry.Value)
+		if err != nil {
+			return fmt.Errorf("set index %s: %w", string(entry.Key), err)
+		}
+	}
+
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -657,7 +688,9 @@ func (s *Store) ListByStatus(status Status) ([]*Upload, error) {
 //
 // The returned nextCursor is empty when there are no more results.
 // The limit is clamped to [1, 1000]; defaults to 500 if <= 0.
-func (s *Store) ListByDateRange(from, to time.Time, statusFilter Status, limit int, cursor string) ([]*Upload, string, error) {
+func (s *Store) ListByDateRange(
+	fromTime, toTime time.Time, statusFilter Status, limit int, cursor string,
+) ([]*Upload, string, error) {
 	if limit <= 0 {
 		limit = 500
 	}
@@ -666,28 +699,9 @@ func (s *Store) ListByDateRange(from, to time.Time, statusFilter Status, limit i
 		limit = 1000
 	}
 
-	fromStr := from.Format("2006-01-02")
-	toStr := to.Format("2006-01-02")
-
-	// Determine seek key. When a cursor is provided we seek to the last
-	// entry already returned and skip it ONLY if it still exists. If the
-	// cursor entry was deleted between pages, the iterator lands on the
-	// next valid entry, which must not be skipped — otherwise pagination
-	// silently drops one record.
-	var seekKey string
-
-	var cursorKey string // exact key to skip on the first iteration (empty = skip nothing)
-
-	if cursor != "" {
-		cursorBytes, err := base64.RawURLEncoding.DecodeString(cursor)
-		if err != nil {
-			return nil, "", fmt.Errorf("%w: %w", ErrInvalidCursor, err)
-		}
-
-		seekKey = "idx/date/" + string(cursorBytes)
-		cursorKey = seekKey
-	} else {
-		seekKey = "idx/date/" + fromStr
+	seekKey, cursorKey, err := dateRangeSeekKeys(fromTime, cursor)
+	if err != nil {
+		return nil, "", err
 	}
 
 	var (
@@ -695,112 +709,193 @@ func (s *Store) ListByDateRange(from, to time.Time, statusFilter Status, limit i
 		nextCursor string
 	)
 
-	err := s.db.View(func(txn *badger.Txn) error {
-		iter := txn.NewIterator(badger.DefaultIteratorOptions)
-		defer iter.Close()
+	err = s.db.View(func(txn *badger.Txn) error {
+		var scanErr error
 
-		prefix := dateIndexPrefix()
+		uploads, nextCursor, scanErr = s.scanDateRange(txn, seekKey, cursorKey, fromTime, toTime, statusFilter, limit)
 
-		for iter.Seek([]byte(seekKey)); iter.ValidForPrefix(prefix); iter.Next() {
-			key := string(iter.Item().Key())
-
-			// Skip the cursor entry itself (already returned in the previous
-			// page) — but only when it still exists. If it was deleted, the
-			// iterator is now positioned on the next valid entry, which we
-			// must return rather than skip.
-			if cursorKey != "" && key == cursorKey {
-				cursorKey = "" // consume; don't skip subsequent entries
-
-				continue
-			}
-
-			// key format: "idx/date/<YYYY-MM-DD>/<id>"
-			parts := strings.SplitN(key, "/", 4)
-			if len(parts) < 4 {
-				continue
-			}
-
-			dateStr := parts[2]
-
-			// Respect the "to" bound
-			if dateStr > toStr {
-				break
-			}
-
-			if dateStr < fromStr {
-				continue
-			}
-
-			id := parts[3]
-
-			// Load full record
-			item, err := txn.Get(recordKey(id))
-			if err != nil {
-				if errors.Is(err, badger.ErrKeyNotFound) {
-					continue // skip orphaned index entries
-				}
-
-				return fmt.Errorf("load record %s: %w", id, err)
-			}
-
-			var upload Upload
-
-			err = item.Value(func(val []byte) error {
-				return json.Unmarshal(val, &upload)
-			})
-			if err != nil {
-				return fmt.Errorf("unmarshal record %s: %w", id, err)
-			}
-
-			// Apply status filter (empty means no filter)
-			if statusFilter != "" && upload.Status != statusFilter {
-				continue
-			}
-
-			// Post-filter by full timestamp — the date index only has day
-			// precision (YYYY-MM-DD), so a query like "from=2035-07-15T12:00:00Z"
-			// would return all records from July 15 rather than just those after
-			// noon. This refinement compares the stored creation_date (which is
-			// always an RFC3339 or date-only string) against the parsed from/to
-			// time.Time values to enforce the caller's intended time range.
-			creationTime, parseErr := time.Parse(time.RFC3339, upload.CreationDate)
-			if parseErr != nil {
-				creationTime, parseErr = time.Parse(time.RFC3339Nano, upload.CreationDate)
-				if parseErr != nil {
-					creationTime, parseErr = time.Parse("2006-01-02", upload.CreationDate)
-					if parseErr != nil {
-						continue // skip records with unparseable creation dates
-					}
-				}
-			}
-
-			if creationTime.Before(from) || creationTime.After(to) {
-				continue
-			}
-
-			uploads = append(uploads, &upload)
-
-			if len(uploads) >= limit {
-				// Peek ahead: only return a cursor if there is actually a next
-				// item in the iterator. Without this check, when the last page
-				// fills exactly to the limit, the client makes an unnecessary
-				// round-trip that returns an empty page.
-				iter.Next()
-
-				if iter.ValidForPrefix(prefix) {
-					cursorID := dateStr + "/" + id
-					nextCursor = base64.RawURLEncoding.EncodeToString([]byte(cursorID))
-				}
-
-				break
-			}
-		}
-
-		return nil
+		return scanErr
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("list uploads by date range: %w", err)
 	}
 
 	return uploads, nextCursor, nil
+}
+
+// dateRangeSeekKeys computes the iterator seek key and the exact cursor key
+// to skip for cursor-based pagination. An empty cursor seeks to the start of
+// the from-date; a provided cursor seeks to (and, if still present, skips)
+// the last entry already returned.
+func dateRangeSeekKeys(from time.Time, cursor string) (string, string, error) {
+	seekKey := "idx/date/" + from.Format("2006-01-02")
+
+	if cursor == "" {
+		return seekKey, "", nil
+	}
+
+	cursorBytes, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return "", "", fmt.Errorf("%w: %w", ErrInvalidCursor, err)
+	}
+
+	seekKey = "idx/date/" + string(cursorBytes)
+
+	return seekKey, seekKey, nil
+}
+
+// scanDateRange iterates the date index within [from, to] and returns the
+// matching upload records plus the next-page cursor (empty when this page is
+// the last). It runs within a read transaction and skips orphaned index
+// entries whose record no longer exists.
+func (s *Store) scanDateRange(
+	txn *badger.Txn, seekKey, cursorKey string, fromTime, toTime time.Time, statusFilter Status, limit int,
+) ([]*Upload, string, error) {
+	fromStr := fromTime.Format("2006-01-02")
+	toStr := toTime.Format("2006-01-02")
+
+	iter := txn.NewIterator(badger.DefaultIteratorOptions)
+	defer iter.Close()
+
+	prefix := dateIndexPrefix()
+
+	var (
+		uploads    []*Upload
+		nextCursor string
+	)
+
+	for iter.Seek([]byte(seekKey)); iter.ValidForPrefix(prefix); iter.Next() {
+		key := string(iter.Item().Key())
+
+		// Skip the cursor entry itself (already returned in the previous
+		// page) — but only when it still exists. If it was deleted, the
+		// iterator is now positioned on the next valid entry, which we
+		// must return rather than skip.
+		if cursorKey != "" && key == cursorKey {
+			cursorKey = "" // consume; don't skip subsequent entries
+
+			continue
+		}
+
+		// key format: "idx/date/<YYYY-MM-DD>/<id>"
+		parts := strings.SplitN(key, "/", 4)
+		if len(parts) < 4 {
+			continue
+		}
+
+		dateStr := parts[2]
+
+		// Respect the "to" bound
+		if dateStr > toStr {
+			break
+		}
+
+		if dateStr < fromStr {
+			continue
+		}
+
+		id := parts[3]
+
+		upload, found, err := s.loadDateRangeRecord(txn, id)
+		if err != nil {
+			return nil, "", err
+		}
+
+		if !found {
+			continue // skip orphaned index entries
+		}
+
+		// Apply status filter (empty means no filter)
+		if statusFilter != "" && upload.Status != statusFilter {
+			continue
+		}
+
+		// Post-filter by full timestamp — the date index only has day
+		// precision (YYYY-MM-DD), so a query like "from=2035-07-15T12:00:00Z"
+		// would return all records from July 15 rather than just those after
+		// noon. This refinement compares the stored creation_date (which is
+		// always an RFC3339 or date-only string) against the parsed from/to
+		// time.Time values to enforce the caller's intended time range.
+		creationTime, ok := parseCreationTime(upload.CreationDate)
+		if !ok {
+			continue // skip records with unparseable creation dates
+		}
+
+		if creationTime.Before(fromTime) || creationTime.After(toTime) {
+			continue
+		}
+
+		uploads = append(uploads, upload)
+
+		if len(uploads) >= limit {
+			nextCursor = nextPageCursor(iter, prefix, dateStr, id)
+
+			break
+		}
+	}
+
+	return uploads, nextCursor, nil
+}
+
+// loadDateRangeRecord loads a single upload record by ID within a read
+// transaction. It reports found=false for orphaned index entries (record
+// missing) so the caller can skip them.
+func (s *Store) loadDateRangeRecord(txn *badger.Txn, id string) (*Upload, bool, error) {
+	item, err := txn.Get(recordKey(id))
+	if err != nil {
+		if errors.Is(err, badger.ErrKeyNotFound) {
+			return nil, false, nil
+		}
+
+		return nil, false, fmt.Errorf("load record %s: %w", id, err)
+	}
+
+	var upload Upload
+
+	err = item.Value(func(val []byte) error {
+		return json.Unmarshal(val, &upload)
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("unmarshal record %s: %w", id, err)
+	}
+
+	return &upload, true, nil
+}
+
+// nextPageCursor peeks at the next iterator entry and returns a base64 cursor
+// for it, or an empty string when there is no next entry. The peek avoids an
+// unnecessary trailing round-trip when the last page fills exactly to the
+// limit.
+func nextPageCursor(iter *badger.Iterator, prefix []byte, dateStr, id string) string {
+	iter.Next()
+
+	if !iter.ValidForPrefix(prefix) {
+		return ""
+	}
+
+	cursorID := dateStr + "/" + id
+
+	return base64.RawURLEncoding.EncodeToString([]byte(cursorID))
+}
+
+// parseCreationTime parses a stored creation_date into a time.Time using the
+// formats the server accepts (RFC3339, RFC3339Nano, then YYYY-MM-DD). The
+// second return value reports whether parsing succeeded.
+func parseCreationTime(creationDate string) (time.Time, bool) {
+	parsed, err := time.Parse(time.RFC3339, creationDate)
+	if err == nil {
+		return parsed, true
+	}
+
+	parsed, err = time.Parse(time.RFC3339Nano, creationDate)
+	if err == nil {
+		return parsed, true
+	}
+
+	parsed, err = time.Parse("2006-01-02", creationDate)
+	if err == nil {
+		return parsed, true
+	}
+
+	return time.Time{}, false
 }

@@ -576,6 +576,7 @@ func TestRecover_Intent_WithTusdCleanup(t *testing.T) {
 // Multiple intents
 // ---------------------------------------------------------------------------
 
+//nolint:cyclop,gocognit // table-driven recovery test; complexity reflects per-scenario coverage
 func TestRecover_MultipleIntents(t *testing.T) {
 	rec, st, storageDir, _ := setupRecovery(t)
 

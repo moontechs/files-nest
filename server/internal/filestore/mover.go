@@ -182,29 +182,7 @@ func (m *Mover) PlanDestination(creationDate, createdAt, filename, backendID str
 	}
 
 	// Parse date into YYYY/MM/DD.
-	var year, month, day string
-
-	t1, err1 := time.Parse(time.RFC3339, dateToUse)
-	if err1 == nil {
-		year = t1.Format("2006")
-		month = t1.Format("01")
-		day = t1.Format("02")
-	} else {
-		t2, err2 := time.Parse("2006-01-02", dateToUse)
-		if err2 == nil {
-			year = t2.Format("2006")
-			month = t2.Format("01")
-			day = t2.Format("02")
-		} else {
-			year = SafePathSegment(dateToUse)
-			if year == "" {
-				year = unknownSegment
-			}
-
-			month = unknownSegment
-			day = unknownSegment
-		}
-	}
+	year, month, day := datePathSegments(dateToUse)
 
 	rel := filepath.Join("organized", year, month, day, filename)
 	abs := filepath.Join(m.storagePath, rel)
@@ -349,21 +327,31 @@ func MoveFile(src, dst string) error {
 		return fmt.Errorf("create destination directory %s: %w", filepath.Dir(dst), err)
 	}
 
-	err = os.Rename(src, dst)
-	if err != nil {
-		if errors.Is(err, syscall.EXDEV) {
-			err = copyFile(src, dst)
-			if err != nil {
-				return fmt.Errorf("copy %s -> %s (cross-device): %w", src, dst, err)
-			}
+	return renameOrCopy(src, dst)
+}
 
-			err = os.Remove(src)
-			if err != nil {
-				return fmt.Errorf("remove source %s after cross-device copy: %w", src, err)
-			}
-		} else {
-			return fmt.Errorf("rename %s -> %s: %w", src, dst, err)
-		}
+// renameOrCopy renames src to dst, falling back to a copy-then-delete on
+// EXDEV (cross-device link). os.Rename fails across filesystem boundaries,
+// which happens when the incoming and organized directories live on
+// different mounts; the copy fallback preserves behavior in that case.
+func renameOrCopy(src, dst string) error {
+	err := os.Rename(src, dst)
+	if err == nil {
+		return nil
+	}
+
+	if !errors.Is(err, syscall.EXDEV) {
+		return fmt.Errorf("rename %s -> %s: %w", src, dst, err)
+	}
+
+	err = copyFile(src, dst)
+	if err != nil {
+		return fmt.Errorf("copy %s -> %s (cross-device): %w", src, dst, err)
+	}
+
+	err = os.Remove(src)
+	if err != nil {
+		return fmt.Errorf("remove source %s after cross-device copy: %w", src, err)
 	}
 
 	return nil
@@ -429,6 +417,29 @@ func copyFile(src, dst string) error {
 	}
 
 	return nil
+}
+
+// datePathSegments converts a date string into the YYYY/MM/DD path segments
+// used by the organized tree. RFC3339 and YYYY-MM-DD values are parsed into
+// their calendar components; anything else falls back to a sanitized single
+// segment with "unknown" month/day placeholders.
+func datePathSegments(dateToUse string) (string, string, string) {
+	t1, err1 := time.Parse(time.RFC3339, dateToUse)
+	if err1 == nil {
+		return t1.Format("2006"), t1.Format("01"), t1.Format("02")
+	}
+
+	t2, err2 := time.Parse("2006-01-02", dateToUse)
+	if err2 == nil {
+		return t2.Format("2006"), t2.Format("01"), t2.Format("02")
+	}
+
+	year := SafePathSegment(dateToUse)
+	if year == "" {
+		year = unknownSegment
+	}
+
+	return year, unknownSegment, unknownSegment
 }
 
 // isParseableDate checks whether a string can be parsed as a standard date

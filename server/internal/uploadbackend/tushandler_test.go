@@ -606,6 +606,7 @@ func TestTUSLargeUploadStress(t *testing.T) {
 // Test: Full lifecycle
 // ---------------------------------------------------------------------------
 
+//nolint:cyclop // full lifecycle test; complexity reflects per-step assertions
 func TestTUSFullUploadLifecycle(t *testing.T) {
 	h, storePath := setupTUSHandler(t)
 

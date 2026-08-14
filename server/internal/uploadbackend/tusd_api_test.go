@@ -644,6 +644,8 @@ func TestUploadTerminationCleanup(t *testing.T) {
 // TestDeferredLengthUpload verifies that creating an upload with
 // Upload-Defer-Length: 1 succeeds, and that the length can be declared later
 // via the Upload-Length header in a PATCH request.
+//
+//nolint:cyclop,funlen // TUS protocol flow test; complexity/statements reflect asserted steps
 func TestDeferredLengthUpload(t *testing.T) {
 	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)

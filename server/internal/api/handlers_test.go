@@ -2361,6 +2361,8 @@ func TestHandlePatchUploadStatus_FileContentPreserved(t *testing.T) {
 // the Mover's organized-tree mutex; without it, both completions could compute
 // the same destination path and the second rename would silently overwrite the
 // first upload's file.
+//
+//nolint:cyclop // comprehensive integration test; complexity reflects scenario/assertion coverage
 func TestHandlePatchUploadStatus_ConcurrentCompletionNoDataLoss(t *testing.T) {
 	h, st, _ := setupHandler(t)
 

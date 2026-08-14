@@ -20,6 +20,10 @@ issues:
   # The v2 defaults (50 / 3) would under-count this repo's real surface ~5x.
   max-issues-per-linter: 0
   max-same-issues: 0
+  # Report every finding even when several land on the same line (e.g. a
+  # function flagged by both cyclop and funlen); the v2 default of true would
+  # silently hide one of them.
+  uniq-by-line: false
 
 linters:
   default: all

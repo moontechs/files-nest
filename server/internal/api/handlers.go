@@ -163,70 +163,9 @@ func writeError(w http.ResponseWriter, status int, message string) {
 // localIdentifier, the tusd upload is terminated and the existing record
 // is returned.
 func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
-	// Limit body size to prevent abuse (256 KB is generous for metadata).
-	r.Body = http.MaxBytesReader(w, r.Body, maxCreateBodyBytes)
-
-	var req createUploadRequest
-
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-
-	err := dec.Decode(&req)
-	if err != nil {
-		var maxBytesErr *http.MaxBytesError
-		if errors.As(err, &maxBytesErr) {
-			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
-
-			return
-		}
-
-		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
-
-		return
-	}
-
-	// Reject trailing data after the JSON value (prevents confusing
-	// "{"local_identifier":"x","filename":"y","creation_date":"z"}extra"
-	// from being silently accepted).
-	var trailing json.RawMessage
-
-	err = dec.Decode(&trailing)
-	if !errors.Is(err, io.EOF) {
-		writeError(w, http.StatusBadRequest, "request body contains trailing data")
-
-		return
-	}
-
-	req = req.normalize()
-
-	// Validate required fields.
-	if req.LocalIdentifier == "" {
-		writeError(w, http.StatusBadRequest, "local_identifier is required")
-
-		return
-	}
-
-	if req.Filename == "" {
-		writeError(w, http.StatusBadRequest, "filename is required")
-
-		return
-	}
-
-	if req.CreationDate == "" {
-		writeError(w, http.StatusBadRequest, "creation_date is required")
-
-		return
-	}
-	// Validate the creation_date format. This is the primary defense against
-	// path traversal via the organized-tree path builder: an untrusted client
-	// could otherwise submit a crafted date (e.g. "../../tmp") that lands the
-	// completed file outside the storage root. Only RFC3339 / RFC3339Nano /
-	// YYYY-MM-DD values are accepted; everything else is rejected with 400.
-	// SafePathSegment in filestore is kept as defense-in-depth for any record
-	// that reaches the path builder through a non-API path.
-	_, err = parseRFC3339(req.CreationDate)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "creation_date must be an RFC3339 timestamp (e.g. 2024-03-15T10:30:00Z)")
+	req, status, msg := decodeCreateUploadRequest(w, r)
+	if status != 0 {
+		writeError(w, status, msg)
 
 		return
 	}
@@ -293,49 +232,75 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !created {
-		// A record already exists for this localIdentifier. If its backend
-		// is gone (backend_lost) or it was deleted, the client needs a fresh
-		// upload: re-register the newly-created tusd backend on the existing
-		// record and reset its status to uploading. Otherwise the upload is
-		// still in progress (or already complete) — return the existing record
-		// idempotently and clean up the redundant tusd upload.
-		switch existing.Status {
-		case store.StatusBackendLost, store.StatusDeleted:
-			reReg, err := h.store.ReRegister(existing.ID, backendID)
-			if err != nil {
-				log.Printf("ReRegister failed for %s: %v", existing.ID, err)
-
-				termErr := h.backend.TerminateOrCleanup(r.Context(), backendID)
-				if termErr != nil {
-					log.Printf("failed to terminate tusd upload %s after re-register failure: %v", backendID, termErr)
-				}
-
-				writeError(w, http.StatusInternalServerError, "failed to re-register upload")
-
-				return
-			}
-
-			writeJSON(w, http.StatusCreated, uploadToResponse(reReg))
-
-			return
-		case store.StatusUploading, store.StatusCompleting, store.StatusComplete:
-			// In progress or complete: return the existing record idempotently.
-		default:
-			// Unknown status: treat like an in-progress upload.
-		}
-
-		termErr := h.backend.TerminateOrCleanup(r.Context(), backendID)
-		if termErr != nil {
-			log.Printf("failed to terminate redundant tusd upload %s: %v", backendID, termErr)
-		}
-
-		writeJSON(w, http.StatusOK, existingToResponse(existing))
+		h.finalizeExistingUpload(w, r, existing, backendID)
 
 		return
 	}
 
 	// Return the newly-created record.
 	writeJSON(w, http.StatusCreated, uploadToResponse(upload))
+}
+
+// decodeCreateUploadRequest parses and validates the POST /uploads request
+// body. On success it returns the normalized request with status 0. On
+// failure it returns the HTTP status code and message for the caller to write.
+func decodeCreateUploadRequest(w http.ResponseWriter, r *http.Request) (createUploadRequest, int, string) {
+	// Limit body size to prevent abuse (256 KB is generous for metadata).
+	r.Body = http.MaxBytesReader(w, r.Body, maxCreateBodyBytes)
+
+	var req createUploadRequest
+
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+
+	err := dec.Decode(&req)
+	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			return req, http.StatusRequestEntityTooLarge, "request body too large"
+		}
+
+		return req, http.StatusBadRequest, "invalid request body: " + err.Error()
+	}
+
+	// Reject trailing data after the JSON value (prevents confusing
+	// "{"local_identifier":"x","filename":"y","creation_date":"z"}extra"
+	// from being silently accepted).
+	var trailing json.RawMessage
+
+	err = dec.Decode(&trailing)
+	if !errors.Is(err, io.EOF) {
+		return req, http.StatusBadRequest, "request body contains trailing data"
+	}
+
+	req = req.normalize()
+
+	// Validate required fields.
+	if req.LocalIdentifier == "" {
+		return req, http.StatusBadRequest, "local_identifier is required"
+	}
+
+	if req.Filename == "" {
+		return req, http.StatusBadRequest, "filename is required"
+	}
+
+	if req.CreationDate == "" {
+		return req, http.StatusBadRequest, "creation_date is required"
+	}
+
+	// Validate the creation_date format. This is the primary defense against
+	// path traversal via the organized-tree path builder: an untrusted client
+	// could otherwise submit a crafted date (e.g. "../../tmp") that lands the
+	// completed file outside the storage root. Only RFC3339 / RFC3339Nano /
+	// YYYY-MM-DD values are accepted; everything else is rejected with 400.
+	// SafePathSegment in filestore is kept as defense-in-depth for any record
+	// that reaches the path builder through a non-API path.
+	_, err = parseRFC3339(req.CreationDate)
+	if err != nil {
+		return req, http.StatusBadRequest, "creation_date must be an RFC3339 timestamp (e.g. 2024-03-15T10:30:00Z)"
+	}
+
+	return req, 0, ""
 }
 
 // StoragePath returns the storage root path used by the handler for
@@ -676,20 +641,7 @@ func (h *Handler) HandlePatchUploadData(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Reject operations on non-uploading records.
-	switch upload.Status {
-	case store.StatusUploading:
-		// OK — proceed.
-	case store.StatusComplete, store.StatusDeleted:
-		writeError(w, http.StatusConflict, "upload already completed or deleted")
-
-		return
-	case store.StatusCompleting, store.StatusBackendLost:
-		writeError(w, http.StatusConflict, "upload not in uploading state")
-
-		return
-	default:
-		writeError(w, http.StatusConflict, "upload not in uploading state")
-
+	if rejectUploadNotUploading(w, upload.Status) {
 		return
 	}
 
@@ -715,55 +667,7 @@ func (h *Handler) HandlePatchUploadData(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Get the current offset from the backend to verify it matches.
-	currentOffset, err := h.backend.GetOffset(r.Context(), upload.BackendID)
-	if err != nil {
-		if errors.Is(err, uploadbackend.ErrNotFound) {
-			h.handleBackendLost(w, r, upload)
-
-			return
-		}
-
-		log.Printf("GetOffset failed for backend %s: %v", upload.BackendID, err)
-		writeError(w, http.StatusInternalServerError, "failed to get upload offset")
-
-		return
-	}
-
-	if requestOffset != currentOffset {
-		writeError(w, http.StatusConflict,
-			fmt.Sprintf("offset mismatch: client=%d, server=%d", requestOffset, currentOffset))
-
-		return
-	}
-
-	// Forward Upload-Length if present (declares final size for deferred-length uploads).
-	uploadLength := r.Header.Get("Upload-Length")
-
-	// Forward the PATCH to the embedded tusd backend.
-	newOffset, err := h.backend.ForwardPatch(r.Context(), upload.BackendID, r.Body, currentOffset, uploadLength)
-	if err != nil {
-		if errors.Is(err, uploadbackend.ErrNotFound) {
-			h.handleBackendLost(w, r, upload)
-
-			return
-		}
-
-		if errors.Is(err, uploadbackend.ErrInvalidOffset) {
-			writeError(w, http.StatusConflict, "offset mismatch")
-
-			return
-		}
-
-		log.Printf("ForwardPatch failed for backend %s: %v", upload.BackendID, err)
-		writeError(w, http.StatusInternalServerError, "failed to write upload data")
-
-		return
-	}
-
-	w.Header().Set("Upload-Offset", strconv.FormatInt(newOffset, 10))
-	w.Header().Set("Tus-Resumable", "1.0.0")
-	w.WriteHeader(http.StatusNoContent)
+	h.forwardUploadData(w, r, upload, requestOffset)
 }
 
 // ---------------------------------------------------------------------------
@@ -795,10 +699,6 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Limit body size to prevent abuse (16 KB is generous for a single-field
-	// JSON body). An unbounded body stream could be used as a DoS vector.
-	r.Body = http.MaxBytesReader(w, r.Body, maxStatusBodyBytes)
-
 	h.locks.Lock(id)
 	defer h.locks.Unlock(id)
 
@@ -817,59 +717,12 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 	}
 
 	// Only allow completion from the uploading state.
-	switch upload.Status {
-	case store.StatusUploading:
-		// OK — proceed to completion below.
-	case store.StatusComplete:
-		writeError(w, http.StatusConflict, "upload already completed")
-
-		return
-	case store.StatusDeleted:
-		writeError(w, http.StatusConflict, "upload already deleted")
-
-		return
-	case store.StatusBackendLost:
-		writeError(w, http.StatusConflict, "backend_lost")
-
-		return
-	case store.StatusCompleting:
-		writeError(w, http.StatusConflict, "upload not in uploading state")
-
-		return
-	default:
-		writeError(w, http.StatusConflict, "upload not in uploading state")
-
+	if rejectUploadCompletionStatus(w, upload.Status) {
 		return
 	}
 
 	// Parse the request body: only {"status": "complete"} is accepted.
-	var req struct {
-		Status string `json:"status"`
-	}
-
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-
-	err = dec.Decode(&req)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-
-		return
-	}
-
-	// Reject trailing data after the JSON value.
-	var trailing json.RawMessage
-
-	err = dec.Decode(&trailing)
-	if !errors.Is(err, io.EOF) {
-		writeError(w, http.StatusBadRequest, "request body contains trailing data")
-
-		return
-	}
-
-	if req.Status != "complete" {
-		writeError(w, http.StatusBadRequest, "status must be 'complete'")
-
+	if !decodeStatusRequest(w, r) {
 		return
 	}
 
@@ -909,103 +762,14 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Compose the destination organized path and move the file.
-	//
-	// The collision check inside PlanDestination (os.Stat) and the rename
-	// inside MoveFile must be atomic with respect to other concurrent
-	// completions for a different upload that shares the same creation date
-	// and filename (e.g. two libraries both exporting IMG_1234.jpg on the
-	// same day). Without serialization each completion could see no file at
-	// the computed path, compute identical destinations, and the second
-	// rename would silently overwrite the first upload's data. The Mover's
-	// organized-tree mutex (held across plan + intent + rename) closes that
-	// TOCTOU window.
-	//
-	// Retry safety: if a previous completion attempt for this upload already
-	// persisted a completion intent, reuse its destination paths verbatim. A
-	// prior attempt may have succeeded in moving the file but failed before
-	// the DB update; recomputing the destination now would see the already-
-	// moved file as a collision and suffix it with the backend_id, producing
-	// a NEW path that does not match where the file actually lives — orphaning
-	// the data and breaking recovery. Reusing the intent's paths keeps retries
-	// consistent with the original attempt and lets MoveFile's idempotency
-	// (src missing + dst present → success) take effect.
-	//
-	// The completion intent is persisted (via saveIntent) BEFORE the rename,
-	// still under the mutex, so a crash between the intent write and the move
-	// remains recoverable on the next startup.
-	saveIntent := func(plan filestore.PlanDestResult) error {
-		intent := &store.CompletionIntent{
-			ID:        upload.ID,
-			BackendID: upload.BackendID,
-			Src:       srcPath,
-			Dst:       plan.Abs,
-			DstRel:    plan.Rel,
-			CreatedAt: time.Now().UTC().Format(time.RFC3339),
-		}
-
-		return h.store.SaveCompletionIntent(intent)
-	}
-
-	var plan filestore.PlanDestResult
-
-	existing, err := h.store.GetCompletionIntent(upload.ID)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		log.Printf("failed to read existing completion intent for %s: %v", upload.ID, err)
-		writeError(w, http.StatusInternalServerError, "failed to prepare completion")
-
+	// Compose the destination organized path and move the file (see
+	// moveCompletedFile for the TOCTOU and retry-safety rationale).
+	plan, ok := h.moveCompletedFile(w, r, upload, srcPath)
+	if !ok {
 		return
 	}
 
-	if existing != nil {
-		existingPlan := filestore.PlanDestResult{Abs: existing.Dst, Rel: existing.DstRel}
-
-		err := h.mover.MoveToPlaned(srcPath, existingPlan, saveIntent)
-		if err != nil {
-			log.Printf("completion move failed for %s: %v", upload.ID, err)
-			writeError(w, http.StatusInternalServerError, "failed to move file")
-
-			return
-		}
-
-		plan = existingPlan
-	} else {
-		planned, err := h.mover.PlanAndMove(
-			srcPath, upload.CreationDate, upload.CreatedAt, upload.Filename, upload.BackendID, saveIntent)
-		if err != nil {
-			log.Printf("completion move failed for %s: %v", upload.ID, err)
-			writeError(w, http.StatusInternalServerError, "failed to move file")
-
-			return
-		}
-
-		plan = planned
-	}
-
-	relPath := plan.Rel
-
-	// Update the DB record to complete with the organized path.
-	_, err = h.store.UpdateComplete(upload.ID, relPath)
-	if err != nil {
-		log.Printf("failed to update status to complete for %s: %v", upload.ID, err)
-		writeError(w, http.StatusInternalServerError, "failed to complete upload")
-
-		return
-	}
-
-	// Delete the completion intent now that the DB is consistent.
-	delErr := h.store.DeleteCompletionIntent(upload.ID)
-	if delErr != nil {
-		log.Printf("failed to delete completion intent for %s: %v", upload.ID, delErr)
-	}
-
-	// Best-effort cleanup of the tusd sidecar (.info file).
-	termErr := h.backend.TerminateOrCleanup(r.Context(), upload.BackendID)
-	if termErr != nil && !errors.Is(termErr, uploadbackend.ErrNotFound) {
-		log.Printf("failed to terminate tusd upload %s after completion: %v", upload.BackendID, termErr)
-	}
-
-	w.WriteHeader(http.StatusNoContent)
+	h.finalizeCompletion(w, r, upload, plan.Rel)
 }
 
 // ---------------------------------------------------------------------------
@@ -1131,10 +895,296 @@ func (h *Handler) handleBackendLost(w http.ResponseWriter, _ *http.Request, uplo
 	writeError(w, http.StatusConflict, "backend_lost")
 }
 
+// finalizeExistingUpload handles the idempotent path when POST /uploads finds
+// an existing record for the same local identifier. If the existing record's
+// backend is gone (backend_lost) or deleted, the newly-created tusd backend
+// is re-registered on the existing record. Otherwise the existing record is
+// returned and the redundant tusd upload is cleaned up.
+func (h *Handler) finalizeExistingUpload(
+	w http.ResponseWriter, r *http.Request, existing *store.Upload, backendID string,
+) {
+	switch existing.Status {
+	case store.StatusBackendLost, store.StatusDeleted:
+		reReg, err := h.store.ReRegister(existing.ID, backendID)
+		if err != nil {
+			log.Printf("ReRegister failed for %s: %v", existing.ID, err)
+
+			termErr := h.backend.TerminateOrCleanup(r.Context(), backendID)
+			if termErr != nil {
+				log.Printf("failed to terminate tusd upload %s after re-register failure: %v", backendID, termErr)
+			}
+
+			writeError(w, http.StatusInternalServerError, "failed to re-register upload")
+
+			return
+		}
+
+		writeJSON(w, http.StatusCreated, uploadToResponse(reReg))
+
+		return
+	case store.StatusUploading, store.StatusCompleting, store.StatusComplete:
+		// In progress or complete: return the existing record idempotently.
+	default:
+		// Unknown status: treat like an in-progress upload.
+	}
+
+	termErr := h.backend.TerminateOrCleanup(r.Context(), backendID)
+	if termErr != nil {
+		log.Printf("failed to terminate redundant tusd upload %s: %v", backendID, termErr)
+	}
+
+	writeJSON(w, http.StatusOK, existingToResponse(existing))
+}
+
+// moveCompletedFile moves a fully-uploaded file from the tusd incoming dir to
+// the organized tree and returns the final organized-path plan.
+//
+// The collision check inside PlanDestination (os.Stat) and the rename inside
+// MoveFile must be atomic with respect to other concurrent completions for a
+// different upload that shares the same creation date and filename (e.g. two
+// libraries both exporting IMG_1234.jpg on the same day). Without
+// serialization each completion could see no file at the computed path,
+// compute identical destinations, and the second rename would silently
+// overwrite the first upload's data. The Mover's organized-tree mutex (held
+// across plan + intent + rename) closes that TOCTOU window.
+//
+// Retry safety: if a previous completion attempt for this upload already
+// persisted a completion intent, reuse its destination paths verbatim. A prior
+// attempt may have succeeded in moving the file but failed before the DB
+// update; recomputing the destination now would see the already-moved file as
+// a collision and suffix it with the backend_id, producing a NEW path that
+// does not match where the file actually lives — orphaning the data and
+// breaking recovery. Reusing the intent's paths keeps retries consistent with
+// the original attempt and lets MoveFile's idempotency (src missing + dst
+// present → success) take effect.
+//
+// The completion intent is persisted (via saveIntent) BEFORE the rename, still
+// under the mutex, so a crash between the intent write and the move remains
+// recoverable on the next startup.
+//
+// The second return value is false when an error response has already been
+// written to w and the caller should stop.
+func (h *Handler) moveCompletedFile(
+	w http.ResponseWriter, _ *http.Request, upload *store.Upload, srcPath string,
+) (filestore.PlanDestResult, bool) {
+	saveIntent := func(plan filestore.PlanDestResult) error {
+		intent := &store.CompletionIntent{
+			ID:        upload.ID,
+			BackendID: upload.BackendID,
+			Src:       srcPath,
+			Dst:       plan.Abs,
+			DstRel:    plan.Rel,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		}
+
+		return h.store.SaveCompletionIntent(intent)
+	}
+
+	var plan filestore.PlanDestResult
+
+	existing, err := h.store.GetCompletionIntent(upload.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		log.Printf("failed to read existing completion intent for %s: %v", upload.ID, err)
+		writeError(w, http.StatusInternalServerError, "failed to prepare completion")
+
+		return plan, false
+	}
+
+	if existing != nil {
+		existingPlan := filestore.PlanDestResult{Abs: existing.Dst, Rel: existing.DstRel}
+
+		moveErr := h.mover.MoveToPlaned(srcPath, existingPlan, saveIntent)
+		if moveErr != nil {
+			log.Printf("completion move failed for %s: %v", upload.ID, moveErr)
+			writeError(w, http.StatusInternalServerError, "failed to move file")
+
+			return plan, false
+		}
+
+		return existingPlan, true
+	}
+
+	planned, err := h.mover.PlanAndMove(
+		srcPath, upload.CreationDate, upload.CreatedAt, upload.Filename, upload.BackendID, saveIntent)
+	if err != nil {
+		log.Printf("completion move failed for %s: %v", upload.ID, err)
+		writeError(w, http.StatusInternalServerError, "failed to move file")
+
+		return plan, false
+	}
+
+	return planned, true
+}
+
+// finalizeCompletion marks the upload complete in the DB with its organized
+// path, deletes the now-redundant completion intent, and best-effort cleans
+// up the tusd sidecar before sending 204 No Content.
+func (h *Handler) finalizeCompletion(w http.ResponseWriter, r *http.Request, upload *store.Upload, relPath string) {
+	_, err := h.store.UpdateComplete(upload.ID, relPath)
+	if err != nil {
+		log.Printf("failed to update status to complete for %s: %v", upload.ID, err)
+		writeError(w, http.StatusInternalServerError, "failed to complete upload")
+
+		return
+	}
+
+	// Delete the completion intent now that the DB is consistent.
+	delErr := h.store.DeleteCompletionIntent(upload.ID)
+	if delErr != nil {
+		log.Printf("failed to delete completion intent for %s: %v", upload.ID, delErr)
+	}
+
+	// Best-effort cleanup of the tusd sidecar (.info file).
+	termErr := h.backend.TerminateOrCleanup(r.Context(), upload.BackendID)
+	if termErr != nil && !errors.Is(termErr, uploadbackend.ErrNotFound) {
+		log.Printf("failed to terminate tusd upload %s after completion: %v", upload.BackendID, termErr)
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// forwardUploadData verifies the client's offset matches the backend's current
+// offset and forwards the PATCH body to the tusd backend, writing the TUS
+// headers and 204 No Content on success.
+func (h *Handler) forwardUploadData(
+	w http.ResponseWriter, r *http.Request, upload *store.Upload, requestOffset int64,
+) {
+	// Get the current offset from the backend to verify it matches.
+	currentOffset, err := h.backend.GetOffset(r.Context(), upload.BackendID)
+	if err != nil {
+		if errors.Is(err, uploadbackend.ErrNotFound) {
+			h.handleBackendLost(w, r, upload)
+
+			return
+		}
+
+		log.Printf("GetOffset failed for backend %s: %v", upload.BackendID, err)
+		writeError(w, http.StatusInternalServerError, "failed to get upload offset")
+
+		return
+	}
+
+	if requestOffset != currentOffset {
+		writeError(w, http.StatusConflict,
+			fmt.Sprintf("offset mismatch: client=%d, server=%d", requestOffset, currentOffset))
+
+		return
+	}
+
+	// Forward Upload-Length if present (declares final size for deferred-length uploads).
+	uploadLength := r.Header.Get("Upload-Length")
+
+	// Forward the PATCH to the embedded tusd backend.
+	newOffset, err := h.backend.ForwardPatch(r.Context(), upload.BackendID, r.Body, currentOffset, uploadLength)
+	if err != nil {
+		if errors.Is(err, uploadbackend.ErrNotFound) {
+			h.handleBackendLost(w, r, upload)
+
+			return
+		}
+
+		if errors.Is(err, uploadbackend.ErrInvalidOffset) {
+			writeError(w, http.StatusConflict, "offset mismatch")
+
+			return
+		}
+
+		log.Printf("ForwardPatch failed for backend %s: %v", upload.BackendID, err)
+		writeError(w, http.StatusInternalServerError, "failed to write upload data")
+
+		return
+	}
+
+	w.Header().Set("Upload-Offset", strconv.FormatInt(newOffset, 10))
+	w.Header().Set("Tus-Resumable", "1.0.0")
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ---------------------------------------------------------------------------
 // extractID extracts the ":id" path parameter from the request.
 // The router is configured with Go 1.22+ ServeMux patterns (e.g.
 // /uploads/{id}/data), so the ID is always available via r.PathValue.
 func extractID(r *http.Request) string {
 	return r.PathValue("id")
+}
+
+// rejectUploadNotUploading writes a 409 Conflict and returns true when the
+// upload status is not StatusUploading (the only state that may receive data).
+func rejectUploadNotUploading(w http.ResponseWriter, status store.Status) bool {
+	if status == store.StatusUploading {
+		return false
+	}
+
+	if status == store.StatusComplete || status == store.StatusDeleted {
+		writeError(w, http.StatusConflict, "upload already completed or deleted")
+
+		return true
+	}
+
+	writeError(w, http.StatusConflict, "upload not in uploading state")
+
+	return true
+}
+
+// rejectUploadCompletionStatus writes a 409 Conflict and returns true when the
+// upload status is not StatusUploading (the only state from which completion
+// is allowed).
+func rejectUploadCompletionStatus(w http.ResponseWriter, status store.Status) bool {
+	switch status {
+	case store.StatusUploading:
+		return false
+	case store.StatusComplete:
+		writeError(w, http.StatusConflict, "upload already completed")
+	case store.StatusDeleted:
+		writeError(w, http.StatusConflict, "upload already deleted")
+	case store.StatusBackendLost:
+		writeError(w, http.StatusConflict, "backend_lost")
+	case store.StatusCompleting:
+		writeError(w, http.StatusConflict, "upload not in uploading state")
+	default:
+		writeError(w, http.StatusConflict, "upload not in uploading state")
+	}
+
+	return true
+}
+
+// decodeStatusRequest parses the PATCH /uploads/:id/status request body,
+// accepting only {"status": "complete"}. It writes the error response and
+// returns false on any validation failure.
+func decodeStatusRequest(w http.ResponseWriter, r *http.Request) bool {
+	// Limit body size to prevent abuse (16 KB is generous for a single-field
+	// JSON body). An unbounded body stream could be used as a DoS vector.
+	r.Body = http.MaxBytesReader(w, r.Body, maxStatusBodyBytes)
+
+	var req struct {
+		Status string `json:"status"`
+	}
+
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+
+	err := dec.Decode(&req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+
+		return false
+	}
+
+	// Reject trailing data after the JSON value.
+	var trailing json.RawMessage
+
+	err = dec.Decode(&trailing)
+	if !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "request body contains trailing data")
+
+		return false
+	}
+
+	if req.Status != "complete" {
+		writeError(w, http.StatusBadRequest, "status must be 'complete'")
+
+		return false
+	}
+
+	return true
 }
