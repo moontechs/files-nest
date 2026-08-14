@@ -149,7 +149,7 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 		// but the file was never moved (crash before the os.Rename).
 		log.Printf("recovery: intent %s: moving file to organized directory", intent.ID)
 		dstDir := filepath.Dir(intent.Dst)
-		if err := os.MkdirAll(dstDir, 0755); err != nil {
+		if err := os.MkdirAll(dstDir, 0o755); err != nil {
 			return fmt.Errorf("create destination directory %s: %w", dstDir, err)
 		}
 		if err := filestore.MoveFile(intent.Src, intent.Dst); err != nil {

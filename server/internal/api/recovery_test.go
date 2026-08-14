@@ -65,10 +65,10 @@ func createIntent(id, src, dst, dstRel, backendID string) *store.CompletionInten
 func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll %s: %v", dir, err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile %s: %v", path, err)
 	}
 }
@@ -841,5 +841,3 @@ func TestRecover_EmptyStore(t *testing.T) {
 		t.Fatalf("Recover on empty store: %v", err)
 	}
 }
-
-

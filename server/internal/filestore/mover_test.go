@@ -26,7 +26,7 @@ func openTestMover(t *testing.T) *filestore.Mover {
 // directories if needed. Returns the absolute path.
 func touchFile(t *testing.T, path string) string {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("MkdirAll %s: %v", filepath.Dir(path), err)
 	}
 	f, err := os.Create(path)
@@ -40,10 +40,10 @@ func touchFile(t *testing.T, path string) string {
 // writeFile writes content to a file at the given path.
 func writeFile(t *testing.T, path string, content []byte) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("MkdirAll %s: %v", filepath.Dir(path), err)
 	}
-	if err := os.WriteFile(path, content, 0644); err != nil {
+	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatalf("WriteFile %s: %v", path, err)
 	}
 }
@@ -155,10 +155,10 @@ func TestOrganizedPath_DifferentDates(t *testing.T) {
 	m := openTestMover(t)
 
 	tests := []struct {
-		date       string
-		filename   string
-		wantRel    string
-		desc       string
+		date     string
+		filename string
+		wantRel  string
+		desc     string
 	}{
 		{
 			date:     "2024-01-01T00:00:00Z",
@@ -396,8 +396,8 @@ func TestMoveFile_MultipleDeduplications(t *testing.T) {
 
 	// All three files should exist and have correct content.
 	for _, tc := range []struct {
-		path    string
-		want    string
+		path string
+		want string
 	}{
 		{result1.Dst, "first"},
 		{result2.Dst, "second"},
@@ -1150,7 +1150,7 @@ func TestRemoveOrganizedFile_PermissionDenied(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat parent dir: %v", err)
 	}
-	if err := os.Chmod(parentDir, 0555); err != nil {
+	if err := os.Chmod(parentDir, 0o555); err != nil {
 		t.Fatalf("Chmod parent dir to 0555: %v", err)
 	}
 	t.Cleanup(func() { os.Chmod(parentDir, origMode.Mode()) })
@@ -1167,7 +1167,7 @@ func TestRemoveOrganizedFile_PermissionDenied(t *testing.T) {
 	assertPathExists(t, absPath)
 
 	// Restore permissions so cleanup can remove the temp dir.
-	os.Chmod(parentDir, 0755)
+	os.Chmod(parentDir, 0o755)
 }
 
 // ---------------------------------------------------------------------------
@@ -1439,7 +1439,7 @@ func TestMoveFileStandalone_IdempotentSrcMissingDstExistsLarge(t *testing.T) {
 	for i := range content {
 		content[i] = byte(i % 256)
 	}
-	if err := os.WriteFile(dst, content, 0644); err != nil {
+	if err := os.WriteFile(dst, content, 0o644); err != nil {
 		t.Fatalf("WriteFile dst: %v", err)
 	}
 

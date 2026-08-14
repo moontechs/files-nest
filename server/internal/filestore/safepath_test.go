@@ -9,15 +9,15 @@ func TestSafePathSegment(t *testing.T) {
 		{"", ""},
 		{".", ""},
 		{"..", ""},
-		{"../etc/passwd", "etc_passwd"},     // leading ".." trimmed, '/' -> '_'
-		{"foo/bar", "foo_bar"},               // '/' -> '_'
-		{"foo\\bar", "foo_bar"},              // backslash -> '_'
-		{"  spaced  ", "spaced"},             // trim spaces
-		{"...dots...", "dots"},               // trim dots
-		{"a\x00b", "ab"},                     // NULL removed
-		{"a\x1Fb", "ab"},                     // control char removed
-		{"正常", "正常"},                       // unicode preserved
-		{"2024-03-15", "2024-03-15"},         // normal date preserved
+		{"../etc/passwd", "etc_passwd"}, // leading ".." trimmed, '/' -> '_'
+		{"foo/bar", "foo_bar"},          // '/' -> '_'
+		{"foo\\bar", "foo_bar"},         // backslash -> '_'
+		{"  spaced  ", "spaced"},        // trim spaces
+		{"...dots...", "dots"},          // trim dots
+		{"a\x00b", "ab"},                // NULL removed
+		{"a\x1Fb", "ab"},                // control char removed
+		{"正常", "正常"},                    // unicode preserved
+		{"2024-03-15", "2024-03-15"},    // normal date preserved
 	}
 	for _, c := range cases {
 		got := SafePathSegment(c.in)

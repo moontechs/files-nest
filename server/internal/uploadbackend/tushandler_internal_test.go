@@ -26,7 +26,7 @@ import (
 // the logger.
 func newTUSHandlerWithLogger(dir string, logger *slog.Logger) (*TUSHandler, error) {
 	incomingPath := filepath.Join(dir, "incoming")
-	if err := os.MkdirAll(incomingPath, 0755); err != nil {
+	if err := os.MkdirAll(incomingPath, 0o755); err != nil {
 		return nil, err
 	}
 

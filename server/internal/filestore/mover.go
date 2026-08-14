@@ -302,7 +302,7 @@ func MoveFile(src, dst string) error {
 		return fmt.Errorf("source %s does not exist and destination %s does not exist either", src, dst)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return fmt.Errorf("create destination directory %s: %w", filepath.Dir(dst), err)
 	}
 

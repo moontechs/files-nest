@@ -252,7 +252,6 @@ func TestDo_Success(t *testing.T) {
 		called = true
 		return nil
 	})
-
 	if err != nil {
 		t.Errorf("Do returned error: %v", err)
 	}

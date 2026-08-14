@@ -15,7 +15,9 @@ type IndexEntry struct {
 //
 // For a Create operation, only WriteEntries is called.
 // For an UpdateStatus operation, DeleteEntries is called with the old record
-//   state, then WriteEntries is called with the new record state.
+//
+//	state, then WriteEntries is called with the new record state.
+//
 // For a Delete operation, only DeleteEntries is called.
 type index interface {
 	// WriteEntries returns index entries that should exist for the given upload.

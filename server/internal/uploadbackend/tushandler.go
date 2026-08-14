@@ -72,7 +72,7 @@ type TUSHandler struct {
 func New(storagePath string) (*TUSHandler, error) {
 	incomingPath := filepath.Join(storagePath, "incoming")
 
-	if err := os.MkdirAll(incomingPath, 0755); err != nil {
+	if err := os.MkdirAll(incomingPath, 0o755); err != nil {
 		return nil, fmt.Errorf("create incoming dir %s: %w", incomingPath, err)
 	}
 

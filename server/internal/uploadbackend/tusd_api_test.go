@@ -1057,9 +1057,9 @@ func TestDisableTermination(t *testing.T) {
 	ml.UseIn(composer)
 
 	h, err := handler.NewHandler(handler.Config{
-		StoreComposer:       composer,
-		BasePath:            "/",
-		DisableTermination:  true,
+		StoreComposer:      composer,
+		BasePath:           "/",
+		DisableTermination: true,
 	})
 	if err != nil {
 		t.Fatalf("failed to create handler with DisableTermination: %v", err)

@@ -2228,11 +2228,11 @@ func TestHandlePatchUploadStatus_MoveFailurePreservesUploading(t *testing.T) {
 	// If we create a file at $storagePath/organized, MkdirAll will fail
 	// trying to create organized/2024/03/15.
 	organizedRoot := filepath.Join(h.StoragePath(), "organized")
-	if err := os.MkdirAll(filepath.Dir(organizedRoot), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(organizedRoot), 0o755); err != nil {
 		t.Fatalf("MkdirAll for organized root: %v", err)
 	}
 	// Write a file in place of the organized directory to force MkdirAll to fail.
-	if err := os.WriteFile(organizedRoot, []byte("not-a-directory"), 0644); err != nil {
+	if err := os.WriteFile(organizedRoot, []byte("not-a-directory"), 0o644); err != nil {
 		t.Fatalf("WriteFile to block organized dir: %v", err)
 	}
 

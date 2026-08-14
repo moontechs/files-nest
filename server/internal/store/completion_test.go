@@ -82,7 +82,7 @@ func TestCompletionIntent_SaveAndGet_AllFields(t *testing.T) {
 		intent *store.CompletionIntent
 	}{
 		{
-			name: "simple id and path",
+			name:   "simple id and path",
 			intent: testIntent("intent-001"),
 		},
 		{
