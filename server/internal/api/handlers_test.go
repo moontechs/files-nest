@@ -2,6 +2,7 @@
 package api_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,7 +37,7 @@ func setupHandler(t *testing.T) (*api.Handler, *store.Store, *uploadbackend.TUSH
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() { _ = st.Close() })
 
 	tusDir := t.TempDir()
 	bh, err := uploadbackend.New(tusDir)
@@ -51,7 +52,7 @@ func setupHandler(t *testing.T) (*api.Handler, *store.Store, *uploadbackend.TUSH
 // executeRequest sends an HTTP request to the given handler and returns the
 // response recorder. It applies no middleware — just the raw handler.
 func executeRequest(h http.HandlerFunc, method, target string, body io.Reader) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, target, body)
+	req := httptest.NewRequestWithContext(context.Background(), method, target, body)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -61,7 +62,7 @@ func executeRequest(h http.HandlerFunc, method, target string, body io.Reader) *
 // executeRequestWithID is a convenience wrapper that calls executeRequest
 // and sets the path value for the "id" parameter (Go 1.22+ routing style).
 func executeRequestWithID(h http.HandlerFunc, method, target, id string, body io.Reader) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, target, body)
+	req := httptest.NewRequestWithContext(context.Background(), method, target, body)
 	req.Header.Set("Content-Type", "application/json")
 	// Set the path value for Go 1.22+ ServeMux pattern matching.
 	req.SetPathValue("id", id)
@@ -771,7 +772,7 @@ func TestHandleGetUpload_NoID(t *testing.T) {
 	h, _, _ := setupHandler(t)
 
 	// Test with no path value set.
-	req := httptest.NewRequest(http.MethodGet, "/uploads/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads/", nil)
 	rec := httptest.NewRecorder()
 	h.HandleGetUpload(rec, req)
 
@@ -809,7 +810,7 @@ func TestHandleCreateUpload_NonJSONContentType(t *testing.T) {
 	h, _, _ := setupHandler(t)
 
 	body := `{"local_identifier":"TEST-001","filename":"IMG_1234.jpg","creation_date":"2024-03-15T10:30:00Z"}`
-	req := httptest.NewRequest(http.MethodPost, "/uploads", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/uploads", strings.NewReader(body))
 	// No Content-Type header set
 	rec := httptest.NewRecorder()
 	h.HandleCreateUpload(rec, req)
@@ -883,7 +884,7 @@ func TestHandleCreateUpload_UploadExistsInBackend(t *testing.T) {
 	decodeResponse(t, rec, &resp)
 
 	// Verify the upload exists in the tusd backend.
-	info, err := bh.GetInfo(resp.BackendID)
+	info, err := bh.GetInfo(context.Background(), resp.BackendID)
 	if err != nil {
 		t.Fatalf("tusd GetInfo after create: %v", err)
 	}
@@ -935,7 +936,7 @@ func TestHandleCreateUpload_DuplicateTerminatesTusdUpload(t *testing.T) {
 	}
 
 	// The original backend ID should still be valid in tusd.
-	_, err := bh.GetInfo(first.BackendID)
+	_, err := bh.GetInfo(context.Background(), first.BackendID)
 	if err != nil {
 		t.Errorf("original backend ID should still exist in tusd: %v", err)
 	}
@@ -1060,7 +1061,7 @@ func TestHandleGetUpload_FullFieldsReturned(t *testing.T) {
 
 // tusHeadRequest sends a TUS HEAD request for the given upload ID.
 func tusHeadRequest(h http.HandlerFunc, id string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodHead, "/uploads/"+id+"/data", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodHead, "/uploads/"+id+"/data", nil)
 	req.SetPathValue("id", id)
 	req.Header.Set("Tus-Resumable", "1.0.0")
 	rec := httptest.NewRecorder()
@@ -1070,7 +1071,7 @@ func tusHeadRequest(h http.HandlerFunc, id string) *httptest.ResponseRecorder {
 
 // tusPatchRequest sends a TUS PATCH request with the given headers and body.
 func tusPatchRequest(h http.HandlerFunc, id string, offset int64, uploadLength string, body io.Reader) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodPatch, "/uploads/"+id+"/data", body)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPatch, "/uploads/"+id+"/data", body)
 	req.SetPathValue("id", id)
 	req.Header.Set("Content-Type", "application/offset+octet-stream")
 	req.Header.Set("Tus-Resumable", "1.0.0")
@@ -1133,7 +1134,7 @@ func TestHandleHeadUploadData_InvalidID(t *testing.T) {
 func TestHandleHeadUploadData_EmptyID(t *testing.T) {
 	h, _, _ := setupHandler(t)
 
-	req := httptest.NewRequest(http.MethodHead, "/uploads//data", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodHead, "/uploads//data", nil)
 	rec := httptest.NewRecorder()
 	h.HandleHeadUploadData(rec, req)
 
@@ -1276,7 +1277,7 @@ func TestHandlePatchUploadData_WrongContentType(t *testing.T) {
 	created := createTestUpload(t, h, "PATCH-CT/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
 
 	// Send a PATCH with JSON content type (wrong for TUS).
-	req := httptest.NewRequest(http.MethodPatch, "/uploads/"+created.ID+"/data", strings.NewReader("data"))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPatch, "/uploads/"+created.ID+"/data", strings.NewReader("data"))
 	req.SetPathValue("id", created.ID)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Tus-Resumable", "1.0.0")
@@ -1293,7 +1294,7 @@ func TestHandlePatchUploadData_MissingUploadOffset(t *testing.T) {
 	h, _, _ := setupHandler(t)
 	created := createTestUpload(t, h, "PATCH-NOOFFSET/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
 
-	req := httptest.NewRequest(http.MethodPatch, "/uploads/"+created.ID+"/data", strings.NewReader("data"))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPatch, "/uploads/"+created.ID+"/data", strings.NewReader("data"))
 	req.SetPathValue("id", created.ID)
 	req.Header.Set("Content-Type", "application/offset+octet-stream")
 	req.Header.Set("Tus-Resumable", "1.0.0")
@@ -1351,7 +1352,7 @@ func TestHandlePatchUploadData_InvalidUploadOffset(t *testing.T) {
 	h, _, _ := setupHandler(t)
 	created := createTestUpload(t, h, "PATCH-INVALOFFSET/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
 
-	req := httptest.NewRequest(http.MethodPatch, "/uploads/"+created.ID+"/data", strings.NewReader("data"))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPatch, "/uploads/"+created.ID+"/data", strings.NewReader("data"))
 	req.SetPathValue("id", created.ID)
 	req.Header.Set("Content-Type", "application/offset+octet-stream")
 	req.Header.Set("Tus-Resumable", "1.0.0")
@@ -1411,7 +1412,7 @@ func TestHandlePatchUploadData_MultiChunkWithFinalization(t *testing.T) {
 	}
 
 	// Verify still deferred.
-	info, err := bh.GetInfo(created.BackendID)
+	info, err := bh.GetInfo(context.Background(), created.BackendID)
 	if err != nil {
 		t.Fatalf("GetInfo: %v", err)
 	}
@@ -1432,7 +1433,7 @@ func TestHandlePatchUploadData_MultiChunkWithFinalization(t *testing.T) {
 	}
 
 	// Verify no longer deferred and offset == length.
-	info2, err := bh.GetInfo(created.BackendID)
+	info2, err := bh.GetInfo(context.Background(), created.BackendID)
 	if err != nil {
 		t.Fatalf("GetInfo after finalization: %v", err)
 	}
@@ -1447,7 +1448,7 @@ func TestHandlePatchUploadData_MultiChunkWithFinalization(t *testing.T) {
 	}
 
 	// Verify IsComplete returns true.
-	complete, err := bh.IsComplete(created.BackendID)
+	complete, err := bh.IsComplete(context.Background(), created.BackendID)
 	if err != nil {
 		t.Fatalf("IsComplete: %v", err)
 	}
@@ -1465,7 +1466,7 @@ func TestHandlePatchUploadData_BackendLost(t *testing.T) {
 	created := createTestUpload(t, h, "PATCH-LOST/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
 
 	// Manually terminate the upload in the backend to simulate backend_lost.
-	if err := bh.TerminateOrCleanup(created.BackendID); err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
+	if err := bh.TerminateOrCleanup(context.Background(), created.BackendID); err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Fatalf("TerminateOrCleanup: %v", err)
 	}
 
@@ -1496,7 +1497,7 @@ func TestHandleHeadUploadData_BackendLost(t *testing.T) {
 	created := createTestUpload(t, h, "HEAD-LOST/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
 
 	// Manually terminate the upload in the backend.
-	if err := bh.TerminateOrCleanup(created.BackendID); err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
+	if err := bh.TerminateOrCleanup(context.Background(), created.BackendID); err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Fatalf("TerminateOrCleanup: %v", err)
 	}
 
@@ -1642,7 +1643,7 @@ type ListUploadsResponse = api.ListUploadsResponse
 // statusPatchRequest sends a PATCH /uploads/:id/status request with the given
 // JSON body.
 func statusPatchRequest(h http.HandlerFunc, id, body string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodPatch, "/uploads/"+id+"/status", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPatch, "/uploads/"+id+"/status", strings.NewReader(body))
 	req.SetPathValue("id", id)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -1656,7 +1657,7 @@ func statusPatchRequest(h http.HandlerFunc, id, body string) *httptest.ResponseR
 
 // deleteUploadRequest sends a DELETE /uploads/:id request.
 func deleteUploadRequest(h http.HandlerFunc, id string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodDelete, "/uploads/"+id, nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/uploads/"+id, nil)
 	req.SetPathValue("id", id)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -1700,7 +1701,7 @@ func TestHandlePatchUploadStatus_Success(t *testing.T) {
 
 	// Verify the completion intent was deleted after successful completion.
 	intent, err := st.GetCompletionIntent(created.ID)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent: %v", err)
 	}
 	if intent != nil {
@@ -1825,7 +1826,7 @@ func TestHandlePatchUploadStatus_BackendLost(t *testing.T) {
 	created := createTestUpload(t, h, "PATCH-STATUS-LOST/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
 
 	// Manually terminate the backend upload.
-	if err := bh.TerminateOrCleanup(created.BackendID); err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
+	if err := bh.TerminateOrCleanup(context.Background(), created.BackendID); err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Fatalf("TerminateOrCleanup: %v", err)
 	}
 
@@ -1855,7 +1856,7 @@ func TestHandlePatchUploadStatus_BackendLost(t *testing.T) {
 func TestHandlePatchUploadStatus_EmptyID(t *testing.T) {
 	h, _, _ := setupHandler(t)
 
-	req := httptest.NewRequest(http.MethodPatch, "/uploads//status", strings.NewReader(`{"status": "complete"}`))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPatch, "/uploads//status", strings.NewReader(`{"status": "complete"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	h.HandlePatchUploadStatus(rec, req)
@@ -1972,7 +1973,7 @@ func TestHandleDeleteUpload_BackendGone(t *testing.T) {
 	created := createTestUpload(t, h, "DELETE-GONE/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
 
 	// Manually terminate the backend.
-	if err := bh.TerminateOrCleanup(created.BackendID); err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
+	if err := bh.TerminateOrCleanup(context.Background(), created.BackendID); err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Fatalf("TerminateOrCleanup: %v", err)
 	}
 
@@ -2019,7 +2020,7 @@ func TestHandleDeleteUpload_CompleteUpload(t *testing.T) {
 func TestHandleDeleteUpload_EmptyID(t *testing.T) {
 	h, _, _ := setupHandler(t)
 
-	req := httptest.NewRequest(http.MethodDelete, "/uploads/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/uploads/", nil)
 	rec := httptest.NewRecorder()
 	h.HandleDeleteUpload(rec, req)
 
@@ -2206,7 +2207,7 @@ func TestHandlePatchUploadStatus_FileMoved(t *testing.T) {
 	}
 
 	// Verify the tusd backend was cleaned up.
-	_, err = bh.GetInfo(created.BackendID)
+	_, err = bh.GetInfo(context.Background(), created.BackendID)
 	if !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Errorf("expected backend to be cleaned up after completion, got %v", err)
 	}
@@ -2230,11 +2231,11 @@ func TestHandlePatchUploadStatus_MoveFailurePreservesUploading(t *testing.T) {
 	// If we create a file at $storagePath/organized, MkdirAll will fail
 	// trying to create organized/2024/03/15.
 	organizedRoot := filepath.Join(h.StoragePath(), "organized")
-	if err := os.MkdirAll(filepath.Dir(organizedRoot), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(organizedRoot), 0o750); err != nil {
 		t.Fatalf("MkdirAll for organized root: %v", err)
 	}
 	// Write a file in place of the organized directory to force MkdirAll to fail.
-	if err := os.WriteFile(organizedRoot, []byte("not-a-directory"), 0o644); err != nil {
+	if err := os.WriteFile(organizedRoot, []byte("not-a-directory"), 0o600); err != nil {
 		t.Fatalf("WriteFile to block organized dir: %v", err)
 	}
 
@@ -2286,12 +2287,13 @@ func TestHandlePatchUploadStatus_FileContentPreserved(t *testing.T) {
 	}
 
 	// Get the initial file path.
-	srcPath, err := bh.FilePath(created.BackendID)
+	srcPath, err := bh.FilePath(context.Background(), created.BackendID)
 	if err != nil {
 		t.Fatalf("FilePath before completion: %v", err)
 	}
 
 	// Read content from source.
+	//nolint:gosec // test-only read of a temp-dir file, not attacker-controlled
 	originalContent, err := os.ReadFile(srcPath)
 	if err != nil {
 		t.Fatalf("ReadFile source: %v", err)
@@ -2319,6 +2321,7 @@ func TestHandlePatchUploadStatus_FileContentPreserved(t *testing.T) {
 		t.Fatalf("GetUpload after completion: %v", err)
 	}
 	organizedAbsPath := filepath.Join(h.StoragePath(), upload.OrganizedPath)
+	//nolint:gosec // test-only read of a temp-dir file, not attacker-controlled
 	movedContent, err := os.ReadFile(organizedAbsPath)
 	if err != nil {
 		t.Fatalf("ReadFile organized: %v", err)

@@ -7,6 +7,7 @@ package uploadbackend_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"math/rand"
 	"os"
@@ -39,7 +40,7 @@ func setupTUSHandler(t *testing.T) (*uploadbackend.TUSHandler, string) {
 func TestTUSCreateUpload(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload failed: %v", err)
 	}
@@ -48,7 +49,7 @@ func TestTUSCreateUpload(t *testing.T) {
 	}
 
 	// Verify the upload exists by checking GetInfo.
-	info, err := h.GetInfo(id)
+	info, err := h.GetInfo(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetInfo after CreateUpload: %v", err)
 	}
@@ -69,12 +70,12 @@ func TestTUSCreateUpload(t *testing.T) {
 func TestTUSCreateUploadWithMetadata(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	id, err := h.CreateUpload("filename aW1nXzEyMzQuanBn,filetype aW1hZ2UvanBlZw==")
+	id, err := h.CreateUpload(context.Background(), "filename aW1nXzEyMzQuanBn,filetype aW1hZ2UvanBlZw==")
 	if err != nil {
 		t.Fatalf("CreateUpload with metadata failed: %v", err)
 	}
 
-	info, err := h.GetInfo(id)
+	info, err := h.GetInfo(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetInfo: %v", err)
 	}
@@ -94,12 +95,12 @@ func TestTUSCreateUploadWithMetadata(t *testing.T) {
 func TestTUSGetOffsetInitial(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
-	offset, err := h.GetOffset(id)
+	offset, err := h.GetOffset(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetOffset: %v", err)
 	}
@@ -118,13 +119,13 @@ func TestTUSForwardPatchSingleChunk(t *testing.T) {
 	payload := []byte("hello world, this is a test upload chunk")
 	uploadLength := len(payload)
 
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
 	// Write data and declare final length via Upload-Length in PATCH.
-	newOffset, err := h.ForwardPatch(id, bytes.NewReader(payload), 0, strconv.Itoa(uploadLength))
+	newOffset, err := h.ForwardPatch(context.Background(), id, bytes.NewReader(payload), 0, strconv.Itoa(uploadLength))
 	if err != nil {
 		t.Fatalf("ForwardPatch: %v", err)
 	}
@@ -133,7 +134,7 @@ func TestTUSForwardPatchSingleChunk(t *testing.T) {
 	}
 
 	// Verify offset via GetOffset.
-	offset, err := h.GetOffset(id)
+	offset, err := h.GetOffset(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetOffset after PATCH: %v", err)
 	}
@@ -142,7 +143,7 @@ func TestTUSForwardPatchSingleChunk(t *testing.T) {
 	}
 
 	// Verify completion.
-	complete, err := h.IsComplete(id)
+	complete, err := h.IsComplete(context.Background(), id)
 	if err != nil {
 		t.Fatalf("IsComplete: %v", err)
 	}
@@ -155,13 +156,13 @@ func TestTUSForwardPatchSingleChunkNoLength(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
 	payload := []byte("data without declaring length")
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
 	// Write data WITHOUT declaring Upload-Length (still deferred).
-	newOffset, err := h.ForwardPatch(id, bytes.NewReader(payload), 0, "")
+	newOffset, err := h.ForwardPatch(context.Background(), id, bytes.NewReader(payload), 0, "")
 	if err != nil {
 		t.Fatalf("ForwardPatch: %v", err)
 	}
@@ -170,7 +171,7 @@ func TestTUSForwardPatchSingleChunkNoLength(t *testing.T) {
 	}
 
 	// Upload should NOT be complete (size still deferred).
-	complete, err := h.IsComplete(id)
+	complete, err := h.IsComplete(context.Background(), id)
 	if err != nil {
 		t.Fatalf("IsComplete: %v", err)
 	}
@@ -179,7 +180,7 @@ func TestTUSForwardPatchSingleChunkNoLength(t *testing.T) {
 	}
 
 	// Verify size is still deferred.
-	info, err := h.GetInfo(id)
+	info, err := h.GetInfo(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetInfo: %v", err)
 	}
@@ -195,14 +196,14 @@ func TestTUSForwardPatchSingleChunkNoLength(t *testing.T) {
 func TestTUSForwardPatchIncremental(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
 	// Write first chunk without declaring length.
 	chunk1 := []byte("aaaaaaaaaaaaaaaaaaaa") // 20 bytes
-	newOffset, err := h.ForwardPatch(id, bytes.NewReader(chunk1), 0, "")
+	newOffset, err := h.ForwardPatch(context.Background(), id, bytes.NewReader(chunk1), 0, "")
 	if err != nil {
 		t.Fatalf("ForwardPatch chunk1: %v", err)
 	}
@@ -212,7 +213,7 @@ func TestTUSForwardPatchIncremental(t *testing.T) {
 
 	// Write second chunk still without declaring length.
 	chunk2 := []byte("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") // 30 bytes
-	newOffset, err = h.ForwardPatch(id, bytes.NewReader(chunk2), 20, "")
+	newOffset, err = h.ForwardPatch(context.Background(), id, bytes.NewReader(chunk2), 20, "")
 	if err != nil {
 		t.Fatalf("ForwardPatch chunk2: %v", err)
 	}
@@ -222,7 +223,7 @@ func TestTUSForwardPatchIncremental(t *testing.T) {
 
 	// Declare length and finalize on the last PATCH.
 	chunk3 := []byte("cccccccccccccccccccccccccccccccc") // 32 bytes
-	newOffset, err = h.ForwardPatch(id, bytes.NewReader(chunk3), 50, "82")
+	newOffset, err = h.ForwardPatch(context.Background(), id, bytes.NewReader(chunk3), 50, "82")
 	if err != nil {
 		t.Fatalf("ForwardPatch chunk3 (final): %v", err)
 	}
@@ -231,7 +232,7 @@ func TestTUSForwardPatchIncremental(t *testing.T) {
 	}
 
 	// Verify completion.
-	complete, err := h.IsComplete(id)
+	complete, err := h.IsComplete(context.Background(), id)
 	if err != nil {
 		t.Fatalf("IsComplete: %v", err)
 	}
@@ -247,12 +248,12 @@ func TestTUSForwardPatchIncremental(t *testing.T) {
 func TestTUSGetInfo(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	id, err := h.CreateUpload("filename dGVzdC5qcGc=")
+	id, err := h.CreateUpload(context.Background(), "filename dGVzdC5qcGc=")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
-	info, err := h.GetInfo(id)
+	info, err := h.GetInfo(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetInfo: %v", err)
 	}
@@ -288,12 +289,12 @@ func TestTUSGetInfo(t *testing.T) {
 func TestTUSFilePath(t *testing.T) {
 	h, storePath := setupTUSHandler(t)
 
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
-	path, err := h.FilePath(id)
+	path, err := h.FilePath(context.Background(), id)
 	if err != nil {
 		t.Fatalf("FilePath: %v", err)
 	}
@@ -324,13 +325,13 @@ func TestTUSFilePath(t *testing.T) {
 func TestTUSIsCompleteDeferred(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
 	// Deferred-length upload with no bytes written is not complete.
-	complete, err := h.IsComplete(id)
+	complete, err := h.IsComplete(context.Background(), id)
 	if err != nil {
 		t.Fatalf("IsComplete: %v", err)
 	}
@@ -343,17 +344,17 @@ func TestTUSIsCompleteAfterFullUpload(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
 	payload := []byte("complete check data")
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
-	_, err = h.ForwardPatch(id, bytes.NewReader(payload), 0, strconv.Itoa(len(payload)))
+	_, err = h.ForwardPatch(context.Background(), id, bytes.NewReader(payload), 0, strconv.Itoa(len(payload)))
 	if err != nil {
 		t.Fatalf("ForwardPatch: %v", err)
 	}
 
-	complete, err := h.IsComplete(id)
+	complete, err := h.IsComplete(context.Background(), id)
 	if err != nil {
 		t.Fatalf("IsComplete: %v", err)
 	}
@@ -370,12 +371,12 @@ func TestTUSTerminateOrCleanup(t *testing.T) {
 	h, storePath := setupTUSHandler(t)
 
 	payload := []byte("data to be cleaned up")
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
-	_, err = h.ForwardPatch(id, bytes.NewReader(payload), 0, strconv.Itoa(len(payload)))
+	_, err = h.ForwardPatch(context.Background(), id, bytes.NewReader(payload), 0, strconv.Itoa(len(payload)))
 	if err != nil {
 		t.Fatalf("ForwardPatch: %v", err)
 	}
@@ -391,7 +392,7 @@ func TestTUSTerminateOrCleanup(t *testing.T) {
 	}
 
 	// Terminate.
-	err = h.TerminateOrCleanup(id)
+	err = h.TerminateOrCleanup(context.Background(), id)
 	if err != nil {
 		t.Fatalf("TerminateOrCleanup: %v", err)
 	}
@@ -405,13 +406,13 @@ func TestTUSTerminateOrCleanup(t *testing.T) {
 	}
 
 	// Verify GetInfo returns ErrNotFound.
-	_, err = h.GetInfo(id)
+	_, err = h.GetInfo(context.Background(), id)
 	if !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Errorf("GetInfo after terminate: got %v, want ErrNotFound", err)
 	}
 
 	// Double termination should return ErrNotFound (not an error).
-	err = h.TerminateOrCleanup(id)
+	err = h.TerminateOrCleanup(context.Background(), id)
 	if !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Errorf("double TerminateOrCleanup: got %v, want ErrNotFound", err)
 	}
@@ -424,11 +425,11 @@ func TestTUSTerminateOrCleanupAfterMove(t *testing.T) {
 	h, storePath := setupTUSHandler(t)
 
 	payload := []byte("data that will be moved")
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
-	_, err = h.ForwardPatch(id, bytes.NewReader(payload), 0, strconv.Itoa(len(payload)))
+	_, err = h.ForwardPatch(context.Background(), id, bytes.NewReader(payload), 0, strconv.Itoa(len(payload)))
 	if err != nil {
 		t.Fatalf("ForwardPatch: %v", err)
 	}
@@ -449,7 +450,7 @@ func TestTUSTerminateOrCleanupAfterMove(t *testing.T) {
 
 	// TerminateOrCleanup should clean up the .info and return ErrNotFound
 	// (indicating no tusd state remains).
-	err = h.TerminateOrCleanup(id)
+	err = h.TerminateOrCleanup(context.Background(), id)
 	if !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Errorf("TerminateOrCleanup after move: got %v, want ErrNotFound", err)
 	}
@@ -470,7 +471,7 @@ func TestTUSTerminateOrCleanupAfterMove(t *testing.T) {
 func TestTUSTerminateOrCleanupNonExistent(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	err := h.TerminateOrCleanup("non-existent-id")
+	err := h.TerminateOrCleanup(context.Background(), "non-existent-id")
 	if !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Errorf("TerminateOrCleanup non-existent: got %v, want ErrNotFound", err)
 	}
@@ -483,7 +484,7 @@ func TestTUSTerminateOrCleanupNonExistent(t *testing.T) {
 func TestTUSGetInfoNonExistent(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	_, err := h.GetInfo("does-not-exist")
+	_, err := h.GetInfo(context.Background(), "does-not-exist")
 	if !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Errorf("GetInfo non-existent: got %v, want ErrNotFound", err)
 	}
@@ -492,7 +493,7 @@ func TestTUSGetInfoNonExistent(t *testing.T) {
 func TestTUSGetOffsetNonExistent(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	_, err := h.GetOffset("does-not-exist")
+	_, err := h.GetOffset(context.Background(), "does-not-exist")
 	if !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Errorf("GetOffset non-existent: got %v, want ErrNotFound", err)
 	}
@@ -501,7 +502,7 @@ func TestTUSGetOffsetNonExistent(t *testing.T) {
 func TestTUSIsCompleteNonExistent(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	_, err := h.IsComplete("does-not-exist")
+	_, err := h.IsComplete(context.Background(), "does-not-exist")
 	if !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Errorf("IsComplete non-existent: got %v, want ErrNotFound", err)
 	}
@@ -510,7 +511,7 @@ func TestTUSIsCompleteNonExistent(t *testing.T) {
 func TestTUSFilePathNonExistent(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	_, err := h.FilePath("does-not-exist")
+	_, err := h.FilePath(context.Background(), "does-not-exist")
 	if !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Errorf("FilePath non-existent: got %v, want ErrNotFound", err)
 	}
@@ -521,7 +522,7 @@ func TestTUSFilePathNonExistent(t *testing.T) {
 func TestTUSForwardPatchNonExistent(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	_, err := h.ForwardPatch("does-not-exist", bytes.NewReader([]byte("data")), 0, "")
+	_, err := h.ForwardPatch(context.Background(), "does-not-exist", bytes.NewReader([]byte("data")), 0, "")
 	if !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Errorf("ForwardPatch non-existent: got %v, want ErrNotFound", err)
 	}
@@ -532,7 +533,7 @@ func TestTUSForwardPatchNonExistent(t *testing.T) {
 func TestTUSNonExistentBeforeCreate(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	_, err := h.GetInfo("never-created")
+	_, err := h.GetInfo(context.Background(), "never-created")
 	if !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Errorf("GetInfo for never-created ID: got %v, want ErrNotFound", err)
 	}
@@ -545,19 +546,19 @@ func TestTUSNonExistentBeforeCreate(t *testing.T) {
 func TestTUSForwardPatchMismatchedOffset(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
 	// Write some data first.
-	_, err = h.ForwardPatch(id, bytes.NewReader([]byte("first chunk")), 0, "")
+	_, err = h.ForwardPatch(context.Background(), id, bytes.NewReader([]byte("first chunk")), 0, "")
 	if err != nil {
 		t.Fatalf("ForwardPatch first: %v", err)
 	}
 
 	// Try to write at offset 0 again (mismatch).
-	_, err = h.ForwardPatch(id, bytes.NewReader([]byte("second attempt")), 0, "")
+	_, err = h.ForwardPatch(context.Background(), id, bytes.NewReader([]byte("second attempt")), 0, "")
 	if err == nil {
 		t.Fatal("expected error for mismatched offset, got nil")
 	}
@@ -577,18 +578,19 @@ func TestTUSLargeUploadStress(t *testing.T) {
 
 	size := 64 * 1024 // 64 KB
 	payload := make([]byte, size)
+	//nolint:gosec // test-only random payload, not security-sensitive
 	_, err := rand.Read(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
 	// Upload in one chunk with declared length.
-	newOffset, err := h.ForwardPatch(id, bytes.NewReader(payload), 0, strconv.Itoa(size))
+	newOffset, err := h.ForwardPatch(context.Background(), id, bytes.NewReader(payload), 0, strconv.Itoa(size))
 	if err != nil {
 		t.Fatalf("ForwardPatch: %v", err)
 	}
@@ -597,7 +599,7 @@ func TestTUSLargeUploadStress(t *testing.T) {
 	}
 
 	// Verify completion.
-	complete, err := h.IsComplete(id)
+	complete, err := h.IsComplete(context.Background(), id)
 	if err != nil {
 		t.Fatalf("IsComplete: %v", err)
 	}
@@ -614,7 +616,7 @@ func TestTUSFullUploadLifecycle(t *testing.T) {
 	h, storePath := setupTUSHandler(t)
 
 	// 1. Create an upload with metadata.
-	id, err := h.CreateUpload("filename dGVzdC5qcGc=,filetype aW1hZ2UvanBlZw==")
+	id, err := h.CreateUpload(context.Background(), "filename dGVzdC5qcGc=,filetype aW1hZ2UvanBlZw==")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
@@ -623,7 +625,7 @@ func TestTUSFullUploadLifecycle(t *testing.T) {
 	}
 
 	// 2. Verify initial state.
-	offset, err := h.GetOffset(id)
+	offset, err := h.GetOffset(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetOffset: %v", err)
 	}
@@ -631,7 +633,7 @@ func TestTUSFullUploadLifecycle(t *testing.T) {
 		t.Errorf("initial offset = %d, want 0", offset)
 	}
 
-	info, err := h.GetInfo(id)
+	info, err := h.GetInfo(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetInfo: %v", err)
 	}
@@ -644,7 +646,7 @@ func TestTUSFullUploadLifecycle(t *testing.T) {
 
 	// 3. Write data (without declaring length).
 	chunk1 := []byte("hello ")
-	newOffset, err := h.ForwardPatch(id, bytes.NewReader(chunk1), 0, "")
+	newOffset, err := h.ForwardPatch(context.Background(), id, bytes.NewReader(chunk1), 0, "")
 	if err != nil {
 		t.Fatalf("ForwardPatch chunk1: %v", err)
 	}
@@ -654,7 +656,7 @@ func TestTUSFullUploadLifecycle(t *testing.T) {
 
 	// 4. Write more data and declare final length.
 	chunk2 := []byte("world!") // 6 bytes, total = 12
-	newOffset, err = h.ForwardPatch(id, bytes.NewReader(chunk2), 6, "12")
+	newOffset, err = h.ForwardPatch(context.Background(), id, bytes.NewReader(chunk2), 6, "12")
 	if err != nil {
 		t.Fatalf("ForwardPatch chunk2: %v", err)
 	}
@@ -663,7 +665,7 @@ func TestTUSFullUploadLifecycle(t *testing.T) {
 	}
 
 	// 5. Verify completed status.
-	complete, err := h.IsComplete(id)
+	complete, err := h.IsComplete(context.Background(), id)
 	if err != nil {
 		t.Fatalf("IsComplete: %v", err)
 	}
@@ -672,7 +674,7 @@ func TestTUSFullUploadLifecycle(t *testing.T) {
 	}
 
 	// 6. Verify file path.
-	path, err := h.FilePath(id)
+	path, err := h.FilePath(context.Background(), id)
 	if err != nil {
 		t.Fatalf("FilePath: %v", err)
 	}
@@ -683,6 +685,7 @@ func TestTUSFullUploadLifecycle(t *testing.T) {
 		t.Errorf("FilePath = %q, want %q", path, expected)
 	}
 
+	//nolint:gosec // test-only read of a temp-dir file, not attacker-controlled
 	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read binary file: %v", err)
@@ -692,7 +695,7 @@ func TestTUSFullUploadLifecycle(t *testing.T) {
 	}
 
 	// 7. Cleanup.
-	err = h.TerminateOrCleanup(id)
+	err = h.TerminateOrCleanup(context.Background(), id)
 	if err != nil {
 		t.Fatalf("TerminateOrCleanup: %v", err)
 	}
@@ -737,14 +740,14 @@ func TestTUSNewCreatesDirectory(t *testing.T) {
 func TestTUSForwardPatchExceedsDeclaredLength(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
 	// Write 5 bytes but declare length as 3.
 	body := bytes.NewReader([]byte("hello"))
-	_, err = h.ForwardPatch(id, body, 0, "3")
+	_, err = h.ForwardPatch(context.Background(), id, body, 0, "3")
 	// Should fail because declared length would be exceeded.
 	if err == nil {
 		t.Fatal("expected error when writing past declared length, got nil")
@@ -761,19 +764,19 @@ func TestTUSForwardPatchExceedsDeclaredLength(t *testing.T) {
 func TestTUSDoubleTerminateIsIdempotent(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
 	// First terminate.
-	err = h.TerminateOrCleanup(id)
+	err = h.TerminateOrCleanup(context.Background(), id)
 	if err != nil {
 		t.Fatalf("first TerminateOrCleanup: %v", err)
 	}
 
 	// Second terminate should return ErrNotFound (already gone).
-	err = h.TerminateOrCleanup(id)
+	err = h.TerminateOrCleanup(context.Background(), id)
 	if !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Errorf("second TerminateOrCleanup: got %v, want ErrNotFound", err)
 	}
@@ -796,13 +799,13 @@ func TestTUSErrorSentinels(t *testing.T) {
 func TestTUSForwardPatchEmptyBody(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
 	// PATCH with an empty body and declare length of 0.
-	newOffset, err := h.ForwardPatch(id, bytes.NewReader(nil), 0, "0")
+	newOffset, err := h.ForwardPatch(context.Background(), id, bytes.NewReader(nil), 0, "0")
 	if err != nil {
 		t.Fatalf("ForwardPatch with empty body: %v", err)
 	}
@@ -811,7 +814,7 @@ func TestTUSForwardPatchEmptyBody(t *testing.T) {
 	}
 
 	// Should be complete (0 bytes, declared length 0).
-	complete, err := h.IsComplete(id)
+	complete, err := h.IsComplete(context.Background(), id)
 	if err != nil {
 		t.Fatalf("IsComplete: %v", err)
 	}
@@ -825,20 +828,20 @@ func TestTUSForwardPatchEmptyBody(t *testing.T) {
 func TestTUSForwardPatchReadsFullBody(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
 	// Write a chunk with declared length equal to the body.
 	payload := []byte("exact size match")
-	_, err = h.ForwardPatch(id, bytes.NewReader(payload), 0, strconv.Itoa(len(payload)))
+	_, err = h.ForwardPatch(context.Background(), id, bytes.NewReader(payload), 0, strconv.Itoa(len(payload)))
 	if err != nil {
 		t.Fatalf("ForwardPatch: %v", err)
 	}
 
 	// Verify exact content via GetInfo.
-	info, err := h.GetInfo(id)
+	info, err := h.GetInfo(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetInfo: %v", err)
 	}
@@ -853,20 +856,20 @@ func TestTUSForwardPatchReadsFullBody(t *testing.T) {
 func TestTUSForwardPatchBodyNotAReadCloser(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
 	// Use an io.Reader that is not an io.ReadCloser.
 	payload := []byte("just a reader test")
-	_, err = h.ForwardPatch(id, bytes.NewReader(payload), 0, strconv.Itoa(len(payload)))
+	_, err = h.ForwardPatch(context.Background(), id, bytes.NewReader(payload), 0, strconv.Itoa(len(payload)))
 	if err != nil {
 		t.Fatalf("ForwardPatch with io.Reader: %v", err)
 	}
 
 	// Verify the data was written.
-	offset, err := h.GetOffset(id)
+	offset, err := h.GetOffset(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetOffset: %v", err)
 	}
@@ -884,13 +887,13 @@ func TestTUSZeroByteFinalPatchDeclaresLength(t *testing.T) {
 	h, _ := setupTUSHandler(t)
 
 	payload := []byte("bytes written without declaring a length")
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
 	// First PATCH: write all bytes, length still deferred.
-	offset, err := h.ForwardPatch(id, bytes.NewReader(payload), 0, "")
+	offset, err := h.ForwardPatch(context.Background(), id, bytes.NewReader(payload), 0, "")
 	if err != nil {
 		t.Fatalf("ForwardPatch (deferred): %v", err)
 	}
@@ -898,7 +901,7 @@ func TestTUSZeroByteFinalPatchDeclaresLength(t *testing.T) {
 		t.Fatalf("offset = %d, want %d", offset, len(payload))
 	}
 
-	complete, err := h.IsComplete(id)
+	complete, err := h.IsComplete(context.Background(), id)
 	if err != nil {
 		t.Fatalf("IsComplete before finalize: %v", err)
 	}
@@ -907,7 +910,7 @@ func TestTUSZeroByteFinalPatchDeclaresLength(t *testing.T) {
 	}
 
 	// Second PATCH: zero bytes, at the current offset, declaring the length.
-	finalOffset, err := h.ForwardPatch(id, bytes.NewReader(nil), offset,
+	finalOffset, err := h.ForwardPatch(context.Background(), id, bytes.NewReader(nil), offset,
 		strconv.FormatInt(offset, 10))
 	if err != nil {
 		t.Fatalf("zero-byte finalizing ForwardPatch: %v", err)
@@ -916,7 +919,7 @@ func TestTUSZeroByteFinalPatchDeclaresLength(t *testing.T) {
 		t.Errorf("final offset = %d, want %d", finalOffset, offset)
 	}
 
-	info, err := h.GetInfo(id)
+	info, err := h.GetInfo(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetInfo: %v", err)
 	}
@@ -924,7 +927,7 @@ func TestTUSZeroByteFinalPatchDeclaresLength(t *testing.T) {
 		t.Error("SizeIsDeferred should be false after declaring length")
 	}
 
-	complete, err = h.IsComplete(id)
+	complete, err = h.IsComplete(context.Background(), id)
 	if err != nil {
 		t.Fatalf("IsComplete after finalize: %v", err)
 	}

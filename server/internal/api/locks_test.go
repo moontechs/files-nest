@@ -280,7 +280,7 @@ func TestDo_PanicStillReleasesLock(t *testing.T) {
 	panicked := make(chan struct{}, 1)
 	go func() {
 		defer func() {
-			recover()
+			_ = recover()
 			close(panicked)
 		}()
 		_ = l.Do("panic-test", func() error {
@@ -398,9 +398,7 @@ func TestLock_StressDifferentIDs(t *testing.T) {
 	const goroutinesPerID = 10
 
 	for id := range ids {
-		uploadID := func() string {
-			return string(rune('A' + id))
-		}()
+		uploadID := string("ABCDEFGHIJKLMNOPQRST"[id])
 		for range goroutinesPerID {
 			wg.Add(1)
 			go func(idStr string) {

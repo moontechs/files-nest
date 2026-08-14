@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -126,7 +127,7 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 		}
 
 		if intent.BackendID != "" {
-			termErr := r.backend.TerminateOrCleanup(intent.BackendID)
+			termErr := r.backend.TerminateOrCleanup(context.Background(), intent.BackendID)
 			if termErr != nil && !errors.Is(termErr, uploadbackend.ErrNotFound) {
 				log.Printf("recovery: intent %s: failed to clean up tusd backend: %v", intent.ID, termErr)
 			}
@@ -162,7 +163,7 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 		log.Printf("recovery: intent %s: moving file to organized directory", intent.ID)
 
 		dstDir := filepath.Dir(intent.Dst)
-		err := os.MkdirAll(dstDir, 0o755)
+		err := os.MkdirAll(dstDir, 0o750)
 		if err != nil {
 			return fmt.Errorf("create destination directory %s: %w", dstDir, err)
 		}
@@ -202,7 +203,7 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 
 	// Best-effort cleanup of the tusd sidecar (.info file).
 	if intent.BackendID != "" {
-		err := r.backend.TerminateOrCleanup(intent.BackendID)
+		err := r.backend.TerminateOrCleanup(context.Background(), intent.BackendID)
 		if err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
 			log.Printf("recovery: intent %s: failed to clean up tusd backend: %v", intent.ID, err)
 		}
@@ -247,7 +248,7 @@ func (r *Recoverer) recoverBackendLost() error {
 			}
 
 			// Check if the backend still exists by querying its info.
-			_, err := r.backend.GetInfo(rec.BackendID)
+			_, err := r.backend.GetInfo(context.Background(), rec.BackendID)
 			if errors.Is(err, uploadbackend.ErrNotFound) {
 				log.Printf("recovery: backend lost for upload %s (status %s, backend %s)",
 					rec.ID, status, rec.BackendID)

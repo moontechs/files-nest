@@ -4,6 +4,8 @@ package uploadbackend
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -26,8 +28,8 @@ import (
 // the logger.
 func newTUSHandlerWithLogger(dir string, logger *slog.Logger) (*TUSHandler, error) {
 	incomingPath := filepath.Join(dir, "incoming")
-	if err := os.MkdirAll(incomingPath, 0o755); err != nil {
-		return nil, err
+	if err := os.MkdirAll(incomingPath, 0o750); err != nil {
+		return nil, fmt.Errorf("create incoming dir %s: %w", incomingPath, err)
 	}
 
 	fs := filestore.New(incomingPath)
@@ -49,7 +51,7 @@ func newTUSHandlerWithLogger(dir string, logger *slog.Logger) (*TUSHandler, erro
 		Logger:                  logger,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create tusd handler: %w", err)
 	}
 
 	return &TUSHandler{
@@ -129,7 +131,7 @@ func TestForwardPatchNoNetworkTimeoutErrorWarning(t *testing.T) {
 	}
 
 	// Create an upload
-	id, err := h.CreateUpload("")
+	id, err := h.CreateUpload(context.Background(), "")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
@@ -137,7 +139,7 @@ func TestForwardPatchNoNetworkTimeoutErrorWarning(t *testing.T) {
 	// Write a small chunk to trigger PATCH body reads (this is where
 	// SetReadDeadline/SetWriteDeadline is called on every tick).
 	payload := bytes.Repeat([]byte("x"), 8192) // multiple read ticks
-	_, err = h.ForwardPatch(id, bytes.NewReader(payload), 0, strconv.Itoa(len(payload)))
+	_, err = h.ForwardPatch(context.Background(), id, bytes.NewReader(payload), 0, strconv.Itoa(len(payload)))
 	if err != nil {
 		t.Fatalf("ForwardPatch: %v", err)
 	}
@@ -150,7 +152,7 @@ func TestForwardPatchNoNetworkTimeoutErrorWarning(t *testing.T) {
 	}
 
 	// The patch must have succeeded.
-	info, err := h.GetInfo(id)
+	info, err := h.GetInfo(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetInfo: %v", err)
 	}

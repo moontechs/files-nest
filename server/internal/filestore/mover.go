@@ -128,7 +128,7 @@ func (m *Mover) RemoveOrganizedFile(organizedPath string) error {
 			return nil
 		}
 
-		return err
+		return fmt.Errorf("remove organized file: %w", err)
 	}
 
 	return nil
@@ -319,7 +319,7 @@ func MoveFile(src, dst string) error {
 		return fmt.Errorf("source %s does not exist and destination %s does not exist either", src, dst)
 	}
 
-	err := os.MkdirAll(filepath.Dir(dst), 0o755)
+	err := os.MkdirAll(filepath.Dir(dst), 0o750)
 	if err != nil {
 		return fmt.Errorf("create destination directory %s: %w", filepath.Dir(dst), err)
 	}
@@ -356,12 +356,15 @@ func MoveFile(src, dst string) error {
 // (which can surface a deferred write error from the kernel) before
 // reporting success.
 func copyFile(src, dst string) error {
+	//nolint:gosec // src/dst are built from sanitized components (SafeID,
+	// SanitizeFilename, SafePathSegment) or server-generated tusd paths, never raw user input
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("open source: %w", err)
 	}
-	defer srcFile.Close()
+	defer func() { _ = srcFile.Close() }()
 
+	//nolint:gosec // dst is a sanitized organized-tree path computed by PlanDestination
 	dstFile, err := os.Create(dst)
 	if err != nil {
 		return fmt.Errorf("create destination: %w", err)
@@ -371,13 +374,13 @@ func copyFile(src, dst string) error {
 	// write error. A bare `defer dstFile.Close()` would swallow Close errors
 	// that indicate the data did not reach stable storage.
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		dstFile.Close()
+		_ = dstFile.Close()
 
 		return fmt.Errorf("copy data: %w", err)
 	}
 
 	if err := dstFile.Sync(); err != nil {
-		dstFile.Close()
+		_ = dstFile.Close()
 
 		return fmt.Errorf("sync destination: %w", err)
 	}

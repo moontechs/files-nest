@@ -72,7 +72,7 @@ type TUSHandler struct {
 func New(storagePath string) (*TUSHandler, error) {
 	incomingPath := filepath.Join(storagePath, "incoming")
 
-	if err := os.MkdirAll(incomingPath, 0o755); err != nil {
+	if err := os.MkdirAll(incomingPath, 0o750); err != nil {
 		return nil, fmt.Errorf("create incoming dir %s: %w", incomingPath, err)
 	}
 
@@ -114,9 +114,9 @@ func New(storagePath string) (*TUSHandler, error) {
 // CreateUpload creates a new upload with Upload-Defer-Length: 1 (file size
 // is not yet known). The metadata parameter is the raw Upload-Metadata header
 // value, or empty to omit. Returns the tusd upload ID (backend_id).
-func (h *TUSHandler) CreateUpload(metadata string) (backendID string, err error) {
+func (h *TUSHandler) CreateUpload(ctx context.Context, metadata string) (backendID string, err error) {
 	rec := newTusdRecorder()
-	req, _ := http.NewRequest(http.MethodPost, "/", nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "/", nil)
 	req.Header.Set("Tus-Resumable", "1.0.0")
 	req.Header.Set("Upload-Defer-Length", "1")
 
@@ -151,8 +151,8 @@ func (h *TUSHandler) CreateUpload(metadata string) (backendID string, err error)
 
 // GetOffset returns the current upload offset (bytes written) for the given
 // backend ID. Returns ErrNotFound if the upload does not exist.
-func (h *TUSHandler) GetOffset(backendID string) (int64, error) {
-	info, err := h.GetInfo(backendID)
+func (h *TUSHandler) GetOffset(ctx context.Context, backendID string) (int64, error) {
+	info, err := h.GetInfo(ctx, backendID)
 	if err != nil {
 		return 0, err
 	}
@@ -168,9 +168,9 @@ func (h *TUSHandler) GetOffset(backendID string) (int64, error) {
 // If uploadLength is non-empty, it declares the final upload length (used for
 // deferred-length uploads to finalize the size). Returns the new offset after
 // the chunk is written, or an error.
-func (h *TUSHandler) ForwardPatch(backendID string, body io.Reader, offset int64, uploadLength string) (newOffset int64, err error) {
+func (h *TUSHandler) ForwardPatch(ctx context.Context, backendID string, body io.Reader, offset int64, uploadLength string) (newOffset int64, err error) {
 	rec := newTusdRecorder()
-	req, _ := http.NewRequest(http.MethodPatch, "/"+backendID, body)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPatch, "/"+backendID, body)
 	req.Header.Set("Tus-Resumable", "1.0.0")
 	req.Header.Set("Upload-Offset", strconv.FormatInt(offset, 10))
 	req.Header.Set("Content-Type", "application/offset+octet-stream")
@@ -204,8 +204,8 @@ func (h *TUSHandler) ForwardPatch(backendID string, body io.Reader, offset int64
 
 // GetInfo returns full upload information from the tusd data store.
 // Returns ErrNotFound if the upload does not exist.
-func (h *TUSHandler) GetInfo(backendID string) (*UploadInfo, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (h *TUSHandler) GetInfo(ctx context.Context, backendID string) (*UploadInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	upload, err := h.composer.Core.GetUpload(ctx, backendID)
@@ -234,8 +234,8 @@ func (h *TUSHandler) GetInfo(backendID string) (*UploadInfo, error) {
 
 // IsComplete checks whether the upload has a known (non-deferred) length and
 // offset equals length. Returns ErrNotFound if the upload does not exist.
-func (h *TUSHandler) IsComplete(backendID string) (bool, error) {
-	info, err := h.GetInfo(backendID)
+func (h *TUSHandler) IsComplete(ctx context.Context, backendID string) (bool, error) {
+	info, err := h.GetInfo(ctx, backendID)
 	if err != nil {
 		return false, err
 	}
@@ -249,8 +249,8 @@ func (h *TUSHandler) IsComplete(backendID string) (bool, error) {
 
 // FilePath returns the absolute path to the upload's binary file on disk.
 // Returns ErrNotFound if the upload does not exist.
-func (h *TUSHandler) FilePath(backendID string) (string, error) {
-	info, err := h.GetInfo(backendID)
+func (h *TUSHandler) FilePath(ctx context.Context, backendID string) (string, error) {
+	info, err := h.GetInfo(ctx, backendID)
 	if err != nil {
 		return "", err
 	}
@@ -278,10 +278,10 @@ func (h *TUSHandler) FilePath(backendID string) (string, error) {
 //
 // Callers should ignore ErrNotFound and treat it as success (nothing to
 // clean up), but can use it to branch on whether tusd state existed.
-func (h *TUSHandler) TerminateOrCleanup(backendID string) error {
+func (h *TUSHandler) TerminateOrCleanup(ctx context.Context, backendID string) error {
 	// First, try proper termination through the tusd handler.
 	rec := newTusdRecorder()
-	req, _ := http.NewRequest(http.MethodDelete, "/"+backendID, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, "/"+backendID, nil)
 	req.Header.Set("Tus-Resumable", "1.0.0")
 
 	h.handler.DelFile(rec, req)

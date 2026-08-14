@@ -24,7 +24,7 @@ func openTestStore(t *testing.T) *store.Store {
 	if err != nil {
 		t.Fatalf("Store.Open failed: %v", err)
 	}
-	t.Cleanup(func() { s.Close() })
+	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
 
@@ -412,7 +412,7 @@ func TestUploadByLocalIdentifier_NotFound(t *testing.T) {
 	s := openTestStore(t)
 
 	got, err := s.UploadByLocalIdentifier("does-not-exist")
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("UploadByLocalIdentifier failed: %v", err)
 	}
 	if got != nil {
@@ -448,7 +448,7 @@ func TestUploadByBackendID_NotFound(t *testing.T) {
 	s := openTestStore(t)
 
 	got, err := s.UploadByBackendID("nonexistent-backend")
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("UploadByBackendID failed: %v", err)
 	}
 	if got != nil {
@@ -868,7 +868,7 @@ func TestDeleteUpload_Success(t *testing.T) {
 
 	// Index entries should be gone
 	got, err := s.UploadByLocalIdentifier(u.LocalIdentifier)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("UploadByLocalIdentifier after delete: %v", err)
 	}
 	if got != nil {
@@ -876,7 +876,7 @@ func TestDeleteUpload_Success(t *testing.T) {
 	}
 
 	got2, err := s.UploadByBackendID(u.BackendID)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("UploadByBackendID after delete: %v", err)
 	}
 	if got2 != nil {
@@ -912,7 +912,7 @@ func TestDeleteUpload_RemovesIndexEntries(t *testing.T) {
 
 	// Verify indexes do not exist after delete
 	got, err := s.UploadByLocalIdentifier(u.LocalIdentifier)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("UploadByLocalIdentifier after delete failed: %v", err)
 	}
 	if got != nil {
@@ -920,7 +920,7 @@ func TestDeleteUpload_RemovesIndexEntries(t *testing.T) {
 	}
 
 	got2, err := s.UploadByBackendID(u.BackendID)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("UploadByBackendID after delete failed: %v", err)
 	}
 	if got2 != nil {
@@ -1698,7 +1698,7 @@ func TestReRegister_ResetsBackendAndStatus(t *testing.T) {
 
 	// The old backend index entry must be gone; the new one must resolve back.
 	byOld, err := s.UploadByBackendID(u.BackendID)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("UploadByBackendID old: %v", err)
 	}
 	if byOld != nil {

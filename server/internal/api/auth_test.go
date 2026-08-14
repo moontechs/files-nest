@@ -29,7 +29,7 @@ func TestAuthMiddleware_ValidCredentials(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	req.SetBasicAuth("admin", "secret123")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -54,7 +54,7 @@ func TestAuthMiddleware_ValidCredentialsDifferentUser(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodPut, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/uploads", nil)
 	req.SetBasicAuth("backup-bot", "s3cr3t!")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -81,7 +81,7 @@ func TestAuthMiddleware_WrongPassword(t *testing.T) {
 		t.Error("handler should not have been called for wrong password")
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	req.SetBasicAuth("admin", "wrong-password")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -109,7 +109,7 @@ func TestAuthMiddleware_WrongUsername(t *testing.T) {
 		t.Error("handler should not have been called for wrong username")
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	req.SetBasicAuth("hacker", "secret123")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -137,7 +137,7 @@ func TestAuthMiddleware_EmptyCredentials(t *testing.T) {
 		t.Error("handler should not have been called for empty credentials")
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	// No Authorization header set
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -157,7 +157,7 @@ func TestAuthMiddleware_MalformedAuthHeader(t *testing.T) {
 		t.Error("handler should not have been called for malformed header")
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	// Set a non-Basic auth scheme
 	req.Header.Set("Authorization", "Bearer some-token")
 	rec := httptest.NewRecorder()
@@ -178,7 +178,7 @@ func TestAuthMiddleware_InvalidBase64Credentials(t *testing.T) {
 		t.Error("handler should not have been called for invalid base64")
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	// "Basic " followed by invalid base64
 	req.Header.Set("Authorization", "Basic !!!invalid-base64!!!")
 	rec := httptest.NewRecorder()
@@ -199,7 +199,7 @@ func TestAuthMiddleware_WWWAuthenticateHeader(t *testing.T) {
 		t.Error("handler should not have been called")
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -231,7 +231,7 @@ func TestAuthMiddleware_NoAuthConfigured_PassesRequests(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -255,7 +255,7 @@ func TestAuthMiddleware_NoAuthConfigured_EmptyContextUser(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -276,7 +276,7 @@ func TestAuthMiddleware_NoAuthConfigured_EvenWithAuthHeader(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	req.SetBasicAuth("admin", "secret")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -307,7 +307,7 @@ func TestAuthMiddleware_EmptyPassword(t *testing.T) {
 	}))
 
 	// An empty password credential: "admin:"
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	req.SetBasicAuth("admin", "")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -330,7 +330,7 @@ func TestAuthMiddleware_WrongPasswordWithEmptyConfigPassword(t *testing.T) {
 		t.Error("handler should not have been called")
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	req.SetBasicAuth("admin", "some-password")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -352,7 +352,7 @@ func TestAuthMiddleware_EmptyUsername(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	req.SetBasicAuth("", "secret123")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -377,7 +377,7 @@ func TestAuthMiddleware_ColonInPassword(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	req.SetBasicAuth("admin", "pass:word:with:colons")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -402,7 +402,7 @@ func TestAuthMiddleware_UnicodeCredentials(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	req.SetBasicAuth("用户", "密码123!")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -429,7 +429,7 @@ func TestAuthMiddleware_ErrorResponseBody(t *testing.T) {
 		t.Error("handler should not have been called")
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	// Missing auth header
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -453,7 +453,7 @@ func TestAuthMiddleware_ContentTypeOnFailure(t *testing.T) {
 		t.Error("handler should not have been called")
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

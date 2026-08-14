@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"log"
 	"net/http"
 )
 
@@ -101,7 +102,9 @@ func writeUnauthorized(w http.ResponseWriter, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("WWW-Authenticate", `Basic realm="iCloud Backup Server", charset="UTF-8"`)
 	w.WriteHeader(http.StatusUnauthorized)
-	// Encode the error response. Encoding a static map is safe — it cannot
-	// fail for these types.
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+	// Encode the error response. Encoding a static map cannot fail for these
+	// types, but we still check the error rather than silently ignoring it.
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": message}); err != nil {
+		log.Printf("writeUnauthorized encode error: %v", err)
+	}
 }

@@ -32,6 +32,7 @@ func TestHandlePatchUploadStatus_CollisionDeduplicates(t *testing.T) {
 			t.Fatalf("GetUpload: %v", err)
 		}
 		abs := filepath.Join(h.StoragePath(), up.OrganizedPath)
+		//nolint:gosec // test-only read of a temp-dir file, not attacker-controlled
 		got, err := os.ReadFile(abs)
 		if err != nil {
 			t.Fatalf("reading organized file at %s: %v", abs, err)

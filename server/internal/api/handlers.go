@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/moontechs/files-nest/server/internal/filestore"
@@ -232,7 +233,7 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	tusdMeta := "filename " + base64.StdEncoding.EncodeToString([]byte(safeFilename))
 
 	// Create the tusd upload.
-	backendID, err := h.backend.CreateUpload(tusdMeta)
+	backendID, err := h.backend.CreateUpload(r.Context(), tusdMeta)
 	if err != nil {
 		log.Printf("tusd CreateUpload failed for %s: %v", req.LocalIdentifier, err)
 		writeError(w, http.StatusInternalServerError, "failed to create upload")
@@ -262,7 +263,7 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 		// Unknown DB error — terminate the tusd upload before returning.
 		log.Printf("PutUploadIfAbsent failed for %s: %v", req.LocalIdentifier, err)
 
-		termErr := h.backend.TerminateOrCleanup(backendID)
+		termErr := h.backend.TerminateOrCleanup(r.Context(), backendID)
 		if termErr != nil {
 			log.Printf("failed to terminate tusd upload %s after DB error: %v", backendID, termErr)
 		}
@@ -285,7 +286,7 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				log.Printf("ReRegister failed for %s: %v", existing.ID, err)
 
-				termErr := h.backend.TerminateOrCleanup(backendID)
+				termErr := h.backend.TerminateOrCleanup(r.Context(), backendID)
 				if termErr != nil {
 					log.Printf("failed to terminate tusd upload %s after re-register failure: %v", backendID, termErr)
 				}
@@ -298,16 +299,20 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusCreated, uploadToResponse(reReg))
 
 			return
+		case store.StatusUploading, store.StatusCompleting, store.StatusComplete:
+			// In progress or complete: return the existing record idempotently.
 		default:
-			termErr := h.backend.TerminateOrCleanup(backendID)
-			if termErr != nil {
-				log.Printf("failed to terminate redundant tusd upload %s: %v", backendID, termErr)
-			}
-
-			writeJSON(w, http.StatusOK, existingToResponse(existing))
-
-			return
+			// Unknown status: treat like an in-progress upload.
 		}
+
+		termErr := h.backend.TerminateOrCleanup(r.Context(), backendID)
+		if termErr != nil {
+			log.Printf("failed to terminate redundant tusd upload %s: %v", backendID, termErr)
+		}
+
+		writeJSON(w, http.StatusOK, existingToResponse(existing))
+
+		return
 	}
 
 	// Return the newly-created record.
@@ -454,6 +459,10 @@ func parseRFC3339(s string) (time.Time, error) {
 // record as JSON, or 404 if the record does not exist.
 func (h *Handler) HandleGetUpload(w http.ResponseWriter, r *http.Request) {
 	id := extractID(r)
+	// The id is validated below to a fixed-length base64url string (no
+	// control characters), but strip newlines first as cheap defense-in-depth
+	// against log injection before the value reaches any log call.
+	id = strings.ReplaceAll(id, "\n", "")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "missing upload id")
 
@@ -496,6 +505,10 @@ func (h *Handler) HandleGetUpload(w http.ResponseWriter, r *http.Request) {
 // record is updated to backend_lost and a 409 Conflict is returned.
 func (h *Handler) HandleHeadUploadData(w http.ResponseWriter, r *http.Request) {
 	id := extractID(r)
+	// The id is validated below to a fixed-length base64url string (no
+	// control characters), but strip newlines first as cheap defense-in-depth
+	// against log injection before the value reaches any log call.
+	id = strings.ReplaceAll(id, "\n", "")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "missing upload id")
 
@@ -551,13 +564,17 @@ func (h *Handler) HandleHeadUploadData(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "backend_lost")
 
 		return
+	case store.StatusCompleting:
+		writeError(w, http.StatusConflict, "upload not in uploading state")
+
+		return
 	default:
 		writeError(w, http.StatusConflict, "upload not in uploading state")
 
 		return
 	}
 
-	info, err := h.backend.GetInfo(upload.BackendID)
+	info, err := h.backend.GetInfo(r.Context(), upload.BackendID)
 	if err != nil {
 		if errors.Is(err, uploadbackend.ErrNotFound) {
 			h.handleBackendLost(w, r, upload)
@@ -599,6 +616,10 @@ func (h *Handler) HandleHeadUploadData(w http.ResponseWriter, r *http.Request) {
 // is updated to backend_lost and a 409 Conflict is returned.
 func (h *Handler) HandlePatchUploadData(w http.ResponseWriter, r *http.Request) {
 	id := extractID(r)
+	// The id is validated below to a fixed-length base64url string (no
+	// control characters), but strip newlines first as cheap defense-in-depth
+	// against log injection before the value reaches any log call.
+	id = strings.ReplaceAll(id, "\n", "")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "missing upload id")
 
@@ -636,6 +657,10 @@ func (h *Handler) HandlePatchUploadData(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusConflict, "upload already completed or deleted")
 
 		return
+	case store.StatusCompleting, store.StatusBackendLost:
+		writeError(w, http.StatusConflict, "upload not in uploading state")
+
+		return
 	default:
 		writeError(w, http.StatusConflict, "upload not in uploading state")
 
@@ -665,7 +690,7 @@ func (h *Handler) HandlePatchUploadData(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Get the current offset from the backend to verify it matches.
-	currentOffset, err := h.backend.GetOffset(upload.BackendID)
+	currentOffset, err := h.backend.GetOffset(r.Context(), upload.BackendID)
 	if err != nil {
 		if errors.Is(err, uploadbackend.ErrNotFound) {
 			h.handleBackendLost(w, r, upload)
@@ -690,7 +715,7 @@ func (h *Handler) HandlePatchUploadData(w http.ResponseWriter, r *http.Request) 
 	uploadLength := r.Header.Get("Upload-Length")
 
 	// Forward the PATCH to the embedded tusd backend.
-	newOffset, err := h.backend.ForwardPatch(upload.BackendID, r.Body, currentOffset, uploadLength)
+	newOffset, err := h.backend.ForwardPatch(r.Context(), upload.BackendID, r.Body, currentOffset, uploadLength)
 	if err != nil {
 		if errors.Is(err, uploadbackend.ErrNotFound) {
 			h.handleBackendLost(w, r, upload)
@@ -727,6 +752,10 @@ func (h *Handler) HandlePatchUploadData(w http.ResponseWriter, r *http.Request) 
 // the tusd sidecar.
 func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request) {
 	id := extractID(r)
+	// The id is validated below to a fixed-length base64url string (no
+	// control characters), but strip newlines first as cheap defense-in-depth
+	// against log injection before the value reaches any log call.
+	id = strings.ReplaceAll(id, "\n", "")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "missing upload id")
 
@@ -761,17 +790,27 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 	}
 
 	// Only allow completion from the uploading state.
-	if upload.Status != store.StatusUploading {
-		switch upload.Status {
-		case store.StatusComplete:
-			writeError(w, http.StatusConflict, "upload already completed")
-		case store.StatusDeleted:
-			writeError(w, http.StatusConflict, "upload already deleted")
-		case store.StatusBackendLost:
-			writeError(w, http.StatusConflict, "backend_lost")
-		default:
-			writeError(w, http.StatusConflict, "upload not in uploading state")
-		}
+	switch upload.Status {
+	case store.StatusUploading:
+		// OK — proceed to completion below.
+	case store.StatusComplete:
+		writeError(w, http.StatusConflict, "upload already completed")
+
+		return
+	case store.StatusDeleted:
+		writeError(w, http.StatusConflict, "upload already deleted")
+
+		return
+	case store.StatusBackendLost:
+		writeError(w, http.StatusConflict, "backend_lost")
+
+		return
+	case store.StatusCompleting:
+		writeError(w, http.StatusConflict, "upload not in uploading state")
+
+		return
+	default:
+		writeError(w, http.StatusConflict, "upload not in uploading state")
 
 		return
 	}
@@ -805,7 +844,7 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 	}
 
 	// Verify the tusd backend reports the upload as fully uploaded.
-	complete, err := h.backend.IsComplete(upload.BackendID)
+	complete, err := h.backend.IsComplete(r.Context(), upload.BackendID)
 	if err != nil {
 		if errors.Is(err, uploadbackend.ErrNotFound) {
 			h.handleBackendLost(w, r, upload)
@@ -826,7 +865,7 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 	}
 
 	// Get the source file path from the tusd backend.
-	srcPath, err := h.backend.FilePath(upload.BackendID)
+	srcPath, err := h.backend.FilePath(r.Context(), upload.BackendID)
 	if err != nil {
 		if errors.Is(err, uploadbackend.ErrNotFound) {
 			h.handleBackendLost(w, r, upload)
@@ -880,12 +919,15 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 
 	var plan filestore.PlanDestResult
 
-	if existing, err := h.store.GetCompletionIntent(upload.ID); err != nil {
+	existing, err := h.store.GetCompletionIntent(upload.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		log.Printf("failed to read existing completion intent for %s: %v", upload.ID, err)
 		writeError(w, http.StatusInternalServerError, "failed to prepare completion")
 
 		return
-	} else if existing != nil {
+	}
+
+	if existing != nil {
 		existingPlan := filestore.PlanDestResult{Abs: existing.Dst, Rel: existing.DstRel}
 
 		err := h.mover.MoveToPlaned(srcPath, existingPlan, saveIntent)
@@ -926,7 +968,7 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 	}
 
 	// Best-effort cleanup of the tusd sidecar (.info file).
-	termErr := h.backend.TerminateOrCleanup(upload.BackendID)
+	termErr := h.backend.TerminateOrCleanup(r.Context(), upload.BackendID)
 	if termErr != nil && !errors.Is(termErr, uploadbackend.ErrNotFound) {
 		log.Printf("failed to terminate tusd upload %s after completion: %v", upload.BackendID, termErr)
 	}
@@ -947,6 +989,10 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 // record is still marked deleted even if file cleanup fails.
 func (h *Handler) HandleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 	id := extractID(r)
+	// The id is validated below to a fixed-length base64url string (no
+	// control characters), but strip newlines first as cheap defense-in-depth
+	// against log injection before the value reaches any log call.
+	id = strings.ReplaceAll(id, "\n", "")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "missing upload id")
 
@@ -986,7 +1032,7 @@ func (h *Handler) HandleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 	// Terminate the tusd backend upload. Ignore ErrNotFound — the backend
 	// may already be gone (e.g. after a completed upload was moved or a
 	// previous partial cleanup).
-	termErr := h.backend.TerminateOrCleanup(upload.BackendID)
+	termErr := h.backend.TerminateOrCleanup(r.Context(), upload.BackendID)
 	if termErr != nil && !errors.Is(termErr, uploadbackend.ErrNotFound) {
 		log.Printf("failed to terminate tusd upload %s during delete: %v", upload.BackendID, termErr)
 	}
@@ -1040,8 +1086,10 @@ func (h *Handler) handleBackendLost(w http.ResponseWriter, _ *http.Request, uplo
 			if _, err := h.store.UpdateStatus(upload.ID, store.StatusBackendLost); err != nil {
 				log.Printf("failed to set backend_lost for %s: %v", upload.ID, err)
 			}
+		case store.StatusComplete, store.StatusDeleted, store.StatusBackendLost:
+			// Preserve terminal state.
 		default:
-			// complete, deleted, or already backend_lost — preserve terminal state.
+			// Unknown status: preserve current state.
 		}
 	}
 

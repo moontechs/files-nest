@@ -99,12 +99,12 @@ Task 1 measured baseline (golangci-lint v2.12.2, `default: all`, only `wsl`/`gom
 **Files:**
 - Modify: `server/internal/**/*.go` and `server/internal/**/*_test.go`, `server/main.go` as needed
 
-- [ ] fix all violations for this cluster across the whole module (including test files — none of these are in the test exclusion set)
-- [ ] **treat every `gosec` finding as a real security review, not a mechanical fix** — pay particular attention to `internal/filestore/mover.go`, `internal/api/handlers.go`, `internal/api/router.go`, `internal/uploadbackend/tushandler.go`, `internal/api/recovery.go` (file-path and auth-handling code in a backup server); if a finding is a genuine false positive, suppress with `//nolint:gosec // specific reason`, never blanket-suppress
-- [ ] add/update unit tests for any fix that changes an error path or behavior (e.g. an `errcheck` fix that now surfaces a previously-swallowed error, a `gosec` fix that changes file-permission or path-handling logic)
-- [ ] write tests for edge cases uncovered while fixing (nil handling from `nilnil`/`nilerr`, unclosed body from `bodyclose`, missing context from `noctx`)
-- [ ] run tests - must pass before task 4
-- [ ] run `golangci-lint run ./...` - record remaining violation count
+- [x] fix all violations for this cluster across the whole module (including test files — none of these are in the test exclusion set)
+- [x] **treat every `gosec` finding as a real security review, not a mechanical fix** — pay particular attention to `internal/filestore/mover.go`, `internal/api/handlers.go`, `internal/api/router.go`, `internal/uploadbackend/tushandler.go`, `internal/api/recovery.go` (file-path and auth-handling code in a backup server); if a finding is a genuine false positive, suppress with `//nolint:gosec // specific reason`, never blanket-suppress
+- [x] add/update unit tests for any fix that changes an error path or behavior (e.g. an `errcheck` fix that now surfaces a previously-swallowed error, a `gosec` fix that changes file-permission or path-handling logic)
+- [x] write tests for edge cases uncovered while fixing (nil handling from `nilnil`/`nilerr`, unclosed body from `bodyclose`, missing context from `noctx`)
+- [x] run tests - must pass before task 4
+- [x] run `golangci-lint run ./...` - record remaining violation count (cluster now 0; remaining total 281 = Task 4/5 style/complexity clusters only — full breakdown in `.ralphex/scratchpad/task3-remaining-summary.txt`)
 
 ### Task 4: Fix style-correctness violations (noinlineerr, varnamelen, err113, exhaustruct, tagliatelle, godoclint, lll, mnd, revive, goconst, gosmopolitan, dogsled, nonamedreturns, unused, unparam, thelper, testpackage, embeddedstructfieldcheck, prealloc)
 

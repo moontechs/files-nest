@@ -26,24 +26,25 @@ func openTestMover(t *testing.T) *filestore.Mover {
 // directories if needed. Returns the absolute path.
 func touchFile(t *testing.T, path string) string {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatalf("MkdirAll %s: %v", filepath.Dir(path), err)
 	}
+	//nolint:gosec // test-only read/write of a temp-dir file, not attacker-controlled
 	f, err := os.Create(path)
 	if err != nil {
 		t.Fatalf("Create %s: %v", path, err)
 	}
-	f.Close()
+	_ = f.Close()
 	return path
 }
 
 // writeFile writes content to a file at the given path.
 func writeFile(t *testing.T, path string, content []byte) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatalf("MkdirAll %s: %v", filepath.Dir(path), err)
 	}
-	if err := os.WriteFile(path, content, 0o644); err != nil {
+	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatalf("WriteFile %s: %v", path, err)
 	}
 }
@@ -320,6 +321,7 @@ func TestMoveFile_DeduplicatesWhenDestinationExists(t *testing.T) {
 
 	// Original existing file should still be present.
 	assertPathExists(t, existingAbs)
+	//nolint:gosec // test-only read/write of a temp-dir file, not attacker-controlled
 	gotExisting, err := os.ReadFile(existingAbs)
 	if err != nil {
 		t.Fatalf("ReadFile existing: %v", err)
@@ -1103,7 +1105,7 @@ func TestRemoveOrganizedFile_PathTraversal(t *testing.T) {
 	// Create a file just outside the storage root to verify it is NOT removed.
 	outsidePath := filepath.Join(filepath.Dir(m.StoragePath()), "escaped_file.txt")
 	writeFile(t, outsidePath, []byte("should not be removed"))
-	t.Cleanup(func() { os.Remove(outsidePath) })
+	t.Cleanup(func() { _ = os.Remove(outsidePath) })
 
 	// Attempt traversal with ".." segments.
 	err := m.RemoveOrganizedFile("../../escaped_file.txt")
@@ -1122,7 +1124,7 @@ func TestRemoveOrganizedFile_DeepPathTraversal(t *testing.T) {
 
 	outsidePath := filepath.Join(filepath.Dir(m.StoragePath()), "deep_escape.txt")
 	writeFile(t, outsidePath, []byte("should not be removed"))
-	t.Cleanup(func() { os.Remove(outsidePath) })
+	t.Cleanup(func() { _ = os.Remove(outsidePath) })
 
 	// Deeper traversal.
 	err := m.RemoveOrganizedFile("organized/2024/../../../deep_escape.txt")
@@ -1149,10 +1151,11 @@ func TestRemoveOrganizedFile_PermissionDenied(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat parent dir: %v", err)
 	}
+	//nolint:gosec // permission-denial test intentionally changes directory mode
 	if err := os.Chmod(parentDir, 0o555); err != nil {
 		t.Fatalf("Chmod parent dir to 0555: %v", err)
 	}
-	t.Cleanup(func() { os.Chmod(parentDir, origMode.Mode()) })
+	t.Cleanup(func() { _ = os.Chmod(parentDir, origMode.Mode()) })
 
 	// Removing the file should fail because the directory is read-only.
 	err = m.RemoveOrganizedFile(relPath)
@@ -1166,7 +1169,8 @@ func TestRemoveOrganizedFile_PermissionDenied(t *testing.T) {
 	assertPathExists(t, absPath)
 
 	// Restore permissions so cleanup can remove the temp dir.
-	os.Chmod(parentDir, 0o755)
+	//nolint:gosec // permission-denial test intentionally restores directory mode
+	_ = os.Chmod(parentDir, 0o755)
 }
 
 // ---------------------------------------------------------------------------
@@ -1282,6 +1286,7 @@ func TestPlanDestination_PreservesExistingOnCollision(t *testing.T) {
 
 	// The original file must still be at its original path.
 	assertPathExists(t, existingAbs)
+	//nolint:gosec // test-only read/write of a temp-dir file, not attacker-controlled
 	got, err := os.ReadFile(existingAbs)
 	if err != nil {
 		t.Fatalf("ReadFile existing: %v", err)
@@ -1353,6 +1358,7 @@ func TestMoveFileStandalone_Basic(t *testing.T) {
 
 	// Destination should exist with content.
 	assertPathExists(t, dst)
+	//nolint:gosec // test-only read/write of a temp-dir file, not attacker-controlled
 	got, err := os.ReadFile(dst)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -1390,6 +1396,7 @@ func TestMoveFileStandalone_SameDirectoryMove(t *testing.T) {
 
 	assertPathNotExists(t, src)
 	assertPathExists(t, dst)
+	//nolint:gosec // test-only read/write of a temp-dir file, not attacker-controlled
 	got, err := os.ReadFile(dst)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -1417,6 +1424,7 @@ func TestMoveFileStandalone_IdempotentSrcMissingDstExists(t *testing.T) {
 
 	// Destination should still exist with original content.
 	assertPathExists(t, dst)
+	//nolint:gosec // test-only read/write of a temp-dir file, not attacker-controlled
 	got, err := os.ReadFile(dst)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -1438,7 +1446,7 @@ func TestMoveFileStandalone_IdempotentSrcMissingDstExistsLarge(t *testing.T) {
 	for i := range content {
 		content[i] = byte(i % 256)
 	}
-	if err := os.WriteFile(dst, content, 0o644); err != nil {
+	if err := os.WriteFile(dst, content, 0o600); err != nil {
 		t.Fatalf("WriteFile dst: %v", err)
 	}
 
@@ -1448,6 +1456,7 @@ func TestMoveFileStandalone_IdempotentSrcMissingDstExistsLarge(t *testing.T) {
 	}
 
 	// Verify content intact.
+	//nolint:gosec // test-only read/write of a temp-dir file, not attacker-controlled
 	got, err := os.ReadFile(dst)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -1572,6 +1581,7 @@ func TestPlanDestinationWithCollisionThenMoveFile(t *testing.T) {
 	assertPathExists(t, plan.Abs)
 
 	// Verify content of both.
+	//nolint:gosec // test-only read/write of a temp-dir file, not attacker-controlled
 	gotExisting, _ := os.ReadFile(existingAbs)
 	if string(gotExisting) != "existing photo" {
 		t.Errorf("existing content: got %q, want %q", string(gotExisting), "existing photo")

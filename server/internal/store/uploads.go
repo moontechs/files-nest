@@ -57,7 +57,7 @@ var (
 // already exists it returns ErrConflict — the caller should handle idempotency
 // by reading the existing record and branching on its status.
 func (s *Store) CreateUpload(upload *Upload) error {
-	return s.db.Update(func(txn *badger.Txn) error {
+	err := s.db.Update(func(txn *badger.Txn) error {
 		// Check for duplicate local identifier
 		key := localIndexKey(upload.LocalIdentifier)
 		if _, err := txn.Get(key); err == nil {
@@ -86,6 +86,11 @@ func (s *Store) CreateUpload(upload *Upload) error {
 
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("create upload: %w", err)
+	}
+
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +121,7 @@ func (s *Store) GetUpload(id string) (*Upload, error) {
 		})
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get upload: %w", err)
 	}
 
 	return &upload, nil
@@ -127,7 +132,7 @@ func (s *Store) GetUpload(id string) (*Upload, error) {
 // ---------------------------------------------------------------------------
 
 // UploadByLocalIdentifier looks up an upload by its original PhotoKit
-// localIdentifier. Returns nil, nil if no record exists.
+// localIdentifier. Returns ErrNotFound if no record exists.
 func (s *Store) UploadByLocalIdentifier(localIdentifier string) (*Upload, error) {
 	key := localIndexKey(localIdentifier)
 
@@ -150,18 +155,18 @@ func (s *Store) UploadByLocalIdentifier(localIdentifier string) (*Upload, error)
 		})
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("lookup upload by local identifier: %w", err)
 	}
 
 	if id == "" {
-		return nil, nil
+		return nil, ErrNotFound
 	}
 
 	return s.GetUpload(id)
 }
 
 // UploadByBackendID looks up an upload by its tusd backend ID.
-// Returns nil, nil if no record exists.
+// Returns ErrNotFound if no record exists.
 func (s *Store) UploadByBackendID(backendID string) (*Upload, error) {
 	key := backendIndexKey(backendID)
 
@@ -184,11 +189,11 @@ func (s *Store) UploadByBackendID(backendID string) (*Upload, error) {
 		})
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("lookup upload by backend id: %w", err)
 	}
 
 	if id == "" {
-		return nil, nil
+		return nil, ErrNotFound
 	}
 
 	return s.GetUpload(id)
@@ -246,7 +251,7 @@ func (s *Store) PutUploadIfAbsent(upload *Upload) (*Upload, bool, error) {
 
 				return nil
 			}); err != nil {
-				return err
+				return fmt.Errorf("read existing upload value: %w", err)
 			}
 
 			if existing != nil {
@@ -279,7 +284,7 @@ func (s *Store) PutUploadIfAbsent(upload *Upload) (*Upload, bool, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("put upload if absent: %w", err)
 	}
 
 	if created {
@@ -356,7 +361,7 @@ func (s *Store) UpdateStatus(id string, newStatus Status) (*Upload, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("update upload status: %w", err)
 	}
 
 	return updated, nil
@@ -430,7 +435,7 @@ func (s *Store) UpdateComplete(id string, organizedPath string) (*Upload, error)
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("complete upload: %w", err)
 	}
 
 	return updated, nil
@@ -507,7 +512,7 @@ func (s *Store) ReRegister(id string, newBackendID string) (*Upload, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("re-register upload: %w", err)
 	}
 
 	return updated, nil
@@ -520,7 +525,7 @@ func (s *Store) ReRegister(id string, newBackendID string) (*Upload, error) {
 // DeleteUpload removes an upload record and all its index entries in a single
 // transaction. Returns ErrNotFound if the record does not exist.
 func (s *Store) DeleteUpload(id string) error {
-	return s.db.Update(func(txn *badger.Txn) error {
+	err := s.db.Update(func(txn *badger.Txn) error {
 		item, err := txn.Get(recordKey(id))
 		if err != nil {
 			if errors.Is(err, badger.ErrKeyNotFound) {
@@ -553,6 +558,11 @@ func (s *Store) DeleteUpload(id string) error {
 
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("delete upload: %w", err)
+	}
+
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -603,8 +613,11 @@ func (s *Store) ListByStatus(status Status) ([]*Upload, error) {
 
 		return nil
 	})
+	if err != nil {
+		return nil, fmt.Errorf("list uploads by status: %w", err)
+	}
 
-	return uploads, err
+	return uploads, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -759,7 +772,7 @@ func (s *Store) ListByDateRange(from, to time.Time, statusFilter Status, limit i
 		return nil
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("list uploads by date range: %w", err)
 	}
 
 	return uploads, nextCursor, nil

@@ -31,7 +31,7 @@ type CompletionIntent struct {
 
 // SaveCompletionIntent persists a completion intent for crash recovery.
 func (s *Store) SaveCompletionIntent(intent *CompletionIntent) error {
-	return s.db.Update(func(txn *badger.Txn) error {
+	err := s.db.Update(func(txn *badger.Txn) error {
 		val, err := json.Marshal(intent)
 		if err != nil {
 			return fmt.Errorf("marshal completion intent: %w", err)
@@ -39,6 +39,11 @@ func (s *Store) SaveCompletionIntent(intent *CompletionIntent) error {
 
 		return txn.Set(completionIntentKey(intent.ID), val)
 	})
+	if err != nil {
+		return fmt.Errorf("save completion intent: %w", err)
+	}
+
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -46,7 +51,7 @@ func (s *Store) SaveCompletionIntent(intent *CompletionIntent) error {
 // ---------------------------------------------------------------------------
 
 // GetCompletionIntent retrieves a completion intent by upload ID.
-// Returns nil, nil if not found.
+// Returns ErrNotFound if not found.
 func (s *Store) GetCompletionIntent(id string) (*CompletionIntent, error) {
 	var (
 		intent CompletionIntent
@@ -70,11 +75,11 @@ func (s *Store) GetCompletionIntent(id string) (*CompletionIntent, error) {
 		})
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get completion intent: %w", err)
 	}
 
 	if !found {
-		return nil, nil
+		return nil, ErrNotFound
 	}
 
 	return &intent, nil
@@ -86,9 +91,14 @@ func (s *Store) GetCompletionIntent(id string) (*CompletionIntent, error) {
 
 // DeleteCompletionIntent removes a completion intent from the database.
 func (s *Store) DeleteCompletionIntent(id string) error {
-	return s.db.Update(func(txn *badger.Txn) error {
+	err := s.db.Update(func(txn *badger.Txn) error {
 		return txn.Delete(completionIntentKey(id))
 	})
+	if err != nil {
+		return fmt.Errorf("delete completion intent: %w", err)
+	}
+
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +132,9 @@ func (s *Store) ListCompletionIntents() ([]*CompletionIntent, error) {
 
 		return nil
 	})
+	if err != nil {
+		return nil, fmt.Errorf("list completion intents: %w", err)
+	}
 
-	return intents, err
+	return intents, nil
 }

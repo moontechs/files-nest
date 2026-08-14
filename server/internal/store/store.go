@@ -28,7 +28,11 @@ func Open(path string) (*Store, error) {
 
 // Close gracefully shuts down the underlying BadgerDB database.
 func (s *Store) Close() error {
-	return s.db.Close()
+	if err := s.db.Close(); err != nil {
+		return fmt.Errorf("store close: %w", err)
+	}
+
+	return nil
 }
 
 // DB returns the underlying BadgerDB instance for low-level operations.

@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -29,7 +30,7 @@ func setupRecovery(t *testing.T) (*api.Recoverer, *store.Store, string, *uploadb
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() { _ = st.Close() })
 
 	// Create tusd backend (incoming/ is created inside storageDir)
 	bh, err := uploadbackend.New(storageDir)
@@ -65,10 +66,10 @@ func createIntent(id, src, dst, dstRel, backendID string) *store.CompletionInten
 func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatalf("MkdirAll %s: %v", dir, err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("WriteFile %s: %v", path, err)
 	}
 }
@@ -76,6 +77,7 @@ func writeTestFile(t *testing.T, path, content string) {
 // fileContent reads the content of a file, failing the test on error.
 func fileContent(t *testing.T, path string) string {
 	t.Helper()
+	//nolint:gosec // test-only read of a temp-dir file, not attacker-controlled
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile %s: %v", path, err)
@@ -161,7 +163,7 @@ func TestRecover_Intent_AlreadyMoved(t *testing.T) {
 
 	// Verify the completion intent was deleted.
 	intentCheck, err := st.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent after recovery: %v", err)
 	}
 	if intentCheck != nil {
@@ -244,7 +246,7 @@ func TestRecover_Intent_NotYetMoved(t *testing.T) {
 
 	// Verify the intent was deleted.
 	intentCheck, err := st.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent: %v", err)
 	}
 	if intentCheck != nil {
@@ -314,7 +316,7 @@ func TestRecover_Intent_BothExist(t *testing.T) {
 
 	// Verify the intent was deleted.
 	intentCheck, err := st.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent: %v", err)
 	}
 	if intentCheck != nil {
@@ -377,7 +379,7 @@ func TestRecover_Intent_AlreadyComplete(t *testing.T) {
 
 	// Verify the stale intent was deleted.
 	intentCheck, err := st.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent: %v", err)
 	}
 	if intentCheck != nil {
@@ -478,7 +480,7 @@ func TestRecover_Intent_UploadRecordDeleted(t *testing.T) {
 
 	// Verify the intent was deleted (cleaned up orphan).
 	intentCheck, err := st.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent: %v", err)
 	}
 	if intentCheck != nil {
@@ -499,20 +501,20 @@ func TestRecover_Intent_WithTusdCleanup(t *testing.T) {
 	rec, st, storageDir, bh := setupRecovery(t)
 
 	// Create a real tusd upload to generate an .info sidecar.
-	backendID, err := bh.CreateUpload("filename " + "aW1nXzAwMDEuanBn")
+	backendID, err := bh.CreateUpload(context.Background(), "filename "+"aW1nXzAwMDEuanBn")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
 	// Write some data to the upload so there's a binary file.
 	data := []byte("test content for tusd cleanup recovery")
-	_, err = bh.ForwardPatch(backendID, strings.NewReader(string(data)), 0, "")
+	_, err = bh.ForwardPatch(context.Background(), backendID, strings.NewReader(string(data)), 0, "")
 	if err != nil {
 		t.Fatalf("ForwardPatch: %v", err)
 	}
 
 	// Get the file path to use as src in the intent.
-	srcPath, err := bh.FilePath(backendID)
+	srcPath, err := bh.FilePath(context.Background(), backendID)
 	if err != nil {
 		t.Fatalf("FilePath: %v", err)
 	}
@@ -563,7 +565,7 @@ func TestRecover_Intent_WithTusdCleanup(t *testing.T) {
 	}
 
 	// Verify the tusd backend was cleaned up (.info sidecar removed).
-	_, err = bh.GetInfo(backendID)
+	_, err = bh.GetInfo(context.Background(), backendID)
 	if !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Errorf("expected backend to be cleaned up, got %v", err)
 	}
@@ -648,15 +650,18 @@ func TestRecover_MultipleIntents(t *testing.T) {
 
 		// Verify intent status.
 		intentCheck, err := st.GetCompletionIntent(it.id)
-		if err != nil {
-			t.Fatalf("GetCompletionIntent %s: %v", it.id, err)
-		}
 		switch it.state {
 		case "moved", "not-moved":
+			if !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("GetCompletionIntent %s: %v", it.id, err)
+			}
 			if intentCheck != nil {
 				t.Errorf("intent %s should have been deleted", it.id)
 			}
 		case "lost":
+			if err != nil {
+				t.Fatalf("GetCompletionIntent %s: %v", it.id, err)
+			}
 			if intentCheck == nil {
 				t.Errorf("intent %s should have been kept for manual repair", it.id)
 			}
@@ -708,7 +713,7 @@ func TestRecover_BackendLost_OnlyNonExistent(t *testing.T) {
 	rec, st, _, bh := setupRecovery(t)
 
 	// Create a real tusd upload so it should NOT be marked as lost.
-	realBackendID, err := bh.CreateUpload("filename " + "aW1nXzAwMDguanBn")
+	realBackendID, err := bh.CreateUpload(context.Background(), "filename "+"aW1nXzAwMDguanBn")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
@@ -822,7 +827,7 @@ func TestRecover_Idempotent(t *testing.T) {
 
 	// Verify intent was deleted after first recovery.
 	intentCheck, err := st.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent: %v", err)
 	}
 	if intentCheck != nil {

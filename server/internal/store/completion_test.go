@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -252,7 +253,7 @@ func TestCompletionIntent_GetNotFound(t *testing.T) {
 	s := openTestStore(t)
 
 	got, err := s.GetCompletionIntent("nonexistent")
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent failed: %v", err)
 	}
 	if got != nil {
@@ -274,7 +275,7 @@ func TestCompletionIntent_GetNotFound_AfterDelete(t *testing.T) {
 	}
 
 	got, err := s.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent after delete failed: %v", err)
 	}
 	if got != nil {
@@ -286,7 +287,7 @@ func TestCompletionIntent_GetNotFound_EmptyID(t *testing.T) {
 	s := openTestStore(t)
 
 	got, err := s.GetCompletionIntent("")
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent with empty ID failed: %v", err)
 	}
 	if got != nil {
@@ -320,7 +321,7 @@ func TestCompletionIntent_Delete(t *testing.T) {
 	}
 
 	got, err := s.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent after delete failed: %v", err)
 	}
 	if got != nil {
@@ -368,7 +369,7 @@ func TestCompletionIntent_Delete_DoesNotAffectOtherIntents(t *testing.T) {
 
 	// Deleted should be gone
 	got, err := s.GetCompletionIntent("delete-b")
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent delete-b failed: %v", err)
 	}
 	if got != nil {
@@ -554,7 +555,7 @@ func TestCompletionIntent_FullLifecycle(t *testing.T) {
 
 	// Step 5: Get returns nil
 	got, err = s.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("Get after delete failed: %v", err)
 	}
 	if got != nil {
@@ -588,13 +589,13 @@ func TestCompletionIntent_StoreIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open s1 failed: %v", err)
 	}
-	defer s1.Close()
+	defer func() { _ = s1.Close() }()
 
 	s2, err := store.Open(filepath.Join(dir2, "db"))
 	if err != nil {
 		t.Fatalf("Open s2 failed: %v", err)
 	}
-	defer s2.Close()
+	defer func() { _ = s2.Close() }()
 
 	// Save in s1
 	intent1 := testIntent("store-1-intent")
@@ -703,7 +704,7 @@ func TestCompletionIntent_ConcurrentDeleteOnSameIntent(t *testing.T) {
 
 	// Intent should be gone
 	got, err := s.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent after concurrent deletes: %v", err)
 	}
 	if got != nil {

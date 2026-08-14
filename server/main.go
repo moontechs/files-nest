@@ -41,7 +41,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to open store: %w", err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	// Start BadgerDB GC goroutine
 	ctx, cancel := context.WithCancel(context.Background())

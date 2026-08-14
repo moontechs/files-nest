@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"time"
 )
 
@@ -26,7 +27,7 @@ func NewRouter(h *Handler, authCfg AuthConfig) http.Handler {
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
 	// Auth middleware wrapping all API routes.
@@ -61,7 +62,7 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.Printf("panic recovered: %v (path=%s method=%s)\n%s", rec, r.URL.Path, r.Method, debug.Stack())
+				log.Printf("panic recovered: %v (path=%s method=%s)\n%s", rec, strconv.Quote(r.URL.Path), strconv.Quote(r.Method), debug.Stack())
 				// Emit a JSON body with a JSON content type so clients can parse
 				// it consistently. http.Error would label this text/plain.
 				w.Header().Set("Content-Type", "application/json")
@@ -87,7 +88,7 @@ func requestLogMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(lrw, r)
 
 		duration := time.Since(start)
-		log.Printf("%s %s %d %s", r.Method, r.URL.Path, lrw.statusCode, duration)
+		log.Printf("%s %s %d %s", strconv.Quote(r.Method), strconv.Quote(r.URL.Path), lrw.statusCode, duration)
 	})
 }
 

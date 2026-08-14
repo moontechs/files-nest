@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -20,7 +21,7 @@ func newRouterForTest(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() { _ = st.Close() })
 
 	bk, err := uploadbackend.New(dir)
 	if err != nil {
@@ -35,7 +36,7 @@ func newRouterForTest(t *testing.T) http.Handler {
 func TestRouter_HealthEndpoint(t *testing.T) {
 	router := newRouterForTest(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -59,7 +60,7 @@ func TestRouter_HealthEndpoint(t *testing.T) {
 func TestRouter_AuthDisabledWhenCredsEmpty(t *testing.T) {
 	router := newRouterForTest(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
