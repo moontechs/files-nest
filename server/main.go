@@ -20,7 +20,8 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
+	err := run()
+	if err != nil {
 		log.Printf("fatal error: %v", err)
 		os.Exit(1)
 	}
@@ -35,6 +36,7 @@ func run() error {
 	// Open BadgerDB
 	dbPath := filepath.Join(storagePath, "db")
 	log.Printf("opening store at %s", dbPath)
+
 	st, err := store.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open store: %w", err)
@@ -44,6 +46,7 @@ func run() error {
 	// Start BadgerDB GC goroutine
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
 	go runBadgerGC(ctx, st.DB())
 
 	// Create the embedded tusd upload backend (incoming/ directory).
@@ -84,6 +87,7 @@ func run() error {
 			"Set both to enable Basic Auth, or leave both empty for unauthenticated dev mode",
 			getEnv("BACKUP_USER", ""), getEnv("BACKUP_PASS", ""))
 	}
+
 	mux := api.NewRouter(handler, authCfg)
 
 	// Timeouts: this is an upload server that streams potentially large
@@ -107,19 +111,24 @@ func run() error {
 		sig := <-sigCh
 		log.Printf("received %v, shutting down", sig)
 		cancel()
+
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
+
+		err := server.Shutdown(shutdownCtx)
+		if err != nil {
 			log.Printf("server shutdown error: %v", err)
 		}
 	}()
 
 	log.Printf("server listening on :%s", port)
+
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("server error: %w", err)
 	}
 
 	log.Println("server stopped")
+
 	return nil
 }
 
@@ -160,5 +169,6 @@ func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
+
 	return fallback
 }

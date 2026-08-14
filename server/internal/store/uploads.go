@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -42,9 +43,9 @@ type Upload struct {
 
 // Sentinel errors returned by store operations.
 var (
-	ErrNotFound      = fmt.Errorf("upload not found")
-	ErrConflict      = fmt.Errorf("upload already exists")
-	ErrInvalidCursor = fmt.Errorf("invalid cursor")
+	ErrNotFound      = errors.New("upload not found")
+	ErrConflict      = errors.New("upload already exists")
+	ErrInvalidCursor = errors.New("invalid cursor")
 )
 
 // ---------------------------------------------------------------------------
@@ -61,7 +62,7 @@ func (s *Store) CreateUpload(upload *Upload) error {
 		key := localIndexKey(upload.LocalIdentifier)
 		if _, err := txn.Get(key); err == nil {
 			return ErrConflict
-		} else if err != badger.ErrKeyNotFound {
+		} else if !errors.Is(err, badger.ErrKeyNotFound) {
 			return fmt.Errorf("check local index: %w", err)
 		}
 
@@ -70,6 +71,7 @@ func (s *Store) CreateUpload(upload *Upload) error {
 		if err != nil {
 			return fmt.Errorf("marshal upload: %w", err)
 		}
+
 		if err := txn.Set(recordKey(upload.ID), recordVal); err != nil {
 			return fmt.Errorf("set record: %w", err)
 		}
@@ -94,24 +96,29 @@ func (s *Store) CreateUpload(upload *Upload) error {
 // Returns ErrNotFound if the record does not exist.
 func (s *Store) GetUpload(id string) (*Upload, error) {
 	var upload Upload
+
 	err := s.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(recordKey(id))
 		if err != nil {
-			if err == badger.ErrKeyNotFound {
+			if errors.Is(err, badger.ErrKeyNotFound) {
 				return ErrNotFound
 			}
+
 			return fmt.Errorf("get record: %w", err)
 		}
+
 		return item.Value(func(val []byte) error {
 			if err := json.Unmarshal(val, &upload); err != nil {
 				return fmt.Errorf("unmarshal upload: %w", err)
 			}
+
 			return nil
 		})
 	})
 	if err != nil {
 		return nil, err
 	}
+
 	return &upload, nil
 }
 
@@ -125,25 +132,31 @@ func (s *Store) UploadByLocalIdentifier(localIdentifier string) (*Upload, error)
 	key := localIndexKey(localIdentifier)
 
 	var id string
+
 	err := s.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(key)
 		if err != nil {
-			if err == badger.ErrKeyNotFound {
+			if errors.Is(err, badger.ErrKeyNotFound) {
 				return nil
 			}
+
 			return fmt.Errorf("get local index: %w", err)
 		}
+
 		return item.Value(func(val []byte) error {
 			id = string(val)
+
 			return nil
 		})
 	})
 	if err != nil {
 		return nil, err
 	}
+
 	if id == "" {
 		return nil, nil
 	}
+
 	return s.GetUpload(id)
 }
 
@@ -153,25 +166,31 @@ func (s *Store) UploadByBackendID(backendID string) (*Upload, error) {
 	key := backendIndexKey(backendID)
 
 	var id string
+
 	err := s.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(key)
 		if err != nil {
-			if err == badger.ErrKeyNotFound {
+			if errors.Is(err, badger.ErrKeyNotFound) {
 				return nil
 			}
+
 			return fmt.Errorf("get backend index: %w", err)
 		}
+
 		return item.Value(func(val []byte) error {
 			id = string(val)
+
 			return nil
 		})
 	})
 	if err != nil {
 		return nil, err
 	}
+
 	if id == "" {
 		return nil, nil
 	}
+
 	return s.GetUpload(id)
 }
 
@@ -188,43 +207,53 @@ func (s *Store) UploadByBackendID(backendID string) (*Upload, error) {
 // ErrConflict — instead it checks the created bool to decide next steps (e.g.
 // whether to keep or clean up a newly-created tusd upload).
 func (s *Store) PutUploadIfAbsent(upload *Upload) (*Upload, bool, error) {
-	var existing *Upload
-	var created bool
+	var (
+		existing *Upload
+		created  bool
+	)
 
 	err := s.db.Update(func(txn *badger.Txn) error {
 		key := localIndexKey(upload.LocalIdentifier)
+
 		item, err := txn.Get(key)
 		if err == nil {
 			// Record exists for this localIdentifier — return the existing record.
 			if err := item.Value(func(val []byte) error {
 				if len(val) > 0 {
 					id := string(val)
+
 					recordItem, err := txn.Get(recordKey(id))
 					if err != nil {
-						if err == badger.ErrKeyNotFound {
+						if errors.Is(err, badger.ErrKeyNotFound) {
 							// Index inconsistent: local index points to missing record.
 							// Fall through to create-new path.
 							return nil
 						}
+
 						return fmt.Errorf("get existing record for local index: %w", err)
 					}
+
 					var rec Upload
+
 					if err := recordItem.Value(func(val2 []byte) error {
 						return json.Unmarshal(val2, &rec)
 					}); err != nil {
 						return fmt.Errorf("unmarshal existing record: %w", err)
 					}
+
 					existing = &rec
 				}
+
 				return nil
 			}); err != nil {
 				return err
 			}
+
 			if existing != nil {
 				return nil // return existing, created=false
 			}
 			// Index was inconsistent — fall through to create.
-		} else if err != badger.ErrKeyNotFound {
+		} else if !errors.Is(err, badger.ErrKeyNotFound) {
 			return fmt.Errorf("check local index: %w", err)
 		}
 
@@ -233,6 +262,7 @@ func (s *Store) PutUploadIfAbsent(upload *Upload) (*Upload, bool, error) {
 		if err != nil {
 			return fmt.Errorf("marshal upload: %w", err)
 		}
+
 		if err := txn.Set(recordKey(upload.ID), recordVal); err != nil {
 			return fmt.Errorf("set record: %w", err)
 		}
@@ -245,14 +275,17 @@ func (s *Store) PutUploadIfAbsent(upload *Upload) (*Upload, bool, error) {
 		}
 
 		created = true
+
 		return nil
 	})
 	if err != nil {
 		return nil, false, err
 	}
+
 	if created {
 		return upload, true, nil
 	}
+
 	return existing, false, nil
 }
 
@@ -274,13 +307,15 @@ func (s *Store) UpdateStatus(id string, newStatus Status) (*Upload, error) {
 	err := s.db.Update(func(txn *badger.Txn) error {
 		item, err := txn.Get(recordKey(id))
 		if err != nil {
-			if err == badger.ErrKeyNotFound {
+			if errors.Is(err, badger.ErrKeyNotFound) {
 				return ErrNotFound
 			}
+
 			return fmt.Errorf("get record for status update: %w", err)
 		}
 
 		var old Upload
+
 		if err := item.Value(func(val []byte) error {
 			return json.Unmarshal(val, &old)
 		}); err != nil {
@@ -304,6 +339,7 @@ func (s *Store) UpdateStatus(id string, newStatus Status) (*Upload, error) {
 		if err != nil {
 			return fmt.Errorf("marshal updated record: %w", err)
 		}
+
 		if err := txn.Set(recordKey(id), newVal); err != nil {
 			return fmt.Errorf("set updated record: %w", err)
 		}
@@ -316,11 +352,13 @@ func (s *Store) UpdateStatus(id string, newStatus Status) (*Upload, error) {
 		}
 
 		updated = &old
+
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+
 	return updated, nil
 }
 
@@ -343,13 +381,15 @@ func (s *Store) UpdateComplete(id string, organizedPath string) (*Upload, error)
 	err := s.db.Update(func(txn *badger.Txn) error {
 		item, err := txn.Get(recordKey(id))
 		if err != nil {
-			if err == badger.ErrKeyNotFound {
+			if errors.Is(err, badger.ErrKeyNotFound) {
 				return ErrNotFound
 			}
+
 			return fmt.Errorf("get record for complete: %w", err)
 		}
 
 		var upload Upload
+
 		if err := item.Value(func(val []byte) error {
 			return json.Unmarshal(val, &upload)
 		}); err != nil {
@@ -373,6 +413,7 @@ func (s *Store) UpdateComplete(id string, organizedPath string) (*Upload, error)
 		if err != nil {
 			return fmt.Errorf("marshal completed record: %w", err)
 		}
+
 		if err := txn.Set(recordKey(id), newVal); err != nil {
 			return fmt.Errorf("set completed record: %w", err)
 		}
@@ -385,11 +426,13 @@ func (s *Store) UpdateComplete(id string, organizedPath string) (*Upload, error)
 		}
 
 		updated = &upload
+
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+
 	return updated, nil
 }
 
@@ -413,13 +456,15 @@ func (s *Store) ReRegister(id string, newBackendID string) (*Upload, error) {
 	err := s.db.Update(func(txn *badger.Txn) error {
 		item, err := txn.Get(recordKey(id))
 		if err != nil {
-			if err == badger.ErrKeyNotFound {
+			if errors.Is(err, badger.ErrKeyNotFound) {
 				return ErrNotFound
 			}
+
 			return fmt.Errorf("get record for re-register: %w", err)
 		}
 
 		var upload Upload
+
 		if err := item.Value(func(val []byte) error {
 			return json.Unmarshal(val, &upload)
 		}); err != nil {
@@ -445,6 +490,7 @@ func (s *Store) ReRegister(id string, newBackendID string) (*Upload, error) {
 		if err != nil {
 			return fmt.Errorf("marshal re-registered record: %w", err)
 		}
+
 		if err := txn.Set(recordKey(id), newVal); err != nil {
 			return fmt.Errorf("set re-registered record: %w", err)
 		}
@@ -457,11 +503,13 @@ func (s *Store) ReRegister(id string, newBackendID string) (*Upload, error) {
 		}
 
 		updated = &upload
+
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+
 	return updated, nil
 }
 
@@ -475,13 +523,15 @@ func (s *Store) DeleteUpload(id string) error {
 	return s.db.Update(func(txn *badger.Txn) error {
 		item, err := txn.Get(recordKey(id))
 		if err != nil {
-			if err == badger.ErrKeyNotFound {
+			if errors.Is(err, badger.ErrKeyNotFound) {
 				return ErrNotFound
 			}
+
 			return fmt.Errorf("get record for delete: %w", err)
 		}
 
 		var upload Upload
+
 		if err := item.Value(func(val []byte) error {
 			return json.Unmarshal(val, &upload)
 		}); err != nil {
@@ -514,6 +564,7 @@ func (s *Store) DeleteUpload(id string) error {
 // Orphaned index entries (pointing to deleted records) are silently skipped.
 func (s *Store) ListByStatus(status Status) ([]*Upload, error) {
 	prefix := statusIndexPrefix(status)
+
 	var uploads []*Upload
 
 	err := s.db.View(func(txn *badger.Txn) error {
@@ -527,26 +578,32 @@ func (s *Store) ListByStatus(status Status) ([]*Upload, error) {
 			if lastSlash < 0 {
 				continue
 			}
+
 			id := key[lastSlash+1:]
 
 			record, err := txn.Get(recordKey(id))
 			if err != nil {
-				if err == badger.ErrKeyNotFound {
+				if errors.Is(err, badger.ErrKeyNotFound) {
 					continue // skip orphaned index entries
 				}
+
 				return fmt.Errorf("load record %s: %w", id, err)
 			}
 
 			var upload Upload
+
 			if err := record.Value(func(val []byte) error {
 				return json.Unmarshal(val, &upload)
 			}); err != nil {
 				return fmt.Errorf("unmarshal record %s: %w", id, err)
 			}
+
 			uploads = append(uploads, &upload)
 		}
+
 		return nil
 	})
+
 	return uploads, err
 }
 
@@ -565,6 +622,7 @@ func (s *Store) ListByDateRange(from, to time.Time, statusFilter Status, limit i
 	if limit <= 0 {
 		limit = 500
 	}
+
 	if limit > 1000 {
 		limit = 1000
 	}
@@ -578,21 +636,25 @@ func (s *Store) ListByDateRange(from, to time.Time, statusFilter Status, limit i
 	// next valid entry, which must not be skipped — otherwise pagination
 	// silently drops one record.
 	var seekKey string
+
 	var cursorKey string // exact key to skip on the first iteration (empty = skip nothing)
 
 	if cursor != "" {
 		cursorBytes, err := base64.RawURLEncoding.DecodeString(cursor)
 		if err != nil {
-			return nil, "", fmt.Errorf("%w: %v", ErrInvalidCursor, err)
+			return nil, "", fmt.Errorf("%w: %w", ErrInvalidCursor, err)
 		}
+
 		seekKey = "idx/date/" + string(cursorBytes)
 		cursorKey = seekKey
 	} else {
 		seekKey = "idx/date/" + fromStr
 	}
 
-	var uploads []*Upload
-	var nextCursor string
+	var (
+		uploads    []*Upload
+		nextCursor string
+	)
 
 	err := s.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
@@ -609,6 +671,7 @@ func (s *Store) ListByDateRange(from, to time.Time, statusFilter Status, limit i
 			// must return rather than skip.
 			if cursorKey != "" && key == cursorKey {
 				cursorKey = "" // consume; don't skip subsequent entries
+
 				continue
 			}
 
@@ -617,12 +680,14 @@ func (s *Store) ListByDateRange(from, to time.Time, statusFilter Status, limit i
 			if len(parts) < 4 {
 				continue
 			}
+
 			dateStr := parts[2]
 
 			// Respect the "to" bound
 			if dateStr > toStr {
 				break
 			}
+
 			if dateStr < fromStr {
 				continue
 			}
@@ -632,13 +697,15 @@ func (s *Store) ListByDateRange(from, to time.Time, statusFilter Status, limit i
 			// Load full record
 			item, err := txn.Get(recordKey(id))
 			if err != nil {
-				if err == badger.ErrKeyNotFound {
+				if errors.Is(err, badger.ErrKeyNotFound) {
 					continue // skip orphaned index entries
 				}
+
 				return fmt.Errorf("load record %s: %w", id, err)
 			}
 
 			var upload Upload
+
 			if err := item.Value(func(val []byte) error {
 				return json.Unmarshal(val, &upload)
 			}); err != nil {
@@ -666,6 +733,7 @@ func (s *Store) ListByDateRange(from, to time.Time, statusFilter Status, limit i
 					}
 				}
 			}
+
 			if ct.Before(from) || ct.After(to) {
 				continue
 			}
@@ -678,13 +746,16 @@ func (s *Store) ListByDateRange(from, to time.Time, statusFilter Status, limit i
 				// fills exactly to the limit, the client makes an unnecessary
 				// round-trip that returns an empty page.
 				it.Next()
+
 				if it.ValidForPrefix(prefix) {
 					cursorID := dateStr + "/" + id
 					nextCursor = base64.RawURLEncoding.EncodeToString([]byte(cursorID))
 				}
+
 				break
 			}
 		}
+
 		return nil
 	})
 	if err != nil {

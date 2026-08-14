@@ -116,9 +116,10 @@ func New(storagePath string) (*TUSHandler, error) {
 // value, or empty to omit. Returns the tusd upload ID (backend_id).
 func (h *TUSHandler) CreateUpload(metadata string) (backendID string, err error) {
 	rec := newTusdRecorder()
-	req, _ := http.NewRequest("POST", "/", nil)
+	req, _ := http.NewRequest(http.MethodPost, "/", nil)
 	req.Header.Set("Tus-Resumable", "1.0.0")
 	req.Header.Set("Upload-Defer-Length", "1")
+
 	if metadata != "" {
 		req.Header.Set("Upload-Metadata", metadata)
 	}
@@ -155,6 +156,7 @@ func (h *TUSHandler) GetOffset(backendID string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+
 	return info.Offset, nil
 }
 
@@ -168,10 +170,11 @@ func (h *TUSHandler) GetOffset(backendID string) (int64, error) {
 // the chunk is written, or an error.
 func (h *TUSHandler) ForwardPatch(backendID string, body io.Reader, offset int64, uploadLength string) (newOffset int64, err error) {
 	rec := newTusdRecorder()
-	req, _ := http.NewRequest("PATCH", "/"+backendID, body)
+	req, _ := http.NewRequest(http.MethodPatch, "/"+backendID, body)
 	req.Header.Set("Tus-Resumable", "1.0.0")
 	req.Header.Set("Upload-Offset", strconv.FormatInt(offset, 10))
 	req.Header.Set("Content-Type", "application/offset+octet-stream")
+
 	if uploadLength != "" {
 		req.Header.Set("Upload-Length", uploadLength)
 	}
@@ -236,6 +239,7 @@ func (h *TUSHandler) IsComplete(backendID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+
 	return !info.SizeIsDeferred && info.Offset == info.Size, nil
 }
 
@@ -277,7 +281,7 @@ func (h *TUSHandler) FilePath(backendID string) (string, error) {
 func (h *TUSHandler) TerminateOrCleanup(backendID string) error {
 	// First, try proper termination through the tusd handler.
 	rec := newTusdRecorder()
-	req, _ := http.NewRequest("DELETE", "/"+backendID, nil)
+	req, _ := http.NewRequest(http.MethodDelete, "/"+backendID, nil)
 	req.Header.Set("Tus-Resumable", "1.0.0")
 
 	h.handler.DelFile(rec, req)
@@ -289,12 +293,16 @@ func (h *TUSHandler) TerminateOrCleanup(backendID string) error {
 		// The binary file was already moved or never existed.
 		// Try to clean up any remaining .info sidecar.
 		infoPath := filepath.Join(h.store.Path, backendID+".info")
-		if err := os.Remove(infoPath); err != nil {
+
+		err := os.Remove(infoPath)
+		if err != nil {
 			if os.IsNotExist(err) {
 				return ErrNotFound
 			}
+
 			log.Printf("tusd: failed to remove info sidecar %s: %v", infoPath, err)
 		}
+
 		return ErrNotFound
 	default:
 		return extractTusdError(rec.ResponseRecorder)
@@ -310,6 +318,7 @@ func normalizeError(err error) error {
 	if err == nil {
 		return nil
 	}
+
 	if errors.Is(err, handler.ErrNotFound) {
 		return ErrNotFound
 	}
@@ -331,6 +340,7 @@ func extractTusdError(rec *httptest.ResponseRecorder) error {
 		if body != "" {
 			return fmt.Errorf("tusd conflict: %s", body)
 		}
+
 		return ErrInvalidOffset
 	case http.StatusLocked:
 		return ErrLocked
@@ -338,11 +348,13 @@ func extractTusdError(rec *httptest.ResponseRecorder) error {
 		if body != "" {
 			return fmt.Errorf("tusd not implemented: %s", body)
 		}
+
 		return ErrUploadRejected
 	case http.StatusPreconditionFailed:
 		if body != "" {
 			return fmt.Errorf("tusd version mismatch: %s", body)
 		}
+
 		return errors.New("tusd: unsupported version")
 	}
 
@@ -350,5 +362,6 @@ func extractTusdError(rec *httptest.ResponseRecorder) error {
 	if body != "" {
 		return errors.New("tusd: " + body)
 	}
+
 	return fmt.Errorf("tusd: HTTP %d", rec.Code)
 }

@@ -5,6 +5,7 @@ package api
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,7 @@ const (
 // path component.
 func SafeID(localIdentifier string) string {
 	h := sha256.Sum256([]byte(localIdentifier))
+
 	return base64.RawURLEncoding.EncodeToString(h[:])
 }
 
@@ -32,18 +34,22 @@ func SafeID(localIdentifier string) string {
 // SafeID. It verifies the length, base64url decoding, and decoded hash size.
 func ValidateSafeID(s string) error {
 	if s == "" {
-		return fmt.Errorf("safe id must not be empty")
+		return errors.New("safe id must not be empty")
 	}
+
 	if len(s) != SafeIDEncodedLen {
 		return fmt.Errorf("safe id has length %d, want %d", len(s), SafeIDEncodedLen)
 	}
+
 	decoded, err := base64.RawURLEncoding.DecodeString(s)
 	if err != nil {
 		return fmt.Errorf("safe id decode: %w", err)
 	}
+
 	if len(decoded) != sha256.Size {
 		return fmt.Errorf("safe id decoded length %d, want %d", len(decoded), sha256.Size)
 	}
+
 	return nil
 }
 
@@ -76,6 +82,7 @@ func SanitizeFilename(filename string) string {
 		if c == 0 || c == '/' || c == '\\' {
 			return ""
 		}
+
 		if c < 32 {
 			return ""
 		}

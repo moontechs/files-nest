@@ -48,12 +48,14 @@ func AuthMiddleware(cfg AuthConfig) func(http.Handler) http.Handler {
 			// This supports development mode where credentials are optional.
 			if cfg.Username == "" && cfg.Password == "" {
 				next.ServeHTTP(w, r)
+
 				return
 			}
 
 			user, pass, ok := r.BasicAuth()
 			if !ok {
 				writeUnauthorized(w, "missing or malformed authorization header")
+
 				return
 			}
 
@@ -65,6 +67,7 @@ func AuthMiddleware(cfg AuthConfig) func(http.Handler) http.Handler {
 
 			if userMatch != 1 || passMatch != 1 {
 				writeUnauthorized(w, "invalid credentials")
+
 				return
 			}
 
@@ -83,9 +86,11 @@ func AuthUserFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
 	}
+
 	if user, ok := ctx.Value(UserKey).(string); ok {
 		return user
 	}
+
 	return ""
 }
 

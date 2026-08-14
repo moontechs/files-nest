@@ -32,6 +32,7 @@ type UploadLocker struct {
 // Mutex, so the map entry can be safely deleted when no one needs it.
 type uploadLock struct {
 	sync.Mutex
+
 	refCount int
 }
 
@@ -43,11 +44,13 @@ func (l *UploadLocker) Lock(id string) {
 	if l.locks == nil {
 		l.locks = make(map[string]*uploadLock)
 	}
+
 	ul, ok := l.locks[id]
 	if !ok {
 		ul = &uploadLock{}
 		l.locks[id] = ul
 	}
+
 	ul.refCount++
 	l.mu.Unlock()
 
@@ -60,12 +63,15 @@ func (l *UploadLocker) Lock(id string) {
 // error that may cause the underlying mutex to panic.
 func (l *UploadLocker) Unlock(id string) {
 	l.mu.Lock()
+
 	ul, ok := l.locks[id]
 	if !ok {
 		l.mu.Unlock()
+
 		return
 	}
 	ul.Unlock()
+
 	ul.refCount--
 	if ul.refCount <= 0 {
 		delete(l.locks, id)
@@ -80,5 +86,6 @@ func (l *UploadLocker) Unlock(id string) {
 func (l *UploadLocker) Do(id string, fn func() error) (err error) {
 	l.Lock(id)
 	defer l.Unlock(id)
+
 	return fn()
 }

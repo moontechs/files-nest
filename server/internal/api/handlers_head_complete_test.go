@@ -1,8 +1,8 @@
 package api_test
 
 import (
-	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -20,7 +20,7 @@ func TestHandleHeadUploadData_CompletedUpload(t *testing.T) {
 
 	data := []byte("completed content for head test")
 	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
-		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+		strconv.Itoa(len(data)), strings.NewReader(string(data)))
 	if patchRec.Code != http.StatusNoContent {
 		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
 	}

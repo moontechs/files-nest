@@ -1,10 +1,10 @@
 package api_test
 
 import (
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -19,7 +19,7 @@ func TestHandlePatchUploadStatus_CollisionDeduplicates(t *testing.T) {
 	complete := func(t *testing.T, localID, content string) {
 		created := createTestUpload(t, h, localID, "IMG_0001.jpg", "2024-03-15T10:30:00Z")
 		patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
-			fmt.Sprintf("%d", len(content)), strings.NewReader(content))
+			strconv.Itoa(len(content)), strings.NewReader(content))
 		if patchRec.Code != http.StatusNoContent {
 			t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
 		}

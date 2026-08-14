@@ -652,8 +652,7 @@ func TestMoveFile_ConcurrentDifferentPaths(t *testing.T) {
 	const n = 10
 	errCh := make(chan error, n)
 
-	for i := 0; i < n; i++ {
-		i := i
+	for i := range n {
 		go func() {
 			srcName := "tusd-concurrent-" + itoa(i)
 			srcPath := filepath.Join(m.StoragePath(), "incoming", srcName)
@@ -666,14 +665,14 @@ func TestMoveFile_ConcurrentDifferentPaths(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if err := <-errCh; err != nil {
 			t.Errorf("concurrent move %d: %v", i, err)
 		}
 	}
 
 	// Verify all files were moved.
-	for i := 0; i < n; i++ {
+	for i := range n {
 		dstPath := filepath.Join(m.StoragePath(), "organized/2024/03/15/IMG_"+itoa(i)+".jpg")
 		assertPathExists(t, dstPath)
 	}

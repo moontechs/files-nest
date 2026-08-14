@@ -126,7 +126,7 @@ func TestConcurrentSameID_MultipleWaiters(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(n)
 
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			defer wg.Done()
 			l.Lock("contended")
@@ -397,11 +397,11 @@ func TestLock_StressDifferentIDs(t *testing.T) {
 	const ids = 20
 	const goroutinesPerID = 10
 
-	for id := 0; id < ids; id++ {
+	for id := range ids {
 		uploadID := func() string {
 			return string(rune('A' + id))
 		}()
-		for g := 0; g < goroutinesPerID; g++ {
+		for range goroutinesPerID {
 			wg.Add(1)
 			go func(idStr string) {
 				defer wg.Done()
@@ -459,7 +459,7 @@ func TestUploadLocker_TypeExported(t *testing.T) {
 func TestDo_SequentialCallsSameID(t *testing.T) {
 	l := &api.UploadLocker{}
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		val := i
 		err := l.Do("seq", func() error {
 			if val != i {

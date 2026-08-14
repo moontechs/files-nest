@@ -72,14 +72,17 @@ func (r *createUploadRequest) normalize() createUploadRequest {
 	if loc == "" {
 		loc = r.LocalIdentifierC
 	}
+
 	date := r.CreationDate
 	if date == "" {
 		date = r.CreationDateC
 	}
+
 	bundle := r.BundleID
 	if bundle == "" {
 		bundle = r.BundleIDC
 	}
+
 	return createUploadRequest{
 		LocalIdentifier: loc,
 		Filename:        r.Filename,
@@ -120,7 +123,9 @@ type errorResponse struct {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
+
+	err := json.NewEncoder(w).Encode(v)
+	if err != nil {
 		log.Printf("writeJSON encode error: %v", err)
 	}
 }
@@ -146,15 +151,20 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 256<<10)
 
 	var req createUploadRequest
+
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
+
 	if err := dec.Decode(&req); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
 			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+
 			return
 		}
+
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+
 		return
 	}
 
@@ -164,6 +174,7 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	var trailing json.RawMessage
 	if err := dec.Decode(&trailing); err != io.EOF {
 		writeError(w, http.StatusBadRequest, "request body contains trailing data")
+
 		return
 	}
 
@@ -172,14 +183,19 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	// Validate required fields.
 	if req.LocalIdentifier == "" {
 		writeError(w, http.StatusBadRequest, "local_identifier is required")
+
 		return
 	}
+
 	if req.Filename == "" {
 		writeError(w, http.StatusBadRequest, "filename is required")
+
 		return
 	}
+
 	if req.CreationDate == "" {
 		writeError(w, http.StatusBadRequest, "creation_date is required")
+
 		return
 	}
 	// Validate the creation_date format. This is the primary defense against
@@ -191,6 +207,7 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	// that reaches the path builder through a non-API path.
 	if _, err := parseRFC3339(req.CreationDate); err != nil {
 		writeError(w, http.StatusBadRequest, "creation_date must be an RFC3339 timestamp (e.g. 2024-03-15T10:30:00Z)")
+
 		return
 	}
 
@@ -198,6 +215,7 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	safeFilename := SanitizeFilename(req.Filename)
 	if safeFilename == "" {
 		writeError(w, http.StatusBadRequest, "invalid filename")
+
 		return
 	}
 
@@ -218,6 +236,7 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("tusd CreateUpload failed for %s: %v", req.LocalIdentifier, err)
 		writeError(w, http.StatusInternalServerError, "failed to create upload")
+
 		return
 	}
 
@@ -242,10 +261,14 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Unknown DB error — terminate the tusd upload before returning.
 		log.Printf("PutUploadIfAbsent failed for %s: %v", req.LocalIdentifier, err)
-		if termErr := h.backend.TerminateOrCleanup(backendID); termErr != nil {
+
+		termErr := h.backend.TerminateOrCleanup(backendID)
+		if termErr != nil {
 			log.Printf("failed to terminate tusd upload %s after DB error: %v", backendID, termErr)
 		}
+
 		writeError(w, http.StatusInternalServerError, "failed to save upload")
+
 		return
 	}
 
@@ -261,19 +284,28 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 			reReg, err := h.store.ReRegister(existing.ID, backendID)
 			if err != nil {
 				log.Printf("ReRegister failed for %s: %v", existing.ID, err)
-				if termErr := h.backend.TerminateOrCleanup(backendID); termErr != nil {
+
+				termErr := h.backend.TerminateOrCleanup(backendID)
+				if termErr != nil {
 					log.Printf("failed to terminate tusd upload %s after re-register failure: %v", backendID, termErr)
 				}
+
 				writeError(w, http.StatusInternalServerError, "failed to re-register upload")
+
 				return
 			}
+
 			writeJSON(w, http.StatusCreated, uploadToResponse(reReg))
+
 			return
 		default:
-			if termErr := h.backend.TerminateOrCleanup(backendID); termErr != nil {
+			termErr := h.backend.TerminateOrCleanup(backendID)
+			if termErr != nil {
 				log.Printf("failed to terminate redundant tusd upload %s: %v", backendID, termErr)
 			}
+
 			writeJSON(w, http.StatusOK, existingToResponse(existing))
+
 			return
 		}
 	}
@@ -327,6 +359,7 @@ func (h *Handler) HandleListUploads(w http.ResponseWriter, r *http.Request) {
 	from, to, err := parseDateRange(q.Get("from"), q.Get("to"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+
 		return
 	}
 
@@ -339,10 +372,13 @@ func (h *Handler) HandleListUploads(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, store.ErrInvalidCursor) {
 			writeError(w, http.StatusBadRequest, "invalid cursor")
+
 			return
 		}
+
 		log.Printf("ListByDateRange failed: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to list uploads")
+
 		return
 	}
 
@@ -362,8 +398,10 @@ func (h *Handler) HandleListUploads(w http.ResponseWriter, r *http.Request) {
 // timestamps. If either is empty, a sensible default is used (far past
 // for from, far future for to).
 func parseDateRange(fromStr, toStr string) (time.Time, time.Time, error) {
-	var from time.Time
-	var err error
+	var (
+		from time.Time
+		err  error
+	)
 
 	if fromStr != "" {
 		from, err = parseRFC3339(fromStr)
@@ -396,6 +434,7 @@ func parseRFC3339(s string) (time.Time, error) {
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
 		return t, nil
 	}
+
 	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 		return t, nil
 	}
@@ -403,6 +442,7 @@ func parseRFC3339(s string) (time.Time, error) {
 	if t, err := time.Parse("2006-01-02", s); err == nil {
 		return t, nil
 	}
+
 	return time.Time{}, errors.New("invalid timestamp: " + s + " (expected RFC3339 format, e.g. 2024-03-15T10:30:00Z)")
 }
 
@@ -416,12 +456,14 @@ func (h *Handler) HandleGetUpload(w http.ResponseWriter, r *http.Request) {
 	id := extractID(r)
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "missing upload id")
+
 		return
 	}
 
 	// Validate the safe ID format before attempting a DB lookup.
 	if err := ValidateSafeID(id); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid upload id: "+err.Error())
+
 		return
 	}
 
@@ -429,10 +471,13 @@ func (h *Handler) HandleGetUpload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "upload not found")
+
 			return
 		}
+
 		log.Printf("GetUpload failed for %s: %v", id, err)
 		writeError(w, http.StatusInternalServerError, "failed to get upload")
+
 		return
 	}
 
@@ -453,11 +498,13 @@ func (h *Handler) HandleHeadUploadData(w http.ResponseWriter, r *http.Request) {
 	id := extractID(r)
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "missing upload id")
+
 		return
 	}
 
 	if err := ValidateSafeID(id); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid upload id: "+err.Error())
+
 		return
 	}
 
@@ -473,10 +520,13 @@ func (h *Handler) HandleHeadUploadData(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "upload not found")
+
 			return
 		}
+
 		log.Printf("GetUpload failed for %s: %v", id, err)
 		writeError(w, http.StatusInternalServerError, "failed to get upload")
+
 		return
 	}
 
@@ -491,15 +541,19 @@ func (h *Handler) HandleHeadUploadData(w http.ResponseWriter, r *http.Request) {
 		// OK — proceed to fetch the offset.
 	case store.StatusDeleted:
 		writeError(w, http.StatusNotFound, "upload not found")
+
 		return
 	case store.StatusComplete:
 		writeError(w, http.StatusConflict, "upload already completed")
+
 		return
 	case store.StatusBackendLost:
 		writeError(w, http.StatusConflict, "backend_lost")
+
 		return
 	default:
 		writeError(w, http.StatusConflict, "upload not in uploading state")
+
 		return
 	}
 
@@ -507,19 +561,24 @@ func (h *Handler) HandleHeadUploadData(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, uploadbackend.ErrNotFound) {
 			h.handleBackendLost(w, r, upload)
+
 			return
 		}
+
 		log.Printf("GetInfo failed for backend %s: %v", upload.BackendID, err)
 		writeError(w, http.StatusInternalServerError, "failed to get upload info")
+
 		return
 	}
 
 	w.Header().Set("Upload-Offset", strconv.FormatInt(info.Offset, 10))
+
 	if info.SizeIsDeferred {
 		w.Header().Set("Upload-Defer-Length", "1")
 	} else {
 		w.Header().Set("Upload-Length", strconv.FormatInt(info.Size, 10))
 	}
+
 	w.Header().Set("Tus-Resumable", "1.0.0")
 	w.WriteHeader(http.StatusOK)
 }
@@ -542,11 +601,13 @@ func (h *Handler) HandlePatchUploadData(w http.ResponseWriter, r *http.Request) 
 	id := extractID(r)
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "missing upload id")
+
 		return
 	}
 
 	if err := ValidateSafeID(id); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid upload id: "+err.Error())
+
 		return
 	}
 
@@ -557,10 +618,13 @@ func (h *Handler) HandlePatchUploadData(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "upload not found")
+
 			return
 		}
+
 		log.Printf("GetUpload failed for %s: %v", id, err)
 		writeError(w, http.StatusInternalServerError, "failed to get upload")
+
 		return
 	}
 
@@ -570,15 +634,18 @@ func (h *Handler) HandlePatchUploadData(w http.ResponseWriter, r *http.Request) 
 		// OK — proceed.
 	case store.StatusComplete, store.StatusDeleted:
 		writeError(w, http.StatusConflict, "upload already completed or deleted")
+
 		return
 	default:
 		writeError(w, http.StatusConflict, "upload not in uploading state")
+
 		return
 	}
 
 	// Validate Content-Type per the TUS protocol.
 	if r.Header.Get("Content-Type") != "application/offset+octet-stream" {
 		writeError(w, http.StatusBadRequest, "Content-Type must be application/offset+octet-stream")
+
 		return
 	}
 
@@ -586,11 +653,14 @@ func (h *Handler) HandlePatchUploadData(w http.ResponseWriter, r *http.Request) 
 	offsetStr := r.Header.Get("Upload-Offset")
 	if offsetStr == "" {
 		writeError(w, http.StatusBadRequest, "Upload-Offset header is required")
+
 		return
 	}
+
 	requestOffset, err := strconv.ParseInt(offsetStr, 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid Upload-Offset: "+err.Error())
+
 		return
 	}
 
@@ -599,16 +669,20 @@ func (h *Handler) HandlePatchUploadData(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		if errors.Is(err, uploadbackend.ErrNotFound) {
 			h.handleBackendLost(w, r, upload)
+
 			return
 		}
+
 		log.Printf("GetOffset failed for backend %s: %v", upload.BackendID, err)
 		writeError(w, http.StatusInternalServerError, "failed to get upload offset")
+
 		return
 	}
 
 	if requestOffset != currentOffset {
 		writeError(w, http.StatusConflict,
 			fmt.Sprintf("offset mismatch: client=%d, server=%d", requestOffset, currentOffset))
+
 		return
 	}
 
@@ -620,14 +694,19 @@ func (h *Handler) HandlePatchUploadData(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		if errors.Is(err, uploadbackend.ErrNotFound) {
 			h.handleBackendLost(w, r, upload)
+
 			return
 		}
+
 		if errors.Is(err, uploadbackend.ErrInvalidOffset) {
 			writeError(w, http.StatusConflict, "offset mismatch")
+
 			return
 		}
+
 		log.Printf("ForwardPatch failed for backend %s: %v", upload.BackendID, err)
 		writeError(w, http.StatusInternalServerError, "failed to write upload data")
+
 		return
 	}
 
@@ -650,11 +729,13 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 	id := extractID(r)
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "missing upload id")
+
 		return
 	}
 
 	if err := ValidateSafeID(id); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid upload id: "+err.Error())
+
 		return
 	}
 
@@ -669,10 +750,13 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "upload not found")
+
 			return
 		}
+
 		log.Printf("GetUpload failed for %s: %v", id, err)
 		writeError(w, http.StatusInternalServerError, "failed to get upload")
+
 		return
 	}
 
@@ -688,6 +772,7 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 		default:
 			writeError(w, http.StatusConflict, "upload not in uploading state")
 		}
+
 		return
 	}
 
@@ -695,10 +780,13 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 	var req struct {
 		Status string `json:"status"`
 	}
+
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
+
 	if err := dec.Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+
 		return
 	}
 
@@ -706,11 +794,13 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 	var trailing json.RawMessage
 	if err := dec.Decode(&trailing); err != io.EOF {
 		writeError(w, http.StatusBadRequest, "request body contains trailing data")
+
 		return
 	}
 
 	if req.Status != "complete" {
 		writeError(w, http.StatusBadRequest, "status must be 'complete'")
+
 		return
 	}
 
@@ -719,14 +809,19 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		if errors.Is(err, uploadbackend.ErrNotFound) {
 			h.handleBackendLost(w, r, upload)
+
 			return
 		}
+
 		log.Printf("IsComplete failed for backend %s: %v", upload.BackendID, err)
 		writeError(w, http.StatusInternalServerError, "failed to check upload completion")
+
 		return
 	}
+
 	if !complete {
 		writeError(w, http.StatusConflict, "upload_incomplete")
+
 		return
 	}
 
@@ -735,10 +830,13 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		if errors.Is(err, uploadbackend.ErrNotFound) {
 			h.handleBackendLost(w, r, upload)
+
 			return
 		}
+
 		log.Printf("FilePath failed for backend %s: %v", upload.BackendID, err)
 		writeError(w, http.StatusInternalServerError, "failed to get file path")
+
 		return
 	}
 
@@ -776,29 +874,38 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 			DstRel:    plan.Rel,
 			CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		}
+
 		return h.store.SaveCompletionIntent(intent)
 	}
 
 	var plan filestore.PlanDestResult
+
 	if existing, err := h.store.GetCompletionIntent(upload.ID); err != nil {
 		log.Printf("failed to read existing completion intent for %s: %v", upload.ID, err)
 		writeError(w, http.StatusInternalServerError, "failed to prepare completion")
+
 		return
 	} else if existing != nil {
 		existingPlan := filestore.PlanDestResult{Abs: existing.Dst, Rel: existing.DstRel}
-		if err := h.mover.MoveToPlaned(srcPath, existingPlan, saveIntent); err != nil {
+
+		err := h.mover.MoveToPlaned(srcPath, existingPlan, saveIntent)
+		if err != nil {
 			log.Printf("completion move failed for %s: %v", upload.ID, err)
 			writeError(w, http.StatusInternalServerError, "failed to move file")
+
 			return
 		}
+
 		plan = existingPlan
 	} else {
 		p, err := h.mover.PlanAndMove(srcPath, upload.CreationDate, upload.CreatedAt, upload.Filename, upload.BackendID, saveIntent)
 		if err != nil {
 			log.Printf("completion move failed for %s: %v", upload.ID, err)
 			writeError(w, http.StatusInternalServerError, "failed to move file")
+
 			return
 		}
+
 		plan = p
 	}
 
@@ -808,16 +915,19 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 	if _, err := h.store.UpdateComplete(upload.ID, relPath); err != nil {
 		log.Printf("failed to update status to complete for %s: %v", upload.ID, err)
 		writeError(w, http.StatusInternalServerError, "failed to complete upload")
+
 		return
 	}
 
 	// Delete the completion intent now that the DB is consistent.
-	if delErr := h.store.DeleteCompletionIntent(upload.ID); delErr != nil {
+	delErr := h.store.DeleteCompletionIntent(upload.ID)
+	if delErr != nil {
 		log.Printf("failed to delete completion intent for %s: %v", upload.ID, delErr)
 	}
 
 	// Best-effort cleanup of the tusd sidecar (.info file).
-	if termErr := h.backend.TerminateOrCleanup(upload.BackendID); termErr != nil && !errors.Is(termErr, uploadbackend.ErrNotFound) {
+	termErr := h.backend.TerminateOrCleanup(upload.BackendID)
+	if termErr != nil && !errors.Is(termErr, uploadbackend.ErrNotFound) {
 		log.Printf("failed to terminate tusd upload %s after completion: %v", upload.BackendID, termErr)
 	}
 
@@ -839,11 +949,13 @@ func (h *Handler) HandleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 	id := extractID(r)
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "missing upload id")
+
 		return
 	}
 
 	if err := ValidateSafeID(id); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid upload id: "+err.Error())
+
 		return
 	}
 
@@ -854,23 +966,28 @@ func (h *Handler) HandleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "upload not found")
+
 			return
 		}
+
 		log.Printf("GetUpload failed for %s: %v", id, err)
 		writeError(w, http.StatusInternalServerError, "failed to get upload")
+
 		return
 	}
 
 	// If already deleted, return success immediately.
 	if upload.Status == store.StatusDeleted {
 		w.WriteHeader(http.StatusNoContent)
+
 		return
 	}
 
 	// Terminate the tusd backend upload. Ignore ErrNotFound — the backend
 	// may already be gone (e.g. after a completed upload was moved or a
 	// previous partial cleanup).
-	if termErr := h.backend.TerminateOrCleanup(upload.BackendID); termErr != nil && !errors.Is(termErr, uploadbackend.ErrNotFound) {
+	termErr := h.backend.TerminateOrCleanup(upload.BackendID)
+	if termErr != nil && !errors.Is(termErr, uploadbackend.ErrNotFound) {
 		log.Printf("failed to terminate tusd upload %s during delete: %v", upload.BackendID, termErr)
 	}
 
@@ -878,7 +995,8 @@ func (h *Handler) HandleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 	// Errors are logged but do not abort the DELETE — the DB record
 	// is still marked deleted even if file cleanup fails.
 	if upload.OrganizedPath != "" {
-		if removeErr := h.mover.RemoveOrganizedFile(upload.OrganizedPath); removeErr != nil {
+		removeErr := h.mover.RemoveOrganizedFile(upload.OrganizedPath)
+		if removeErr != nil {
 			log.Printf("failed to remove organized file %s for upload %s: %v", upload.OrganizedPath, upload.ID, removeErr)
 		}
 	}
@@ -887,6 +1005,7 @@ func (h *Handler) HandleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.store.UpdateStatus(upload.ID, store.StatusDeleted); err != nil {
 		log.Printf("failed to update status to deleted for %s: %v", upload.ID, err)
 		writeError(w, http.StatusInternalServerError, "failed to delete upload")
+
 		return
 	}
 
@@ -925,6 +1044,7 @@ func (h *Handler) handleBackendLost(w http.ResponseWriter, _ *http.Request, uplo
 			// complete, deleted, or already backend_lost — preserve terminal state.
 		}
 	}
+
 	writeError(w, http.StatusConflict, "backend_lost")
 }
 

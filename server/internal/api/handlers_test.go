@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -616,7 +617,7 @@ func TestHandleListUploads_Pagination(t *testing.T) {
 	h, _, _ := setupHandler(t)
 
 	// Create 5 uploads on the same date.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		localID := fmt.Sprintf("PAG-%03d/L0/000", i)
 		filename := fmt.Sprintf("IMG_%04d.jpg", 1000+i)
 		createTestUpload(t, h, localID, filename, "2024-03-15T10:00:00Z")
@@ -770,7 +771,7 @@ func TestHandleGetUpload_NoID(t *testing.T) {
 	h, _, _ := setupHandler(t)
 
 	// Test with no path value set.
-	req := httptest.NewRequest("GET", "/uploads/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/uploads/", nil)
 	rec := httptest.NewRecorder()
 	h.HandleGetUpload(rec, req)
 
@@ -808,7 +809,7 @@ func TestHandleCreateUpload_NonJSONContentType(t *testing.T) {
 	h, _, _ := setupHandler(t)
 
 	body := `{"local_identifier":"TEST-001","filename":"IMG_1234.jpg","creation_date":"2024-03-15T10:30:00Z"}`
-	req := httptest.NewRequest("POST", "/uploads", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/uploads", strings.NewReader(body))
 	// No Content-Type header set
 	rec := httptest.NewRecorder()
 	h.HandleCreateUpload(rec, req)
@@ -1059,7 +1060,7 @@ func TestHandleGetUpload_FullFieldsReturned(t *testing.T) {
 
 // tusHeadRequest sends a TUS HEAD request for the given upload ID.
 func tusHeadRequest(h http.HandlerFunc, id string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest("HEAD", "/uploads/"+id+"/data", nil)
+	req := httptest.NewRequest(http.MethodHead, "/uploads/"+id+"/data", nil)
 	req.SetPathValue("id", id)
 	req.Header.Set("Tus-Resumable", "1.0.0")
 	rec := httptest.NewRecorder()
@@ -1069,11 +1070,11 @@ func tusHeadRequest(h http.HandlerFunc, id string) *httptest.ResponseRecorder {
 
 // tusPatchRequest sends a TUS PATCH request with the given headers and body.
 func tusPatchRequest(h http.HandlerFunc, id string, offset int64, uploadLength string, body io.Reader) *httptest.ResponseRecorder {
-	req := httptest.NewRequest("PATCH", "/uploads/"+id+"/data", body)
+	req := httptest.NewRequest(http.MethodPatch, "/uploads/"+id+"/data", body)
 	req.SetPathValue("id", id)
 	req.Header.Set("Content-Type", "application/offset+octet-stream")
 	req.Header.Set("Tus-Resumable", "1.0.0")
-	req.Header.Set("Upload-Offset", fmt.Sprintf("%d", offset))
+	req.Header.Set("Upload-Offset", strconv.FormatInt(offset, 10))
 	if uploadLength != "" {
 		req.Header.Set("Upload-Length", uploadLength)
 	}
@@ -1132,7 +1133,7 @@ func TestHandleHeadUploadData_InvalidID(t *testing.T) {
 func TestHandleHeadUploadData_EmptyID(t *testing.T) {
 	h, _, _ := setupHandler(t)
 
-	req := httptest.NewRequest("HEAD", "/uploads//data", nil)
+	req := httptest.NewRequest(http.MethodHead, "/uploads//data", nil)
 	rec := httptest.NewRecorder()
 	h.HandleHeadUploadData(rec, req)
 
@@ -1162,7 +1163,7 @@ func TestHandleHeadUploadData_AfterOffsetChange(t *testing.T) {
 
 	// Patch some data to advance the offset.
 	data := []byte("hello, world!")
-	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, strconv.Itoa(len(data)), strings.NewReader(string(data)))
 	if patchRec.Code != http.StatusNoContent {
 		t.Fatalf("PATCH expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
 	}
@@ -1174,7 +1175,7 @@ func TestHandleHeadUploadData_AfterOffsetChange(t *testing.T) {
 	}
 
 	offsetStr := rec.Header().Get("Upload-Offset")
-	expectedOffset := fmt.Sprintf("%d", len(data))
+	expectedOffset := strconv.Itoa(len(data))
 	if offsetStr != expectedOffset {
 		t.Errorf("expected Upload-Offset %s, got %s", expectedOffset, offsetStr)
 	}
@@ -1198,7 +1199,7 @@ func TestHandlePatchUploadData_Success(t *testing.T) {
 	if offsetStr == "" {
 		t.Fatal("expected Upload-Offset header")
 	}
-	if offsetStr != fmt.Sprintf("%d", len(data)) {
+	if offsetStr != strconv.Itoa(len(data)) {
 		t.Errorf("expected Upload-Offset %d, got %s", len(data), offsetStr)
 	}
 
@@ -1219,7 +1220,7 @@ func TestHandlePatchUploadData_MultipleChunks(t *testing.T) {
 		t.Fatalf("first chunk expected 204, got %d: %s", rec1.Code, rec1.Body.String())
 	}
 	offset1 := rec1.Header().Get("Upload-Offset")
-	if offset1 != fmt.Sprintf("%d", len(chunk1)) {
+	if offset1 != strconv.Itoa(len(chunk1)) {
 		t.Errorf("after first chunk: expected offset %d, got %s", len(chunk1), offset1)
 	}
 
@@ -1231,7 +1232,7 @@ func TestHandlePatchUploadData_MultipleChunks(t *testing.T) {
 	}
 	total := len(chunk1) + len(chunk2)
 	offset2 := rec2.Header().Get("Upload-Offset")
-	if offset2 != fmt.Sprintf("%d", total) {
+	if offset2 != strconv.Itoa(total) {
 		t.Errorf("after second chunk: expected offset %d, got %s", total, offset2)
 	}
 }
@@ -1275,7 +1276,7 @@ func TestHandlePatchUploadData_WrongContentType(t *testing.T) {
 	created := createTestUpload(t, h, "PATCH-CT/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
 
 	// Send a PATCH with JSON content type (wrong for TUS).
-	req := httptest.NewRequest("PATCH", "/uploads/"+created.ID+"/data", strings.NewReader("data"))
+	req := httptest.NewRequest(http.MethodPatch, "/uploads/"+created.ID+"/data", strings.NewReader("data"))
 	req.SetPathValue("id", created.ID)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Tus-Resumable", "1.0.0")
@@ -1292,7 +1293,7 @@ func TestHandlePatchUploadData_MissingUploadOffset(t *testing.T) {
 	h, _, _ := setupHandler(t)
 	created := createTestUpload(t, h, "PATCH-NOOFFSET/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
 
-	req := httptest.NewRequest("PATCH", "/uploads/"+created.ID+"/data", strings.NewReader("data"))
+	req := httptest.NewRequest(http.MethodPatch, "/uploads/"+created.ID+"/data", strings.NewReader("data"))
 	req.SetPathValue("id", created.ID)
 	req.Header.Set("Content-Type", "application/offset+octet-stream")
 	req.Header.Set("Tus-Resumable", "1.0.0")
@@ -1350,7 +1351,7 @@ func TestHandlePatchUploadData_InvalidUploadOffset(t *testing.T) {
 	h, _, _ := setupHandler(t)
 	created := createTestUpload(t, h, "PATCH-INVALOFFSET/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
 
-	req := httptest.NewRequest("PATCH", "/uploads/"+created.ID+"/data", strings.NewReader("data"))
+	req := httptest.NewRequest(http.MethodPatch, "/uploads/"+created.ID+"/data", strings.NewReader("data"))
 	req.SetPathValue("id", created.ID)
 	req.Header.Set("Content-Type", "application/offset+octet-stream")
 	req.Header.Set("Tus-Resumable", "1.0.0")
@@ -1373,13 +1374,13 @@ func TestHandlePatchUploadData_DeferredLengthFinalization(t *testing.T) {
 
 	// Upload data with Upload-Length header to declare the final size.
 	data := []byte("complete upload content")
-	rec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+	rec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, strconv.Itoa(len(data)), strings.NewReader(string(data)))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("PATCH with Upload-Length expected 204, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	offsetStr := rec.Header().Get("Upload-Offset")
-	if offsetStr != fmt.Sprintf("%d", len(data)) {
+	if offsetStr != strconv.Itoa(len(data)) {
 		t.Errorf("expected offset %d, got %s", len(data), offsetStr)
 	}
 
@@ -1389,8 +1390,8 @@ func TestHandlePatchUploadData_DeferredLengthFinalization(t *testing.T) {
 		t.Fatalf("HEAD after finalization expected 200, got %d: %s", headRec.Code, headRec.Body.String())
 	}
 	finalOffset := headRec.Header().Get("Upload-Offset")
-	if finalOffset != fmt.Sprintf("%d", len(data)) {
-		t.Errorf("HEAD offset after finalization: expected %s, got %s", fmt.Sprintf("%d", len(data)), finalOffset)
+	if finalOffset != strconv.Itoa(len(data)) {
+		t.Errorf("HEAD offset after finalization: expected %s, got %s", strconv.Itoa(len(data)), finalOffset)
 	}
 }
 
@@ -1405,7 +1406,7 @@ func TestHandlePatchUploadData_MultiChunkWithFinalization(t *testing.T) {
 		t.Fatalf("first chunk expected 204, got %d: %s", rec1.Code, rec1.Body.String())
 	}
 	offset1 := rec1.Header().Get("Upload-Offset")
-	if offset1 != fmt.Sprintf("%d", len(chunk1)) {
+	if offset1 != strconv.Itoa(len(chunk1)) {
 		t.Errorf("after chunk1: expected offset %d, got %s", len(chunk1), offset1)
 	}
 
@@ -1421,12 +1422,12 @@ func TestHandlePatchUploadData_MultiChunkWithFinalization(t *testing.T) {
 	// Second chunk with Upload-Length to finalize.
 	chunk2 := []byte("world!!")
 	total := len(chunk1) + len(chunk2)
-	rec2 := tusPatchRequest(h.HandlePatchUploadData, created.ID, int64(len(chunk1)), fmt.Sprintf("%d", total), strings.NewReader(string(chunk2)))
+	rec2 := tusPatchRequest(h.HandlePatchUploadData, created.ID, int64(len(chunk1)), strconv.Itoa(total), strings.NewReader(string(chunk2)))
 	if rec2.Code != http.StatusNoContent {
 		t.Fatalf("second chunk expected 204, got %d: %s", rec2.Code, rec2.Body.String())
 	}
 	offset2 := rec2.Header().Get("Upload-Offset")
-	if offset2 != fmt.Sprintf("%d", total) {
+	if offset2 != strconv.Itoa(total) {
 		t.Errorf("after chunk2: expected offset %d, got %s", total, offset2)
 	}
 
@@ -1464,7 +1465,7 @@ func TestHandlePatchUploadData_BackendLost(t *testing.T) {
 	created := createTestUpload(t, h, "PATCH-LOST/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
 
 	// Manually terminate the upload in the backend to simulate backend_lost.
-	if err := bh.TerminateOrCleanup(created.BackendID); err != nil && err != uploadbackend.ErrNotFound {
+	if err := bh.TerminateOrCleanup(created.BackendID); err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Fatalf("TerminateOrCleanup: %v", err)
 	}
 
@@ -1495,7 +1496,7 @@ func TestHandleHeadUploadData_BackendLost(t *testing.T) {
 	created := createTestUpload(t, h, "HEAD-LOST/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
 
 	// Manually terminate the upload in the backend.
-	if err := bh.TerminateOrCleanup(created.BackendID); err != nil && err != uploadbackend.ErrNotFound {
+	if err := bh.TerminateOrCleanup(created.BackendID); err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Fatalf("TerminateOrCleanup: %v", err)
 	}
 
@@ -1532,7 +1533,7 @@ func TestHandleHeadUploadData_AfterCompleteDoesNotClobber(t *testing.T) {
 	// Upload all data and finalize the deferred-length upload.
 	data := []byte("content for head-after-complete test")
 	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
-		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+		strconv.Itoa(len(data)), strings.NewReader(string(data)))
 	if patchRec.Code != http.StatusNoContent {
 		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
 	}
@@ -1578,7 +1579,7 @@ func TestHandlePatchUploadData_SameIDSerialization(t *testing.T) {
 	// They should not race or produce corrupt offsets.
 	errCh := make(chan error, 2)
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		go func(seq int) {
 			// Both goroutines start at offset 0, but only one should succeed.
 			// Since they both claim offset 0, one will get a conflict.
@@ -1587,17 +1588,18 @@ func TestHandlePatchUploadData_SameIDSerialization(t *testing.T) {
 			// This is expected behavior for concurrent patches.
 			data := fmt.Sprintf("chunk-%d", seq)
 			rec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, "", strings.NewReader(data))
-			if rec.Code == http.StatusNoContent {
+			switch rec.Code {
+			case http.StatusNoContent:
 				// Success — should see offset = len(data)
 				offsetStr := rec.Header().Get("Upload-Offset")
-				if offsetStr != fmt.Sprintf("%d", len(data)) {
+				if offsetStr != strconv.Itoa(len(data)) {
 					errCh <- fmt.Errorf("expected offset %d, got %s", len(data), offsetStr)
 					return
 				}
-			} else if rec.Code == http.StatusConflict {
+			case http.StatusConflict:
 				// Expected: second goroutine got offset mismatch.
 				// This is fine — no data corruption.
-			} else {
+			default:
 				errCh <- fmt.Errorf("unexpected status %d: %s", rec.Code, rec.Body.String())
 				return
 			}
@@ -1605,7 +1607,7 @@ func TestHandlePatchUploadData_SameIDSerialization(t *testing.T) {
 		}(i)
 	}
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if err := <-errCh; err != nil {
 			t.Errorf("goroutine %d: %v", i, err)
 		}
@@ -1640,7 +1642,7 @@ type ListUploadsResponse = api.ListUploadsResponse
 // statusPatchRequest sends a PATCH /uploads/:id/status request with the given
 // JSON body.
 func statusPatchRequest(h http.HandlerFunc, id, body string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest("PATCH", "/uploads/"+id+"/status", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPatch, "/uploads/"+id+"/status", strings.NewReader(body))
 	req.SetPathValue("id", id)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -1654,7 +1656,7 @@ func statusPatchRequest(h http.HandlerFunc, id, body string) *httptest.ResponseR
 
 // deleteUploadRequest sends a DELETE /uploads/:id request.
 func deleteUploadRequest(h http.HandlerFunc, id string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest("DELETE", "/uploads/"+id, nil)
+	req := httptest.NewRequest(http.MethodDelete, "/uploads/"+id, nil)
 	req.SetPathValue("id", id)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -1673,7 +1675,7 @@ func TestHandlePatchUploadStatus_Success(t *testing.T) {
 	// upload. This makes IsComplete return true.
 	data := []byte("complete upload content for status test")
 	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
-		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+		strconv.Itoa(len(data)), strings.NewReader(string(data)))
 	if patchRec.Code != http.StatusNoContent {
 		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
 	}
@@ -1823,7 +1825,7 @@ func TestHandlePatchUploadStatus_BackendLost(t *testing.T) {
 	created := createTestUpload(t, h, "PATCH-STATUS-LOST/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
 
 	// Manually terminate the backend upload.
-	if err := bh.TerminateOrCleanup(created.BackendID); err != nil && err != uploadbackend.ErrNotFound {
+	if err := bh.TerminateOrCleanup(created.BackendID); err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Fatalf("TerminateOrCleanup: %v", err)
 	}
 
@@ -1853,7 +1855,7 @@ func TestHandlePatchUploadStatus_BackendLost(t *testing.T) {
 func TestHandlePatchUploadStatus_EmptyID(t *testing.T) {
 	h, _, _ := setupHandler(t)
 
-	req := httptest.NewRequest("PATCH", "/uploads//status", strings.NewReader(`{"status": "complete"}`))
+	req := httptest.NewRequest(http.MethodPatch, "/uploads//status", strings.NewReader(`{"status": "complete"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	h.HandlePatchUploadStatus(rec, req)
@@ -1883,7 +1885,7 @@ func TestHandleDeleteUpload_Success(t *testing.T) {
 	// Upload all data.
 	data := []byte("file content for full delete test")
 	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
-		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+		strconv.Itoa(len(data)), strings.NewReader(string(data)))
 	if patchRec.Code != http.StatusNoContent {
 		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
 	}
@@ -1970,7 +1972,7 @@ func TestHandleDeleteUpload_BackendGone(t *testing.T) {
 	created := createTestUpload(t, h, "DELETE-GONE/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
 
 	// Manually terminate the backend.
-	if err := bh.TerminateOrCleanup(created.BackendID); err != nil && err != uploadbackend.ErrNotFound {
+	if err := bh.TerminateOrCleanup(created.BackendID); err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Fatalf("TerminateOrCleanup: %v", err)
 	}
 
@@ -2017,7 +2019,7 @@ func TestHandleDeleteUpload_CompleteUpload(t *testing.T) {
 func TestHandleDeleteUpload_EmptyID(t *testing.T) {
 	h, _, _ := setupHandler(t)
 
-	req := httptest.NewRequest("DELETE", "/uploads/", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/uploads/", nil)
 	rec := httptest.NewRecorder()
 	h.HandleDeleteUpload(rec, req)
 
@@ -2042,7 +2044,7 @@ func TestHandleDeleteUpload_RemovesOrganizedFile(t *testing.T) {
 	// Upload all data.
 	data := []byte("file content for remove test")
 	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
-		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+		strconv.Itoa(len(data)), strings.NewReader(string(data)))
 	if patchRec.Code != http.StatusNoContent {
 		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
 	}
@@ -2123,7 +2125,7 @@ func TestHandleDeleteUpload_OrganizedFileAlreadyGone(t *testing.T) {
 	// Upload all data.
 	data := []byte("file content for already-gone test")
 	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
-		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+		strconv.Itoa(len(data)), strings.NewReader(string(data)))
 	if patchRec.Code != http.StatusNoContent {
 		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
 	}
@@ -2175,7 +2177,7 @@ func TestHandlePatchUploadStatus_FileMoved(t *testing.T) {
 	// Upload all data.
 	data := []byte("file content for move verification")
 	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
-		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+		strconv.Itoa(len(data)), strings.NewReader(string(data)))
 	if patchRec.Code != http.StatusNoContent {
 		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
 	}
@@ -2217,7 +2219,7 @@ func TestHandlePatchUploadStatus_MoveFailurePreservesUploading(t *testing.T) {
 	// Upload all data to make IsComplete return true.
 	data := []byte("content for move failure test")
 	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
-		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+		strconv.Itoa(len(data)), strings.NewReader(string(data)))
 	if patchRec.Code != http.StatusNoContent {
 		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
 	}
@@ -2278,7 +2280,7 @@ func TestHandlePatchUploadStatus_FileContentPreserved(t *testing.T) {
 	// Upload known content.
 	data := []byte("test content that should be preserved after move")
 	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
-		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+		strconv.Itoa(len(data)), strings.NewReader(string(data)))
 	if patchRec.Code != http.StatusNoContent {
 		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
 	}
@@ -2363,7 +2365,7 @@ func TestHandlePatchUploadStatus_ConcurrentCompletionNoDataLoss(t *testing.T) {
 		{c2.ID, data2},
 	} {
 		rec := tusPatchRequest(h.HandlePatchUploadData, c.id, 0,
-			fmt.Sprintf("%d", len(c.d)), strings.NewReader(string(c.d)))
+			strconv.Itoa(len(c.d)), strings.NewReader(string(c.d)))
 		if rec.Code != http.StatusNoContent {
 			t.Fatalf("PATCH data for %s: expected 204, got %d: %s", c.id, rec.Code, rec.Body.String())
 		}

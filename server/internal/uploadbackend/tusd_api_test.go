@@ -89,7 +89,7 @@ func TestHandlerConfiguration(t *testing.T) {
 	defer srv.Close()
 
 	// OPTIONS request for protocol discovery
-	req, err := http.NewRequest("OPTIONS", srv.URL+"/", nil)
+	req, err := http.NewRequest(http.MethodOptions, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestUploadCreation(t *testing.T) {
 	defer srv.Close()
 
 	body := bytes.NewReader(nil)
-	req, err := http.NewRequest("POST", srv.URL+"/", body)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/", body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestUploadCreationWithMetadata(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestUploadCreationWithMetadata(t *testing.T) {
 	}
 
 	// HEAD the new resource and verify metadata is preserved
-	headReq, err := http.NewRequest("HEAD", location, nil)
+	headReq, err := http.NewRequest(http.MethodHead, location, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestUploadInfo(t *testing.T) {
 	defer srv.Close()
 
 	// Create an upload
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestUploadInfo(t *testing.T) {
 	location := resp.Header.Get("Location")
 
 	// HEAD the upload
-	headReq, err := http.NewRequest("HEAD", location, nil)
+	headReq, err := http.NewRequest(http.MethodHead, location, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +282,7 @@ func TestUploadChunkWrite(t *testing.T) {
 	payload := []byte("hello world, this is a test upload chunk")
 	uploadLength := len(payload)
 
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestUploadChunkWrite(t *testing.T) {
 	location := resp.Header.Get("Location")
 
 	// PATCH: write the data
-	patchReq, err := http.NewRequest("PATCH", location, bytes.NewReader(payload))
+	patchReq, err := http.NewRequest(http.MethodPatch, location, bytes.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestUploadChunkWrite(t *testing.T) {
 	}
 
 	// HEAD to verify persisted offset
-	headReq, err := http.NewRequest("HEAD", location, nil)
+	headReq, err := http.NewRequest(http.MethodHead, location, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +349,7 @@ func TestUploadChunkWriteIncremental(t *testing.T) {
 	defer srv.Close()
 
 	totalLength := 50
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +363,7 @@ func TestUploadChunkWriteIncremental(t *testing.T) {
 
 	// Write first 20 bytes
 	chunk1 := []byte("aaaaaaaaaaaaaaaaaaaa")
-	patchReq, err := http.NewRequest("PATCH", location, bytes.NewReader(chunk1))
+	patchReq, err := http.NewRequest(http.MethodPatch, location, bytes.NewReader(chunk1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +381,7 @@ func TestUploadChunkWriteIncremental(t *testing.T) {
 
 	// Write remaining 30 bytes
 	chunk2 := []byte("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
-	patchReq2, err := http.NewRequest("PATCH", location, bytes.NewReader(chunk2))
+	patchReq2, err := http.NewRequest(http.MethodPatch, location, bytes.NewReader(chunk2))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +411,7 @@ func TestFilePathResolution(t *testing.T) {
 
 	// Create an upload
 	payload := []byte("file path resolution test data")
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +429,7 @@ func TestFilePathResolution(t *testing.T) {
 	}
 
 	// Write data so the binary file appears on disk
-	patchReq, err := http.NewRequest("PATCH", location, bytes.NewReader(payload))
+	patchReq, err := http.NewRequest(http.MethodPatch, location, bytes.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -475,7 +475,7 @@ func TestNotFoundError_Head(t *testing.T) {
 	defer srv.Close()
 
 	// HEAD a non-existent upload
-	req, err := http.NewRequest("HEAD", srv.URL+"/nonexistent-upload-id", nil)
+	req, err := http.NewRequest(http.MethodHead, srv.URL+"/nonexistent-upload-id", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -496,7 +496,7 @@ func TestNotFoundError_Patch(t *testing.T) {
 	defer srv.Close()
 
 	// PATCH a non-existent upload
-	req, err := http.NewRequest("PATCH", srv.URL+"/nonexistent-upload-id", bytes.NewReader([]byte("data")))
+	req, err := http.NewRequest(http.MethodPatch, srv.URL+"/nonexistent-upload-id", bytes.NewReader([]byte("data")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,7 +521,7 @@ func TestNotFoundError_Delete(t *testing.T) {
 	defer srv.Close()
 
 	// DELETE a non-existent upload
-	req, err := http.NewRequest("DELETE", srv.URL+"/nonexistent-upload-id", nil)
+	req, err := http.NewRequest(http.MethodDelete, srv.URL+"/nonexistent-upload-id", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +546,7 @@ func TestUploadTerminationCleanup(t *testing.T) {
 
 	// Create upload and write some data
 	payload := []byte("data to be cleaned up")
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,7 +560,7 @@ func TestUploadTerminationCleanup(t *testing.T) {
 	id := filepath.Base(location)
 
 	// Write data
-	patchReq, err := http.NewRequest("PATCH", location, bytes.NewReader(payload))
+	patchReq, err := http.NewRequest(http.MethodPatch, location, bytes.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -583,7 +583,7 @@ func TestUploadTerminationCleanup(t *testing.T) {
 	}
 
 	// DELETE the upload
-	delReq, err := http.NewRequest("DELETE", location, nil)
+	delReq, err := http.NewRequest(http.MethodDelete, location, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -603,7 +603,7 @@ func TestUploadTerminationCleanup(t *testing.T) {
 	}
 
 	// Verify HEAD on terminated upload returns 404
-	headReq, err := http.NewRequest("HEAD", location, nil)
+	headReq, err := http.NewRequest(http.MethodHead, location, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +627,7 @@ func TestDeferredLengthUpload(t *testing.T) {
 	defer srv.Close()
 
 	// Create upload with deferred length
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -645,7 +645,7 @@ func TestDeferredLengthUpload(t *testing.T) {
 	}
 
 	// HEAD should report Upload-Defer-Length: 1
-	headReq, err := http.NewRequest("HEAD", location, nil)
+	headReq, err := http.NewRequest(http.MethodHead, location, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -664,7 +664,7 @@ func TestDeferredLengthUpload(t *testing.T) {
 
 	// Write some data
 	payload := []byte("deferred upload data")
-	patchReq, err := http.NewRequest("PATCH", location, bytes.NewReader(payload))
+	patchReq, err := http.NewRequest(http.MethodPatch, location, bytes.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -689,7 +689,7 @@ func TestDeferredLengthUpload(t *testing.T) {
 	}
 
 	// HEAD should now have Upload-Length set and no Upload-Defer-Length
-	headReq2, err := http.NewRequest("HEAD", location, nil)
+	headReq2, err := http.NewRequest(http.MethodHead, location, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -727,7 +727,7 @@ func TestDeferredLength_NotSupported(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -777,7 +777,7 @@ func TestPatchMismatchedOffset(t *testing.T) {
 	defer srv.Close()
 
 	// Create upload
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -790,7 +790,7 @@ func TestPatchMismatchedOffset(t *testing.T) {
 	location := resp.Header.Get("Location")
 
 	// PATCH with wrong offset
-	patchReq, err := http.NewRequest("PATCH", location, bytes.NewReader([]byte("data")))
+	patchReq, err := http.NewRequest(http.MethodPatch, location, bytes.NewReader([]byte("data")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -863,7 +863,7 @@ func TestPreUploadCreateCallback(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -882,7 +882,7 @@ func TestPreUploadCreateCallback(t *testing.T) {
 	}
 
 	// HEAD the upload and verify overridden metadata
-	headReq, err := http.NewRequest("HEAD", location, nil)
+	headReq, err := http.NewRequest(http.MethodHead, location, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -934,7 +934,7 @@ func TestNotifyCompleteUploads(t *testing.T) {
 	defer srv.Close()
 
 	// Create upload with 0 bytes (immediately complete)
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -955,7 +955,7 @@ func TestNotifyCompleteUploads(t *testing.T) {
 		if event.Upload.Offset != 0 {
 			t.Errorf("completed upload Offset = %d, want 0", event.Upload.Offset)
 		}
-		if event.HTTPRequest.Method != "POST" {
+		if event.HTTPRequest.Method != http.MethodPost {
 			t.Errorf("event HTTP method = %q, want %q", event.HTTPRequest.Method, "POST")
 		}
 	case <-time.After(5 * time.Second):
@@ -982,7 +982,7 @@ func TestLargeUploadStress(t *testing.T) {
 	}
 
 	// Create
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -995,7 +995,7 @@ func TestLargeUploadStress(t *testing.T) {
 	location := resp.Header.Get("Location")
 
 	// Upload in a single PATCH
-	patchReq, err := http.NewRequest("PATCH", location, bytes.NewReader(payload))
+	patchReq, err := http.NewRequest(http.MethodPatch, location, bytes.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1029,7 +1029,7 @@ func TestGetFileNotFound(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	req, err := http.NewRequest("GET", srv.URL+"/nonexistent-upload-id", nil)
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/nonexistent-upload-id", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1068,7 +1068,7 @@ func TestDisableTermination(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	req, err := http.NewRequest("DELETE", srv.URL+"/some-id", nil)
+	req, err := http.NewRequest(http.MethodDelete, srv.URL+"/some-id", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

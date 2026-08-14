@@ -88,11 +88,11 @@ Task 1 measured baseline (golangci-lint v2.12.2, `default: all`, only `wsl`/`gom
 **Files:**
 - Modify: all `server/**/*.go` files touched by autofix
 
-- [ ] run `golangci-lint fmt ./...` from `server/` first (formatter-only pass: gofmt/gofumpt/goimports-equivalent under the `formatters:` block) — commit this as its own step before the next one
-- [ ] run `golangci-lint run --fix ./...` to apply remaining auto-fixable linters (`staticcheck`, `gocritic`, `modernize`, `usestdlibvars`, `intrange`, `wsl_v5`, `nlreturn`, `perfsprint`, `copyloopvar`, `misspell`, `ineffassign`, `errorlint`, etc.)
-- [ ] diff-review the auto-fixed changes for correctness (auto-fixes can occasionally change semantics, e.g. `copyloopvar`, `errorlint`)
-- [ ] run `go test ./...` - must pass unchanged behavior before Task 3
-- [ ] run `golangci-lint run ./...` - record remaining (manual-fix-only) violation count and per-linter breakdown before Task 3
+- [x] run `golangci-lint fmt ./...` from `server/` first (formatter-only pass: gofmt/gofumpt/goimports-equivalent under the `formatters:` block) — commit this as its own step before the next one (committed as `style: apply golangci-lint fmt (gofumpt/goimports) across server/`)
+- [x] run `golangci-lint run --fix ./...` to apply remaining auto-fixable linters (`staticcheck`, `gocritic`, `modernize`, `usestdlibvars`, `intrange`, `wsl_v5`, `nlreturn`, `perfsprint`, `copyloopvar`, `misspell`, `ineffassign`, `errorlint`, etc.)
+- [x] diff-review the auto-fixed changes for correctness (auto-fixes can occasionally change semantics, e.g. `copyloopvar`, `errorlint`) — two autofix bugs found and hand-corrected: (1) `noinlineerr` produced `:=` redeclaration/shadowing compile errors in `internal/filestore/mover.go` and `internal/api/recovery.go` (rewritten to `=`); (2) `misspell` wrongly renamed the tusd library field `composer.Terminater` to `composer.Terminator` in `internal/uploadbackend/tusd_api_test.go` (reverted — `Terminater` is the upstream API name). Also resolved a gofumpt-vs-wsl_v5 conflict (gofumpt "no empty lines before a simple error check" vs wsl_v5 "too many statements above if") by placing the separating blank line between the two preceding assignments instead of before `if err != nil` — no config change required.
+- [x] run `go test ./...` - must pass unchanged behavior before Task 3 (all packages pass)
+- [x] run `golangci-lint run ./...` - record remaining (manual-fix-only) violation count and per-linter breakdown before Task 3 (measured: 472 issues — breakdown in `.ralphex/scratchpad/task2-remaining-summary.txt`; remaining `misspell`/`gocritic`/`staticcheck`/`ineffassign`/`unparam`/`unused` findings are non-autofixable cases, incl. the `Terminater` false positive)
 
 ### Task 3: Fix defect-relevant violations (errcheck, errorlint, gosec, bodyclose, sqlclosecheck, contextcheck, nilnil, nilerr, noctx, wrapcheck, exhaustive, errchkjson)
 

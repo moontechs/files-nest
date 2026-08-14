@@ -70,6 +70,7 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 				_, _ = w.Write([]byte(`{"error":"internal server error"}`))
 			}
 		}()
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -95,6 +96,7 @@ func requestLogMiddleware(next http.Handler) http.Handler {
 // to include the response status code in its log output.
 type loggingResponseWriter struct {
 	http.ResponseWriter
+
 	statusCode int
 }
 

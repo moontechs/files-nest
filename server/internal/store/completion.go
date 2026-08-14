@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/dgraph-io/badger/v4"
@@ -35,6 +36,7 @@ func (s *Store) SaveCompletionIntent(intent *CompletionIntent) error {
 		if err != nil {
 			return fmt.Errorf("marshal completion intent: %w", err)
 		}
+
 		return txn.Set(completionIntentKey(intent.ID), val)
 	})
 }
@@ -46,18 +48,23 @@ func (s *Store) SaveCompletionIntent(intent *CompletionIntent) error {
 // GetCompletionIntent retrieves a completion intent by upload ID.
 // Returns nil, nil if not found.
 func (s *Store) GetCompletionIntent(id string) (*CompletionIntent, error) {
-	var intent CompletionIntent
-	var found bool
+	var (
+		intent CompletionIntent
+		found  bool
+	)
 
 	err := s.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(completionIntentKey(id))
 		if err != nil {
-			if err == badger.ErrKeyNotFound {
+			if errors.Is(err, badger.ErrKeyNotFound) {
 				return nil
 			}
+
 			return fmt.Errorf("get completion intent: %w", err)
 		}
+
 		found = true
+
 		return item.Value(func(val []byte) error {
 			return json.Unmarshal(val, &intent)
 		})
@@ -65,9 +72,11 @@ func (s *Store) GetCompletionIntent(id string) (*CompletionIntent, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if !found {
 		return nil, nil
 	}
+
 	return &intent, nil
 }
 
@@ -91,6 +100,7 @@ func (s *Store) DeleteCompletionIntent(id string) error {
 // move, the DB update, and the tusd cleanup.
 func (s *Store) ListCompletionIntents() ([]*CompletionIntent, error) {
 	prefix := []byte("completion/")
+
 	var intents []*CompletionIntent
 
 	err := s.db.View(func(txn *badger.Txn) error {
@@ -99,14 +109,19 @@ func (s *Store) ListCompletionIntents() ([]*CompletionIntent, error) {
 
 		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
 			var intent CompletionIntent
-			if err := it.Item().Value(func(val []byte) error {
+
+			err := it.Item().Value(func(val []byte) error {
 				return json.Unmarshal(val, &intent)
-			}); err != nil {
+			})
+			if err != nil {
 				return fmt.Errorf("unmarshal completion intent: %w", err)
 			}
+
 			intents = append(intents, &intent)
 		}
+
 		return nil
 	})
+
 	return intents, err
 }

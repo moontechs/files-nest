@@ -162,7 +162,7 @@ func TestCompletionIntent_SaveAndGet_MultipleIntents(t *testing.T) {
 
 	// Save multiple intents and verify each is independently retrievable
 	intents := make([]*store.CompletionIntent, 5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		id := fmt.Sprintf("multi-intent-%d", i)
 		intent := testIntent(id)
 		intents[i] = intent
@@ -487,7 +487,7 @@ func TestCompletionIntent_List_LargeCount(t *testing.T) {
 
 	// Save 100 intents
 	const n = 100
-	for i := 0; i < n; i++ {
+	for i := range n {
 		id := fmt.Sprintf("list-large-%d", i)
 		if err := s.SaveCompletionIntent(testIntent(id)); err != nil {
 			t.Fatalf("SaveCompletionIntent %s failed: %v", id, err)
@@ -638,8 +638,7 @@ func TestCompletionIntent_ConcurrentSaveAndList(t *testing.T) {
 	errCh := make(chan error, n*2)
 
 	// Concurrently save intents
-	for i := 0; i < n; i++ {
-		i := i
+	for i := range n {
 		go func() {
 			id := fmt.Sprintf("concurrent-intent-%d", i)
 			errCh <- s.SaveCompletionIntent(testIntent(id))
@@ -647,15 +646,14 @@ func TestCompletionIntent_ConcurrentSaveAndList(t *testing.T) {
 	}
 
 	// Collect save results
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if err := <-errCh; err != nil {
 			t.Errorf("concurrent save %d: %v", i, err)
 		}
 	}
 
 	// Concurrently read all
-	for i := 0; i < n; i++ {
-		i := i
+	for i := range n {
 		go func() {
 			id := fmt.Sprintf("concurrent-intent-%d", i)
 			_, err := s.GetCompletionIntent(id)
@@ -663,7 +661,7 @@ func TestCompletionIntent_ConcurrentSaveAndList(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if err := <-errCh; err != nil {
 			t.Errorf("concurrent get %d: %v", i, err)
 		}
@@ -691,13 +689,13 @@ func TestCompletionIntent_ConcurrentDeleteOnSameIntent(t *testing.T) {
 	errCh := make(chan error, 5)
 
 	// 5 concurrent deletes — only one should succeed in effect, but none should error
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		go func() {
 			errCh <- s.DeleteCompletionIntent(id)
 		}()
 	}
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if err := <-errCh; err != nil {
 			t.Errorf("concurrent delete %d: %v", i, err)
 		}

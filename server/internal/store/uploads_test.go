@@ -150,7 +150,7 @@ func TestCreateUpload_Conflict(t *testing.T) {
 	u2.BackendID = "different-backend-id"
 
 	err := s.CreateUpload(u2)
-	if err != store.ErrConflict {
+	if !errors.Is(err, store.ErrConflict) {
 		t.Fatalf("expected ErrConflict, got: %v", err)
 	}
 
@@ -324,7 +324,7 @@ func TestPutUploadIfAbsent_IdempotentAcrossMultipleCalls(t *testing.T) {
 	u := testUpload("asset-putifabsent-multi", nil)
 
 	// Call three times — only first should create
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		got, created, err := s.PutUploadIfAbsent(u)
 		if err != nil {
 			t.Fatalf("PutUploadIfAbsent call %d failed: %v", i, err)
@@ -390,7 +390,7 @@ func TestGetUpload_NotFound(t *testing.T) {
 	s := openTestStore(t)
 
 	_, err := s.GetUpload("nonexistent-id")
-	if err != store.ErrNotFound {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got: %v", err)
 	}
 }
@@ -399,7 +399,7 @@ func TestGetUpload_EmptyID(t *testing.T) {
 	s := openTestStore(t)
 
 	_, err := s.GetUpload("")
-	if err != store.ErrNotFound {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Log("note: empty ID should result in ErrNotFound")
 	}
 }
@@ -547,7 +547,7 @@ func TestUpdateStatus_NotFound(t *testing.T) {
 	s := openTestStore(t)
 
 	_, err := s.UpdateStatus("nonexistent-id", store.StatusComplete)
-	if err != store.ErrNotFound {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got: %v", err)
 	}
 }
@@ -621,7 +621,7 @@ func TestUpdateStatus_MultipleRecordsSameStatus(t *testing.T) {
 	s := openTestStore(t)
 
 	// Create three uploading records
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		u := testUpload(fmt.Sprintf("asset-bulk-%d", i), nil)
 		if err := s.CreateUpload(u); err != nil {
 			t.Fatalf("CreateUpload %d failed: %v", i, err)
@@ -714,7 +714,7 @@ func TestUpdateComplete_NotFound(t *testing.T) {
 	s := openTestStore(t)
 
 	_, err := s.UpdateComplete("nonexistent-id", "organized/path.jpg")
-	if err != store.ErrNotFound {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got: %v", err)
 	}
 }
@@ -862,7 +862,7 @@ func TestDeleteUpload_Success(t *testing.T) {
 
 	// Record should be gone
 	_, err := s.GetUpload(u.ID)
-	if err != store.ErrNotFound {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("expected ErrNotFound after delete, got: %v", err)
 	}
 
@@ -888,7 +888,7 @@ func TestDeleteUpload_NotFound(t *testing.T) {
 	s := openTestStore(t)
 
 	err := s.DeleteUpload("nonexistent-id")
-	if err != store.ErrNotFound {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got: %v", err)
 	}
 }
@@ -1069,7 +1069,7 @@ func TestListByDateRange_Pagination(t *testing.T) {
 	s := openTestStore(t)
 
 	// Create 5 uploads on the same date but with ascending IDs
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		u := testUpload(fmt.Sprintf("asset-pag-%d", i), map[string]string{
 			"creationDate": "2024-03-15T10:00:00Z",
 		})
@@ -1156,7 +1156,7 @@ func TestListByDateRange_PaginationCursorDeleted(t *testing.T) {
 
 	// Create 4 uploads on the same date with ascending IDs.
 	ids := make([]string, 4)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		u := testUpload(fmt.Sprintf("asset-cursor-del-%d", i), map[string]string{
 			"creationDate": "2024-03-15T10:00:00Z",
 		})
@@ -1355,7 +1355,7 @@ func TestDeleteUpload_MultipleRecords_OnlyDeletesOne(t *testing.T) {
 
 	// Create 3 records
 	ids := make([]string, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		u := testUpload(fmt.Sprintf("asset-delmulti-%d", i), nil)
 		if err := s.CreateUpload(u); err != nil {
 			t.Fatalf("CreateUpload %d failed: %v", i, err)
@@ -1380,7 +1380,7 @@ func TestDeleteUpload_MultipleRecords_OnlyDeletesOne(t *testing.T) {
 
 	// Middle should be gone
 	_, err = s.GetUpload(ids[1])
-	if err != store.ErrNotFound {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("middle record should be deleted, got: %v", err)
 	}
 
@@ -1462,7 +1462,7 @@ func TestListByDateRange_LimitClamping(t *testing.T) {
 	s := openTestStore(t)
 
 	// Create 5 uploads
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		u := testUpload(fmt.Sprintf("asset-clamp-%d", i), map[string]string{
 			"creationDate": "2024-05-15T10:00:00Z",
 		})
@@ -1510,8 +1510,7 @@ func TestConcurrentCreateAndRead(t *testing.T) {
 	errCh := make(chan error, n*2)
 
 	// Concurrently create uploads
-	for i := 0; i < n; i++ {
-		i := i
+	for i := range n {
 		go func() {
 			u := testUpload(fmt.Sprintf("concurrent-%d", i), nil)
 			errCh <- s.CreateUpload(u)
@@ -1519,15 +1518,14 @@ func TestConcurrentCreateAndRead(t *testing.T) {
 	}
 
 	// Collect create results
-	for i := 0; i < n; i++ {
-		if err := <-errCh; err != nil && err != store.ErrConflict {
+	for i := range n {
+		if err := <-errCh; err != nil && !errors.Is(err, store.ErrConflict) {
 			t.Errorf("concurrent create %d: unexpected error: %v", i, err)
 		}
 	}
 
 	// Concurrently read all
-	for i := 0; i < n; i++ {
-		i := i
+	for i := range n {
 		go func() {
 			id := api.SafeID(fmt.Sprintf("concurrent-%d", i))
 			_, err := s.GetUpload(id)
@@ -1535,7 +1533,7 @@ func TestConcurrentCreateAndRead(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if err := <-errCh; err != nil {
 			t.Errorf("concurrent read %d: %v", i, err)
 		}
@@ -1577,7 +1575,7 @@ func TestUpdateStatus_ConcurrentOnSameRecord(t *testing.T) {
 	}()
 
 	successCount := 0
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if err := <-errCh; err == nil {
 			successCount++
 		}

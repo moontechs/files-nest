@@ -76,6 +76,7 @@ func (m *Mover) OrganizedPath(creationDate, filename string) (rel, abs string) {
 
 	rel = filepath.Join("organized", year, month, day, filename)
 	abs = filepath.Join(m.storagePath, rel)
+
 	return
 }
 
@@ -121,12 +122,15 @@ func (m *Mover) RemoveOrganizedFile(organizedPath string) error {
 	m.moveMu.Lock()
 	defer m.moveMu.Unlock()
 
-	if err := os.Remove(cleanAbs); err != nil {
+	err := os.Remove(cleanAbs)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
+
 		return err
 	}
+
 	return nil
 }
 
@@ -159,6 +163,7 @@ func (m *Mover) PlanDestination(creationDate, createdAt, filename, backendID str
 
 	// Parse date into YYYY/MM/DD.
 	var year, month, day string
+
 	t1, err1 := time.Parse(time.RFC3339, dateToUse)
 	if err1 == nil {
 		year = t1.Format("2006")
@@ -175,6 +180,7 @@ func (m *Mover) PlanDestination(creationDate, createdAt, filename, backendID str
 			if year == "" {
 				year = "unknown"
 			}
+
 			month = "unknown"
 			day = "unknown"
 		}
@@ -226,6 +232,7 @@ type MoveResult struct {
 func (m *Mover) MoveFile(srcPath, creationDate, filename, backendID string) (*MoveResult, error) {
 	m.moveMu.Lock()
 	defer m.moveMu.Unlock()
+
 	plan := m.PlanDestination(creationDate, "", filename, backendID)
 
 	// Determine if deduplication occurred by comparing the final path
@@ -233,7 +240,8 @@ func (m *Mover) MoveFile(srcPath, creationDate, filename, backendID string) (*Mo
 	baseRel, _ := m.OrganizedPath(creationDate, filename)
 	deduped := plan.Rel != baseRel
 
-	if err := MoveFile(srcPath, plan.Abs); err != nil {
+	err := MoveFile(srcPath, plan.Abs)
+	if err != nil {
 		return nil, err
 	}
 
@@ -258,15 +266,20 @@ func (m *Mover) MoveFile(srcPath, creationDate, filename, backendID string) (*Mo
 func (m *Mover) PlanAndMove(src, creationDate, createdAt, filename, backendID string, beforeMove func(PlanDestResult) error) (PlanDestResult, error) {
 	m.moveMu.Lock()
 	defer m.moveMu.Unlock()
+
 	plan := m.PlanDestination(creationDate, createdAt, filename, backendID)
 	if beforeMove != nil {
-		if err := beforeMove(plan); err != nil {
+		err := beforeMove(plan)
+		if err != nil {
 			return plan, err
 		}
 	}
-	if err := MoveFile(src, plan.Abs); err != nil {
+
+	err := MoveFile(src, plan.Abs)
+	if err != nil {
 		return plan, err
 	}
+
 	return plan, nil
 }
 
@@ -278,11 +291,14 @@ func (m *Mover) PlanAndMove(src, creationDate, createdAt, filename, backendID st
 func (m *Mover) MoveToPlaned(src string, plan PlanDestResult, beforeMove func(PlanDestResult) error) error {
 	m.moveMu.Lock()
 	defer m.moveMu.Unlock()
+
 	if beforeMove != nil {
-		if err := beforeMove(plan); err != nil {
+		err := beforeMove(plan)
+		if err != nil {
 			return err
 		}
 	}
+
 	return MoveFile(src, plan.Abs)
 }
 
@@ -299,19 +315,25 @@ func MoveFile(src, dst string) error {
 		if _, err := os.Stat(dst); err == nil {
 			return nil
 		}
+
 		return fmt.Errorf("source %s does not exist and destination %s does not exist either", src, dst)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	err := os.MkdirAll(filepath.Dir(dst), 0o755)
+	if err != nil {
 		return fmt.Errorf("create destination directory %s: %w", filepath.Dir(dst), err)
 	}
 
-	if err := os.Rename(src, dst); err != nil {
+	err = os.Rename(src, dst)
+	if err != nil {
 		if errors.Is(err, syscall.EXDEV) {
-			if err := copyFile(src, dst); err != nil {
+			err = copyFile(src, dst)
+			if err != nil {
 				return fmt.Errorf("copy %s -> %s (cross-device): %w", src, dst, err)
 			}
-			if err := os.Remove(src); err != nil {
+
+			err = os.Remove(src)
+			if err != nil {
 				return fmt.Errorf("remove source %s after cross-device copy: %w", src, err)
 			}
 		} else {
@@ -350,12 +372,16 @@ func copyFile(src, dst string) error {
 	// that indicate the data did not reach stable storage.
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
 		dstFile.Close()
+
 		return fmt.Errorf("copy data: %w", err)
 	}
+
 	if err := dstFile.Sync(); err != nil {
 		dstFile.Close()
+
 		return fmt.Errorf("sync destination: %w", err)
 	}
+
 	if err := dstFile.Close(); err != nil {
 		return fmt.Errorf("close destination: %w", err)
 	}
@@ -365,6 +391,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("stat source after copy: %w", err)
 	}
+
 	if err := os.Chmod(dst, srcInfo.Mode()); err != nil {
 		return fmt.Errorf("chmod destination: %w", err)
 	}
@@ -378,12 +405,15 @@ func isParseableDate(s string) bool {
 	if s == "" {
 		return false
 	}
+
 	if _, err := time.Parse(time.RFC3339, s); err == nil {
 		return true
 	}
+
 	if _, err := time.Parse("2006-01-02", s); err == nil {
 		return true
 	}
+
 	return false
 }
 
@@ -406,7 +436,9 @@ func SafePathSegment(s string) string {
 	if s == "" {
 		return ""
 	}
+
 	var b strings.Builder
+
 	for _, r := range s {
 		switch r {
 		case '/', '\\':
@@ -418,16 +450,20 @@ func SafePathSegment(s string) string {
 			if r < 32 || r == 0 {
 				continue
 			}
+
 			b.WriteRune(r)
 		}
 	}
+
 	out := strings.Trim(b.String(), ". _")
 	if out == "" || out == "." || out == ".." {
 		return ""
 	}
+
 	if len(out) > 200 {
 		out = out[:200]
 		out = strings.TrimRight(out, ". _")
 	}
+
 	return out
 }
