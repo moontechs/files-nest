@@ -72,14 +72,16 @@ Closes moontechs/files-nest#19.
 **Files:**
 - Create: `server/.golangci.yml`
 
-- [ ] create `server/.golangci.yml` (v2 schema) with `linters: {default: all, disable: [wsl, gomodguard]}` (one-line rationale comment each: both deprecated with enabled successors `wsl_v5`/`gomodguard_v2`)
-- [ ] configure `depguard` with an explicit allow-list covering Go stdlib, `github.com/moontechs/files-nest/server`, and every module path in `server/go.mod`/`go.sum` (see Solution Overview) — without this it flags all 44 baseline import sites
-- [ ] add settings blocks for `lll`, `funlen`, `gocognit`, `cyclop`, `nestif`, `maintidx`, `mnd`, `varnamelen` (tune thresholds/exceptions rather than disable, per user decision to keep these enabled)
-- [ ] add `linters.exclusions.rules` relaxing exactly `wsl`, `wsl_v5`, `nlreturn`, `noinlineerr`, `varnamelen`, `paralleltest` for `_test.go` files (the user-confirmed style-only exclusion set — every other linter still applies to tests)
-- [ ] add `issues.max-issues-per-linter: 0` and `issues.max-same-issues: 0` so no run is silently truncated
-- [ ] run `golangci-lint run ./...` from `server/`, save full output to scratchpad to size up remaining fix work; do NOT fix anything yet
-- [ ] write no Go tests this task (config-only); confirm `go build ./...` still succeeds unaffected
-- [ ] run `golangci-lint run ./...` - record final remaining violation count and per-linter breakdown before Task 2 (baseline measured during planning: ~490 non-test + ~2226 test-file issues before exclusions; expect a large drop in test-file count after the exclusions above, non-test count unchanged since no non-test linters were disabled)
+- [x] create `server/.golangci.yml` (v2 schema) with `linters: {default: all, disable: [wsl, gomodguard]}` (one-line rationale comment each: both deprecated with enabled successors `wsl_v5`/`gomodguard_v2`)
+- [x] configure `depguard` with an explicit allow-list covering Go stdlib, `github.com/moontechs/files-nest/server`, and every module path in `server/go.mod`/`go.sum` (see Solution Overview) — without this it flags all 44 baseline import sites
+- [x] add settings blocks for `lll`, `funlen`, `gocognit`, `cyclop`, `nestif`, `maintidx`, `mnd`, `varnamelen` (tune thresholds/exceptions rather than disable, per user decision to keep these enabled)
+- [x] add `linters.exclusions.rules` relaxing exactly `wsl`, `wsl_v5`, `nlreturn`, `noinlineerr`, `varnamelen`, `paralleltest` for `_test.go` files (the user-confirmed style-only exclusion set — every other linter still applies to tests)
+- [x] add `issues.max-issues-per-linter: 0` and `issues.max-same-issues: 0` so no run is silently truncated
+- [x] run `golangci-lint run ./...` from `server/`, save full output to scratchpad to size up remaining fix work; do NOT fix anything yet (full output: `.ralphex/scratchpad/task1-lint-baseline.txt`)
+- [x] write no Go tests this task (config-only); confirm `go build ./...` still succeeds unaffected
+- [x] run `golangci-lint run ./...` - record final remaining violation count and per-linter breakdown before Task 2 (measured: 819 total = 485 non-test + 334 `_test.go`, matching the predicted ~490 non-test and a large test-file drop from ~2226 after exclusions; full breakdown in `.ralphex/scratchpad/task1-baseline-summary.txt`)
+
+Task 1 measured baseline (golangci-lint v2.12.2, `default: all`, only `wsl`/`gomodguard` disabled, truncation caps removed) — 819 issues: bodyclose 35, contextcheck 4, copyloopvar 5, cyclop 10, dogsled 2, dupl 2, embeddedstructfieldcheck 2, err113 48, errcheck 22, errchkjson 1, errorlint 1, exhaustive 5, exhaustruct 31, gocognit 2, goconst 20, gocritic 2, godoclint 14, gofmt 6, gofumpt 1, gosec 47, gosmopolitan 9, ineffassign 1, intrange 24, lll 11, misspell 2, mnd 8, modernize 5, nestif 2, nilnil 3, nlreturn 147, noctx 72, noinlineerr 85, nonamedreturns 4, perfsprint 25, prealloc 2, revive 25, staticcheck 2, tagliatelle 17, testpackage 1, thelper 1, unparam 1, unused 1, usestdlibvars 1, varnamelen 15, wrapcheck 17, wsl_v5 78. (depguard: 0 — allow-list covers all imports; excluded style linters confirmed absent from `_test.go`.)
 
 ### Task 2: Apply formatters, then auto-fixable linters
 

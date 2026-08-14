@@ -1,0 +1,124 @@
+version: "2"
+
+# Maximum-strictness lint configuration for the files-nest Go server.
+# Every non-deprecated linter is enabled via `default: all`. The only two
+# linters disabled are the ones golangci-lint itself marks [deprecated]:
+#
+#   wsl        -> superseded by wsl_v5       (enabled via default: all)
+#   gomodguard -> superseded by gomodguard_v2 (enabled via default: all)
+#
+# This is a deliberate, user-confirmed choice: a larger remediation surface in
+# exchange for near-total linter coverage. See docs/plans/20260813-strict-go-lint-precommit.md.
+
+run:
+  concurrency: 4
+  # Include test files in analysis (default, made explicit).
+  tests: true
+
+issues:
+  # 0 = unlimited: never silently truncate the reported violation surface.
+  # The v2 defaults (50 / 3) would under-count this repo's real surface ~5x.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+linters:
+  default: all
+  disable:
+    - wsl        # [deprecated] superseded by wsl_v5
+    - gomodguard # [deprecated] superseded by gomodguard_v2
+
+  settings:
+    # depguard would flag every import without an explicit allow-list. The
+    # list below covers Go stdlib, this module, and every module prefix present
+    # in server/go.mod and server/go.sum (plus their transitive deps), so the
+    # linter still catches genuinely new/unlisted imports.
+    depguard:
+      rules:
+        main:
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/moontechs/files-nest/server
+            - github.com/Acconut/go-httptest-recorder
+            - github.com/cespare/xxhash
+            - github.com/davecgh/go-spew
+            - github.com/dgraph-io
+            - github.com/dgryski/go-farm
+            - github.com/dustin/go-humanize
+            - github.com/go-logr
+            - github.com/golang/mock
+            - github.com/google
+            - github.com/klauspost/compress
+            - github.com/kr
+            - github.com/pmezard/go-difflib
+            - github.com/rogpeppe/go-internal
+            - github.com/stretchr/testify
+            - github.com/tus/tusd
+            - go.opentelemetry.io
+            - golang.org/x
+            - google.golang.org/protobuf
+            - gopkg.in
+
+    # Thresholds tuned to stay meaningful without drowning out real findings.
+    # These linters remain ENABLED (per user decision); only their knobs are set.
+    lll:
+      line-length: 120
+    funlen:
+      lines: 100
+      statements: 60
+    gocognit:
+      min-complexity: 30
+    cyclop:
+      max-complexity: 15
+    nestif:
+      min-complexity: 5
+    maintidx:
+      under: 20
+    mnd:
+      ignored-numbers:
+        - "0"
+        - "1"
+        - "2"
+        - "3"
+        - "4"
+        - "5"
+        - "10"
+        - "100"
+        - "1000"
+        - "1024"
+        - "4096"
+    varnamelen:
+      min-name-length: 3
+      ignore-names:
+        - id
+        - ok
+        - db
+        - w
+        - r
+        - tt
+
+  exclusions:
+    rules:
+      # Relaxed exclusions for pure code-style linters on test files only.
+      # These carry no correctness signal; every defect-relevant linter
+      # (gosec, errcheck, bodyclose, noctx, etc.) still applies to tests.
+      - path: _test\.go
+        linters:
+          - wsl
+          - wsl_v5
+          - nlreturn
+          - noinlineerr
+          - varnamelen
+          - paralleltest
+
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
