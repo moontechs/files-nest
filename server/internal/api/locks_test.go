@@ -1,4 +1,3 @@
-// Package api_test tests the per-upload locking mechanism.
 package api_test
 
 import (
@@ -11,11 +10,15 @@ import (
 	"github.com/moontechs/files-nest/server/internal/api"
 )
 
+// errExpected is a sentinel error used to verify error propagation through
+// UploadLocker.Do without constructing a dynamic error inline.
+var errExpected = errors.New("expected error")
+
 // ---------------------------------------------------------------------------
 // Basic Lock / Unlock
 // ---------------------------------------------------------------------------
 
-func TestLockUnlock_SingleID(t *testing.T) {
+func TestLockUnlock_SingleID(_ *testing.T) {
 	l := &api.UploadLocker{}
 
 	l.Lock("upload-1")
@@ -23,7 +26,7 @@ func TestLockUnlock_SingleID(t *testing.T) {
 	// If we get here without deadlock, the basic sequence works.
 }
 
-func TestLockUnlock_MultipleSequentialSameID(t *testing.T) {
+func TestLockUnlock_MultipleSequentialSameID(_ *testing.T) {
 	l := &api.UploadLocker{}
 
 	l.Lock("shared")
@@ -37,7 +40,7 @@ func TestLockUnlock_MultipleSequentialSameID(t *testing.T) {
 	// Three sequential lock/unlock cycles on the same ID should all succeed.
 }
 
-func TestLockUnlock_DifferentIDs(t *testing.T) {
+func TestLockUnlock_DifferentIDs(_ *testing.T) {
 	l := &api.UploadLocker{}
 
 	l.Lock("a")
@@ -263,7 +266,7 @@ func TestDo_Success(t *testing.T) {
 func TestDo_ErrorReturned(t *testing.T) {
 	l := &api.UploadLocker{}
 
-	sentinel := errors.New("expected error")
+	sentinel := errExpected
 	err := l.Do("do-error", func() error {
 		return sentinel
 	})
@@ -362,7 +365,7 @@ func TestDo_SerializesSameID(t *testing.T) {
 // Map cleanup: entries are removed when no one holds or waits
 // ---------------------------------------------------------------------------
 
-func TestLock_CleanupAfterUnlock(t *testing.T) {
+func TestLock_CleanupAfterUnlock(_ *testing.T) {
 	l := &api.UploadLocker{}
 
 	// Lock then unlock
@@ -379,7 +382,7 @@ func TestLock_CleanupAfterUnlock(t *testing.T) {
 // Zero value readiness
 // ---------------------------------------------------------------------------
 
-func TestLock_ZeroValueReady(t *testing.T) {
+func TestLock_ZeroValueReady(_ *testing.T) {
 	var l api.UploadLocker // zero value, no explicit initialization
 
 	l.Lock("zero")
@@ -390,7 +393,7 @@ func TestLock_ZeroValueReady(t *testing.T) {
 // Concurrent lock/unlock interleaving between many IDs
 // ---------------------------------------------------------------------------
 
-func TestLock_StressDifferentIDs(t *testing.T) {
+func TestLock_StressDifferentIDs(_ *testing.T) {
 	l := &api.UploadLocker{}
 	var wg sync.WaitGroup
 
@@ -419,7 +422,7 @@ func TestLock_StressDifferentIDs(t *testing.T) {
 // Unlock without Lock (no-op safety)
 // ---------------------------------------------------------------------------
 
-func TestUnlock_WithoutLockIsNoOp(t *testing.T) {
+func TestUnlock_WithoutLockIsNoOp(_ *testing.T) {
 	l := &api.UploadLocker{}
 
 	// Should not panic or deadlock
@@ -430,7 +433,7 @@ func TestUnlock_WithoutLockIsNoOp(t *testing.T) {
 // Nested lock/unlock on different IDs
 // ---------------------------------------------------------------------------
 
-func TestLock_NestedDifferentIDs(t *testing.T) {
+func TestLock_NestedDifferentIDs(_ *testing.T) {
 	l := &api.UploadLocker{}
 
 	l.Lock("outer")
@@ -444,7 +447,7 @@ func TestLock_NestedDifferentIDs(t *testing.T) {
 // Exported helper test — ensure UploadLocker is exported
 // ---------------------------------------------------------------------------
 
-func TestUploadLocker_TypeExported(t *testing.T) {
+func TestUploadLocker_TypeExported(_ *testing.T) {
 	// Compile-time check: api.UploadLocker must be exported
 	var _ *api.UploadLocker
 	_ = &api.UploadLocker{}

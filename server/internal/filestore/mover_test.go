@@ -11,6 +11,12 @@ import (
 	"github.com/moontechs/files-nest/server/internal/filestore"
 )
 
+const (
+	relMar2024IMG1234 = "organized/2024/03/15/IMG_1234.jpg"
+	relDec2024IMG9999 = "organized/2024/12/31/IMG_9999.jpg"
+	img0001Name       = "IMG_0001.jpg"
+)
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -20,22 +26,6 @@ func openTestMover(t *testing.T) *filestore.Mover {
 	t.Helper()
 	dir := t.TempDir()
 	return filestore.New(dir)
-}
-
-// touchFile creates an empty file at the given path, creating parent
-// directories if needed. Returns the absolute path.
-func touchFile(t *testing.T, path string) string {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		t.Fatalf("MkdirAll %s: %v", filepath.Dir(path), err)
-	}
-	//nolint:gosec // test-only read/write of a temp-dir file, not attacker-controlled
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatalf("Create %s: %v", path, err)
-	}
-	_ = f.Close()
-	return path
 }
 
 // writeFile writes content to a file at the given path.
@@ -76,7 +66,7 @@ func TestOrganizedPath_ParsesRFC3339(t *testing.T) {
 
 	rel, abs := m.OrganizedPath("2024-03-15T10:30:00Z", "IMG_1234.jpg")
 
-	expectedRel := "organized/2024/03/15/IMG_1234.jpg"
+	expectedRel := relMar2024IMG1234
 	if rel != expectedRel {
 		t.Errorf("rel: got %q, want %q", rel, expectedRel)
 	}
@@ -122,7 +112,7 @@ func TestOrganizedPath_UnparseableDateFallsBack(t *testing.T) {
 func TestOrganizedPath_EmptyDate(t *testing.T) {
 	m := openTestMover(t)
 
-	rel, abs := m.OrganizedPath("", "IMG_0001.jpg")
+	rel, abs := m.OrganizedPath("", img0001Name)
 
 	// filepath.Join collapses empty segments, so the result has no double slash.
 	expectedRel := "organized/unknown/unknown/IMG_0001.jpg"
@@ -141,7 +131,7 @@ func TestOrganizedPath_RFC3339Nano(t *testing.T) {
 
 	rel, abs := m.OrganizedPath("2024-12-31T23:59:59.123456789Z", "IMG_9999.jpg")
 
-	expectedRel := "organized/2024/12/31/IMG_9999.jpg"
+	expectedRel := relDec2024IMG9999
 	if rel != expectedRel {
 		t.Errorf("rel: got %q, want %q", rel, expectedRel)
 	}
@@ -163,14 +153,14 @@ func TestOrganizedPath_DifferentDates(t *testing.T) {
 	}{
 		{
 			date:     "2024-01-01T00:00:00Z",
-			filename: "IMG_0001.jpg",
+			filename: img0001Name,
 			wantRel:  "organized/2024/01/01/IMG_0001.jpg",
 			desc:     "january start",
 		},
 		{
 			date:     "2024-12-31T23:59:59Z",
 			filename: "IMG_9999.jpg",
-			wantRel:  "organized/2024/12/31/IMG_9999.jpg",
+			wantRel:  relDec2024IMG9999,
 			desc:     "december end",
 		},
 		{
@@ -231,8 +221,8 @@ func TestMoveFile_Success(t *testing.T) {
 	if result.Src != srcPath {
 		t.Errorf("result.Src: got %q, want %q", result.Src, srcPath)
 	}
-	if result.DstRel != "organized/2024/03/15/IMG_1234.jpg" {
-		t.Errorf("result.DstRel: got %q, want %q", result.DstRel, "organized/2024/03/15/IMG_1234.jpg")
+	if result.DstRel != relMar2024IMG1234 {
+		t.Errorf("result.DstRel: got %q, want %q", result.DstRel, relMar2024IMG1234)
 	}
 	expectedAbs := filepath.Join(m.StoragePath(), result.DstRel)
 	if result.Dst != expectedAbs {
@@ -289,7 +279,7 @@ func TestMoveFile_DeduplicatesWhenDestinationExists(t *testing.T) {
 	m := openTestMover(t)
 
 	// Create an existing file at the computed destination path.
-	existingRel := "organized/2024/03/15/IMG_1234.jpg"
+	existingRel := relMar2024IMG1234
 	existingAbs := filepath.Join(m.StoragePath(), existingRel)
 	writeFile(t, existingAbs, []byte("existing content"))
 
@@ -356,8 +346,8 @@ func TestMoveFile_MultipleDeduplications(t *testing.T) {
 	if result1.Deduplicated {
 		t.Error("first move should not be deduplicated")
 	}
-	if result1.DstRel != "organized/2024/03/15/IMG_1234.jpg" {
-		t.Errorf("first DstRel: got %q, want %q", result1.DstRel, "organized/2024/03/15/IMG_1234.jpg")
+	if result1.DstRel != relMar2024IMG1234 {
+		t.Errorf("first DstRel: got %q, want %q", result1.DstRel, relMar2024IMG1234)
 	}
 
 	// Move second file — same date and filename, should deduplicate.
@@ -522,7 +512,7 @@ func TestMoveFile_SameDateDifferentFilenames(t *testing.T) {
 		content   string
 		backendID string
 	}{
-		{"tusd-a", "IMG_0001.jpg", "first photo", "tusd-a"},
+		{"tusd-a", img0001Name, "first photo", "tusd-a"},
 		{"tusd-b", "IMG_0002.jpg", "second photo", "tusd-b"},
 		{"tusd-c", "IMG_0003.jpg", "third photo", "tusd-c"},
 	}
@@ -569,7 +559,7 @@ func TestMoveFile_DifferentDatesSameFilename(t *testing.T) {
 		src := filepath.Join(m.StoragePath(), "incoming", d.backendID)
 		writeFile(t, src, []byte(d.backendID))
 
-		result, err := m.MoveFile(src, d.date, "IMG_0001.jpg", d.backendID)
+		result, err := m.MoveFile(src, d.date, img0001Name, d.backendID)
 		if err != nil {
 			t.Fatalf("MoveFile for %s failed: %v", d.date, err)
 		}
@@ -1181,8 +1171,8 @@ func TestPlanDestination_BasicRFC3339(t *testing.T) {
 	m := openTestMover(t)
 
 	plan := m.PlanDestination("2024-03-15T10:30:00Z", "", "IMG_1234.jpg", "tusd-abc")
-	if plan.Rel != "organized/2024/03/15/IMG_1234.jpg" {
-		t.Errorf("rel: got %q, want %q", plan.Rel, "organized/2024/03/15/IMG_1234.jpg")
+	if plan.Rel != relMar2024IMG1234 {
+		t.Errorf("rel: got %q, want %q", plan.Rel, relMar2024IMG1234)
 	}
 	expectedAbs := filepath.Join(m.StoragePath(), plan.Rel)
 	if plan.Abs != expectedAbs {
@@ -1235,7 +1225,7 @@ func TestPlanDestination_CollisionInsertsBackendID(t *testing.T) {
 	m := openTestMover(t)
 
 	// Create an existing file at the computed path.
-	existingAbs := filepath.Join(m.StoragePath(), "organized/2024/03/15/IMG_1234.jpg")
+	existingAbs := filepath.Join(m.StoragePath(), relMar2024IMG1234)
 	writeFile(t, existingAbs, []byte("existing"))
 
 	// PlanDestination should detect the collision and insert backendID.
@@ -1691,8 +1681,8 @@ func TestPlanDestination_DifferentDates(t *testing.T) {
 		wantRel  string
 		desc     string
 	}{
-		{"2024-01-01T00:00:00Z", "IMG_0001.jpg", "organized/2024/01/01/IMG_0001.jpg", "january start"},
-		{"2024-12-31T23:59:59Z", "IMG_9999.jpg", "organized/2024/12/31/IMG_9999.jpg", "december end"},
+		{"2024-01-01T00:00:00Z", img0001Name, "organized/2024/01/01/IMG_0001.jpg", "january start"},
+		{"2024-12-31T23:59:59Z", "IMG_9999.jpg", relDec2024IMG9999, "december end"},
 		{"2025-06-15T12:00:00Z", "VID_2025.mp4", "organized/2025/06/15/VID_2025.mp4", "june mid-year"},
 		{"2024-02-29T10:30:00Z", "leap_day.txt", "organized/2024/02/29/leap_day.txt", "leap day"},
 	}

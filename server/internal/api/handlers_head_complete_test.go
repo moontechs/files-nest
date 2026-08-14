@@ -16,7 +16,7 @@ import (
 // backend_lost — corrupting a successful completion.
 func TestHandleHeadUploadData_CompletedUpload(t *testing.T) {
 	h, st, _ := setupHandler(t)
-	created := createTestUpload(t, h, "HEAD-COMPLETE/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+	created := createTestUpload(t, h, "HEAD-COMPLETE/L0/000", "IMG_0001.jpg", creationDate)
 
 	data := []byte("completed content for head test")
 	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,

@@ -11,9 +11,9 @@ package uploadbackend_test
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"errors"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -31,10 +31,10 @@ import (
 // setupHandler creates a tusd routed handler backed by a real FileStore +
 // MemoryLocker against a temp directory. Returns the handler, the store path,
 // and a cleanup function.
-func setupHandler(t *testing.T) (h http.Handler, storePath string, cleanup func()) {
+func setupHandler(t *testing.T) (http.Handler, string) {
 	t.Helper()
 
-	storePath = t.TempDir()
+	storePath := t.TempDir()
 
 	fs := filestore.New(storePath)
 	ml := memorylocker.New()
@@ -52,7 +52,7 @@ func setupHandler(t *testing.T) (h http.Handler, storePath string, cleanup func(
 		t.Fatalf("failed to create tusd handler: %v", err)
 	}
 
-	return handlerInstance, storePath, func() {}
+	return handlerInstance, storePath
 }
 
 // httpDo is a convenience that sends an HTTP request to the test server and
@@ -84,7 +84,7 @@ func readAll(t *testing.T, r io.Reader) string {
 // handler with FileStore and MemoryLocker, and that it responds to OPTIONS
 // with the expected tus extensions.
 func TestHandlerConfiguration(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -129,7 +129,7 @@ func TestHandlerConfiguration(t *testing.T) {
 // TestUploadCreation verifies that POST creates an upload and returns a 201
 // with a Location header pointing to the new resource.
 func TestUploadCreation(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -160,7 +160,7 @@ func TestUploadCreation(t *testing.T) {
 // TestUploadCreationWithMetadata verifies that Upload-Metadata is preserved
 // and accessible via the HEAD response.
 func TestUploadCreationWithMetadata(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -214,7 +214,7 @@ func TestUploadCreationWithMetadata(t *testing.T) {
 // TestUploadInfo verifies that HEAD returns Upload-Offset, Upload-Length, and
 // related headers.
 func TestUploadInfo(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -280,7 +280,7 @@ func TestUploadInfo(t *testing.T) {
 // TestUploadChunkWrite verifies that PATCH writes data and returns the updated
 // Upload-Offset header.
 func TestUploadChunkWrite(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -353,7 +353,7 @@ func TestUploadChunkWrite(t *testing.T) {
 // TestUploadChunkWriteIncremental verifies that multiple PATCH requests can
 // incrementally upload a file.
 func TestUploadChunkWriteIncremental(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -417,7 +417,7 @@ func TestUploadChunkWriteIncremental(t *testing.T) {
 // TestFilePathResolution verifies that the filestore creates actual files on
 // disk and that the Storage map in FileInfo contains the expected file paths.
 func TestFilePathResolution(t *testing.T) {
-	h, storePath, _ := setupHandler(t)
+	h, storePath := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -485,7 +485,7 @@ func TestFilePathResolution(t *testing.T) {
 // TestNotFoundError verifies that tusd returns 404 (handler.ErrNotFound) for
 // HEAD and PATCH requests targeting non-existent upload IDs.
 func TestNotFoundError_Head(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -507,12 +507,13 @@ func TestNotFoundError_Head(t *testing.T) {
 }
 
 func TestNotFoundError_Patch(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
 	// PATCH a non-existent upload
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPatch, srv.URL+"/nonexistent-upload-id", bytes.NewReader([]byte("data")))
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodPatch, srv.URL+"/nonexistent-upload-id", bytes.NewReader([]byte("data")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,7 +534,7 @@ func TestNotFoundError_Patch(t *testing.T) {
 }
 
 func TestNotFoundError_Delete(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -558,7 +559,7 @@ func TestNotFoundError_Delete(t *testing.T) {
 // TestUploadTerminationCleanup verifies that DELETE terminates an upload and
 // removes both the binary file and the .info file from disk.
 func TestUploadTerminationCleanup(t *testing.T) {
-	h, storePath, _ := setupHandler(t)
+	h, storePath := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -644,7 +645,7 @@ func TestUploadTerminationCleanup(t *testing.T) {
 // Upload-Defer-Length: 1 succeeds, and that the length can be declared later
 // via the Upload-Length header in a PATCH request.
 func TestDeferredLengthUpload(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -781,7 +782,7 @@ func TestErrNotFoundSentinel(t *testing.T) {
 	fs := filestore.New(storePath)
 
 	// GetUpload for a non-existent ID should return handler.ErrNotFound
-	_, err := fs.GetUpload(nil, "does-not-exist")
+	_, err := fs.GetUpload(context.TODO(), "does-not-exist")
 	if err == nil {
 		t.Fatal("expected error from GetUpload for non-existent ID")
 	}
@@ -799,7 +800,7 @@ func TestErrNotFoundSentinel(t *testing.T) {
 // TestPatchMismatchedOffset verifies that PATCH with an incorrect
 // Upload-Offset returns 409 Conflict.
 func TestPatchMismatchedOffset(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -818,7 +819,8 @@ func TestPatchMismatchedOffset(t *testing.T) {
 	location := resp.Header.Get("Location")
 
 	// PATCH with wrong offset
-	patchReq, err := http.NewRequestWithContext(context.Background(), http.MethodPatch, location, bytes.NewReader([]byte("data")))
+	patchReq, err := http.NewRequestWithContext(
+		context.Background(), http.MethodPatch, location, bytes.NewReader([]byte("data")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -850,7 +852,9 @@ func TestFileStoreUsesTerminater(t *testing.T) {
 	if !composer.UsesTerminater {
 		t.Fatal("FileStore should register as TerminaterDataStore via UseIn")
 	}
+	//nolint:misspell // Terminater is the upstream tusd API name, not a typo
 	if composer.Terminater == nil {
+		//nolint:misspell // Terminater is the upstream tusd API name, not a typo
 		t.Fatal("Terminater should be non-nil after UseIn")
 	}
 }
@@ -874,7 +878,7 @@ func TestPreUploadCreateCallback(t *testing.T) {
 	h, err := handler.NewHandler(handler.Config{
 		StoreComposer: composer,
 		BasePath:      "/",
-		PreUploadCreateCallback: func(event handler.HookEvent) (handler.HTTPResponse, handler.FileInfoChanges, error) {
+		PreUploadCreateCallback: func(_ handler.HookEvent) (handler.HTTPResponse, handler.FileInfoChanges, error) {
 			// Override the upload ID and metadata
 			changes := handler.FileInfoChanges{
 				ID: "my-custom-id-42",
@@ -1002,13 +1006,12 @@ func TestNotifyCompleteUploads(t *testing.T) {
 // TestLargeUploadStress writes a larger payload to exercise the filestore and
 // verify that offset tracking works correctly for multi-kilobyte uploads.
 func TestLargeUploadStress(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
 	size := 64 * 1024 // 64 KB
 	payload := make([]byte, size)
-	//nolint:gosec // test-only random payload, not security-sensitive
 	_, err := rand.Read(payload)
 	if err != nil {
 		t.Fatal(err)
@@ -1060,7 +1063,7 @@ func TestLargeUploadStress(t *testing.T) {
 // TestGetFileNotFound verifies GET on a non-existent upload returns 404 when
 // download is enabled.
 func TestGetFileNotFound(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 

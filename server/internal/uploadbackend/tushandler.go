@@ -1,7 +1,3 @@
-// Package uploadbackend provides a narrow adapter around tusd to isolate the
-// rest of the codebase from tusd API changes. TUSHandler wraps an embedded
-// tusd v2 UnroutedHandler with a FileStore and MemoryLocker, exposing only
-// the methods needed by the API handlers.
 package uploadbackend
 
 import (
@@ -21,6 +17,25 @@ import (
 	"github.com/tus/tusd/v2/pkg/filestore"
 	"github.com/tus/tusd/v2/pkg/handler"
 	"github.com/tus/tusd/v2/pkg/memorylocker"
+)
+
+// dirPerm is the permission mode used when creating the incoming/ directory.
+const dirPerm = 0o750
+
+// Internal sentinel errors for tusd adapter operations. These are wrapped at
+// the call site with contextual details rather than constructed dynamically.
+var (
+	errMissingLocation     = errors.New("tusd: missing Location header in CreateUpload response")
+	errExtractUploadID     = errors.New("tusd: could not extract upload ID from Location")
+	errMissingOffset       = errors.New("tusd: missing Upload-Offset in PATCH response")
+	errNoStorageInfo       = errors.New("tusd: no storage info available for upload")
+	errMissingStorageKey   = errors.New("tusd: missing StorageKeyPath for upload")
+	errTusdConflict        = errors.New("tusd conflict")
+	errTusdNotImplemented  = errors.New("tusd not implemented")
+	errTusdVersionMismatch = errors.New("tusd version mismatch")
+	errUnsupportedVersion  = errors.New("tusd: unsupported version")
+	errTusdGeneric         = errors.New("tusd error")
+	errTusdHTTP            = errors.New("tusd: HTTP error")
 )
 
 // tusdRecorder wraps httptest.ResponseRecorder to satisfy the deadline-setting
@@ -72,15 +87,16 @@ type TUSHandler struct {
 func New(storagePath string) (*TUSHandler, error) {
 	incomingPath := filepath.Join(storagePath, "incoming")
 
-	if err := os.MkdirAll(incomingPath, 0o750); err != nil {
+	err := os.MkdirAll(incomingPath, dirPerm)
+	if err != nil {
 		return nil, fmt.Errorf("create incoming dir %s: %w", incomingPath, err)
 	}
 
-	fs := filestore.New(incomingPath)
+	fileStore := filestore.New(incomingPath)
 	ml := memorylocker.New()
 
 	composer := handler.NewStoreComposer()
-	fs.UseIn(composer)
+	fileStore.UseIn(composer)
 	ml.UseIn(composer)
 
 	unrouted, err := handler.NewUnroutedHandler(handler.Config{
@@ -101,7 +117,7 @@ func New(storagePath string) (*TUSHandler, error) {
 	}
 
 	return &TUSHandler{
-		store:    fs,
+		store:    fileStore,
 		composer: composer,
 		handler:  unrouted,
 	}, nil
@@ -114,7 +130,7 @@ func New(storagePath string) (*TUSHandler, error) {
 // CreateUpload creates a new upload with Upload-Defer-Length: 1 (file size
 // is not yet known). The metadata parameter is the raw Upload-Metadata header
 // value, or empty to omit. Returns the tusd upload ID (backend_id).
-func (h *TUSHandler) CreateUpload(ctx context.Context, metadata string) (backendID string, err error) {
+func (h *TUSHandler) CreateUpload(ctx context.Context, metadata string) (string, error) {
 	rec := newTusdRecorder()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "/", nil)
 	req.Header.Set("Tus-Resumable", "1.0.0")
@@ -132,14 +148,14 @@ func (h *TUSHandler) CreateUpload(ctx context.Context, metadata string) (backend
 
 	location := rec.Header().Get("Location")
 	if location == "" {
-		return "", errors.New("tusd: missing Location header in CreateUpload response")
+		return "", errMissingLocation
 	}
 
 	// Extract the upload ID from the Location URL.
 	// The URL is like "http://.../<id>" or "/<id>".
 	id := filepath.Base(location)
 	if id == "" || id == "." || id == "/" {
-		return "", fmt.Errorf("tusd: could not extract upload ID from Location %q", location)
+		return "", fmt.Errorf("%w: %q", errExtractUploadID, location)
 	}
 
 	return id, nil
@@ -168,7 +184,9 @@ func (h *TUSHandler) GetOffset(ctx context.Context, backendID string) (int64, er
 // If uploadLength is non-empty, it declares the final upload length (used for
 // deferred-length uploads to finalize the size). Returns the new offset after
 // the chunk is written, or an error.
-func (h *TUSHandler) ForwardPatch(ctx context.Context, backendID string, body io.Reader, offset int64, uploadLength string) (newOffset int64, err error) {
+func (h *TUSHandler) ForwardPatch(
+	ctx context.Context, backendID string, body io.Reader, offset int64, uploadLength string,
+) (int64, error) {
 	rec := newTusdRecorder()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPatch, "/"+backendID, body)
 	req.Header.Set("Tus-Resumable", "1.0.0")
@@ -187,7 +205,7 @@ func (h *TUSHandler) ForwardPatch(ctx context.Context, backendID string, body io
 
 	offsetStr := rec.Header().Get("Upload-Offset")
 	if offsetStr == "" {
-		return 0, errors.New("tusd: missing Upload-Offset in PATCH response")
+		return 0, errMissingOffset
 	}
 
 	newOff, err := strconv.ParseInt(offsetStr, 10, 64)
@@ -256,12 +274,12 @@ func (h *TUSHandler) FilePath(ctx context.Context, backendID string) (string, er
 	}
 
 	if info.Storage == nil {
-		return "", errors.New("tusd: no storage info available for upload " + backendID)
+		return "", fmt.Errorf("%w: %s", errNoStorageInfo, backendID)
 	}
 
 	path, ok := info.Storage[filestore.StorageKeyPath]
 	if !ok || path == "" {
-		return "", fmt.Errorf("tusd: missing StorageKeyPath for upload %s", backendID)
+		return "", fmt.Errorf("%w: %s", errMissingStorageKey, backendID)
 	}
 
 	return path, nil
@@ -338,7 +356,7 @@ func extractTusdError(rec *httptest.ResponseRecorder) error {
 	case http.StatusConflict:
 		// Mismatched offset or similar conflict.
 		if body != "" {
-			return fmt.Errorf("tusd conflict: %s", body)
+			return fmt.Errorf("%w: %s", errTusdConflict, body)
 		}
 
 		return ErrInvalidOffset
@@ -346,22 +364,22 @@ func extractTusdError(rec *httptest.ResponseRecorder) error {
 		return ErrLocked
 	case http.StatusNotImplemented:
 		if body != "" {
-			return fmt.Errorf("tusd not implemented: %s", body)
+			return fmt.Errorf("%w: %s", errTusdNotImplemented, body)
 		}
 
 		return ErrUploadRejected
 	case http.StatusPreconditionFailed:
 		if body != "" {
-			return fmt.Errorf("tusd version mismatch: %s", body)
+			return fmt.Errorf("%w: %s", errTusdVersionMismatch, body)
 		}
 
-		return errors.New("tusd: unsupported version")
+		return errUnsupportedVersion
 	}
 
 	// Generic error with body text if available.
 	if body != "" {
-		return errors.New("tusd: " + body)
+		return fmt.Errorf("%w: %s", errTusdGeneric, body)
 	}
 
-	return fmt.Errorf("tusd: HTTP %d", rec.Code)
+	return fmt.Errorf("%w: %d", errTusdHTTP, rec.Code)
 }

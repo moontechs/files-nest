@@ -12,6 +12,12 @@ import (
 	"github.com/moontechs/files-nest/server/internal/store"
 )
 
+const (
+	creationDateKey  = "creationDate"
+	statusKey        = "status"
+	testDate20240101 = "2024-01-01T00:00:00Z"
+)
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -32,7 +38,7 @@ func openTestStore(t *testing.T) *store.Store {
 func testUpload(localIdentifier string, overrides map[string]string) *store.Upload {
 	id := api.SafeID(localIdentifier)
 	creationDate := "2024-03-15T10:30:00Z"
-	if v, ok := overrides["creationDate"]; ok {
+	if v, ok := overrides[creationDateKey]; ok {
 		creationDate = v
 	}
 	filename := "IMG_1234.jpg"
@@ -40,7 +46,7 @@ func testUpload(localIdentifier string, overrides map[string]string) *store.Uplo
 		filename = v
 	}
 	status := store.StatusUploading
-	if v, ok := overrides["status"]; ok {
+	if v, ok := overrides[statusKey]; ok {
 		status = store.Status(v)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -275,9 +281,9 @@ func TestPutUploadIfAbsent_ReturnsExistingOnDuplicate(t *testing.T) {
 func TestPutUploadIfAbsent_ReturnsExistingRecordWithAllFields(t *testing.T) {
 	s := openTestStore(t)
 	u := testUpload("asset-putifabsent-full", map[string]string{
-		"creationDate": "2024-06-15T08:30:00Z",
-		"filename":     "IMG_9999.jpg",
-		"status":       string(store.StatusCompleting),
+		creationDateKey: "2024-06-15T08:30:00Z",
+		"filename":      "IMG_9999.jpg",
+		statusKey:       string(store.StatusCompleting),
 	})
 	u.BundleID = "BUNDLE-123/L0/000"
 	u.OrganizedPath = "organized/2024/06/15/IMG_9999.jpg"
@@ -954,7 +960,7 @@ func TestListByStatus_AllStatuses(t *testing.T) {
 	}
 	for _, st := range statuses {
 		u := testUpload(fmt.Sprintf("asset-status-%s", st), map[string]string{
-			"status": string(st),
+			statusKey: string(st),
 		})
 		if err := s.CreateUpload(u); err != nil {
 			t.Fatalf("CreateUpload for %s failed: %v", st, err)
@@ -1003,7 +1009,7 @@ func TestListByDateRange_AllDates(t *testing.T) {
 	}
 	for i, d := range dates {
 		u := testUpload(fmt.Sprintf("asset-date-%d", i), map[string]string{
-			"creationDate": d,
+			creationDateKey: d,
 		})
 		if err := s.CreateUpload(u); err != nil {
 			t.Fatalf("CreateUpload %d failed: %v", i, err)
@@ -1043,7 +1049,7 @@ func TestListByDateRange_SubRange(t *testing.T) {
 	}
 	for i, d := range dates {
 		u := testUpload(fmt.Sprintf("asset-sub-%d", i), map[string]string{
-			"creationDate": d,
+			creationDateKey: d,
 		})
 		if err := s.CreateUpload(u); err != nil {
 			t.Fatalf("CreateUpload %d failed: %v", i, err)
@@ -1071,7 +1077,7 @@ func TestListByDateRange_Pagination(t *testing.T) {
 	// Create 5 uploads on the same date but with ascending IDs
 	for i := range 5 {
 		u := testUpload(fmt.Sprintf("asset-pag-%d", i), map[string]string{
-			"creationDate": "2024-03-15T10:00:00Z",
+			creationDateKey: "2024-03-15T10:00:00Z",
 		})
 		if err := s.CreateUpload(u); err != nil {
 			t.Fatalf("CreateUpload %d failed: %v", i, err)
@@ -1158,7 +1164,7 @@ func TestListByDateRange_PaginationCursorDeleted(t *testing.T) {
 	ids := make([]string, 4)
 	for i := range 4 {
 		u := testUpload(fmt.Sprintf("asset-cursor-del-%d", i), map[string]string{
-			"creationDate": "2024-03-15T10:00:00Z",
+			creationDateKey: "2024-03-15T10:00:00Z",
 		})
 		if err := s.CreateUpload(u); err != nil {
 			t.Fatalf("CreateUpload %d failed: %v", i, err)
@@ -1216,16 +1222,16 @@ func TestListByDateRange_StatusFilter(t *testing.T) {
 
 	// Create two uploads on the same date with different statuses
 	u1 := testUpload("asset-flt-complete", map[string]string{
-		"creationDate": "2024-04-01T10:00:00Z",
-		"status":       string(store.StatusComplete),
+		creationDateKey: "2024-04-01T10:00:00Z",
+		statusKey:       string(store.StatusComplete),
 	})
 	if err := s.CreateUpload(u1); err != nil {
 		t.Fatalf("CreateUpload 1 failed: %v", err)
 	}
 
 	u2 := testUpload("asset-flt-uploading", map[string]string{
-		"creationDate": "2024-04-01T10:00:00Z",
-		"status":       string(store.StatusUploading),
+		creationDateKey: "2024-04-01T10:00:00Z",
+		statusKey:       string(store.StatusUploading),
 	})
 	if err := s.CreateUpload(u2); err != nil {
 		t.Fatalf("CreateUpload 2 failed: %v", err)
@@ -1276,7 +1282,7 @@ func TestMultipleRecords_AllIndexesConsistent(t *testing.T) {
 		status   store.Status
 		filename string
 	}{
-		{"alice/001", "2024-01-01T00:00:00Z", store.StatusUploading, "IMG_0001.jpg"},
+		{"alice/001", testDate20240101, store.StatusUploading, "IMG_0001.jpg"},
 		{"bob/002", "2024-02-02T00:00:00Z", store.StatusUploading, "IMG_0002.jpg"},
 		{"carol/003", "2024-03-03T00:00:00Z", store.StatusComplete, "IMG_0003.jpg"},
 		{"dave/004", "2024-04-04T00:00:00Z", store.StatusBackendLost, "IMG_0004.jpg"},
@@ -1284,9 +1290,9 @@ func TestMultipleRecords_AllIndexesConsistent(t *testing.T) {
 
 	for _, r := range records {
 		u := testUpload(r.localID, map[string]string{
-			"creationDate": r.date,
-			"status":       string(r.status),
-			"filename":     r.filename,
+			creationDateKey: r.date,
+			statusKey:       string(r.status),
+			"filename":      r.filename,
 		})
 		if err := s.CreateUpload(u); err != nil {
 			t.Fatalf("CreateUpload %s failed: %v", r.localID, err)
@@ -1402,14 +1408,14 @@ func TestListByDateRange_CursorDecodesSeekPosition(t *testing.T) {
 		localID string
 		date    string
 	}{
-		{"cursor-a", "2024-01-01T00:00:00Z"},
+		{"cursor-a", testDate20240101},
 		{"cursor-b", "2024-01-02T00:00:00Z"},
 		{"cursor-c", "2024-01-03T00:00:00Z"},
 		{"cursor-d", "2024-01-04T00:00:00Z"},
 	}
 	for _, d := range uploadData {
 		u := testUpload(d.localID, map[string]string{
-			"creationDate": d.date,
+			creationDateKey: d.date,
 		})
 		if err := s.CreateUpload(u); err != nil {
 			t.Fatalf("CreateUpload %s failed: %v", d.localID, err)
@@ -1432,7 +1438,7 @@ func TestListByDateRange_CursorDecodesSeekPosition(t *testing.T) {
 	}
 
 	// Second page: the cursor should position us after the first page
-	page2, cursor, err := s.ListByDateRange(from, to, "", 2, cursor)
+	page2, _, err := s.ListByDateRange(from, to, "", 2, cursor)
 	if err != nil {
 		t.Fatalf("second page: %v", err)
 	}
@@ -1464,7 +1470,7 @@ func TestListByDateRange_LimitClamping(t *testing.T) {
 	// Create 5 uploads
 	for i := range 5 {
 		u := testUpload(fmt.Sprintf("asset-clamp-%d", i), map[string]string{
-			"creationDate": "2024-05-15T10:00:00Z",
+			creationDateKey: "2024-05-15T10:00:00Z",
 		})
 		if err := s.CreateUpload(u); err != nil {
 			t.Fatalf("CreateUpload %d failed: %v", i, err)

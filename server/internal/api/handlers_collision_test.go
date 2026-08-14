@@ -17,7 +17,9 @@ func TestHandlePatchUploadStatus_CollisionDeduplicates(t *testing.T) {
 	h, st, _ := setupHandler(t)
 
 	complete := func(t *testing.T, localID, content string) {
-		created := createTestUpload(t, h, localID, "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+		t.Helper()
+
+		created := createTestUpload(t, h, localID, "IMG_0001.jpg", creationDate)
 		patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
 			strconv.Itoa(len(content)), strings.NewReader(content))
 		if patchRec.Code != http.StatusNoContent {

@@ -19,6 +19,21 @@ import (
 	"github.com/moontechs/files-nest/server/internal/uploadbackend"
 )
 
+const (
+	// maxCreateBodyBytes caps the POST /uploads request body (256 KB is
+	// generous for upload metadata).
+	maxCreateBodyBytes = 256 << 10
+	// maxStatusBodyBytes caps the PATCH /uploads/:id/status request body.
+	maxStatusBodyBytes = 16 << 10
+)
+
+// Sentinel errors for request validation, wrapped at the call site to add
+// per-request detail rather than constructing dynamic errors inline.
+var (
+	errDateRangeOrder   = errors.New("'to' must be after 'from'")
+	errInvalidTimestamp = errors.New("invalid timestamp")
+)
+
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
@@ -149,14 +164,15 @@ func writeError(w http.ResponseWriter, status int, message string) {
 // is returned.
 func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	// Limit body size to prevent abuse (256 KB is generous for metadata).
-	r.Body = http.MaxBytesReader(w, r.Body, 256<<10)
+	r.Body = http.MaxBytesReader(w, r.Body, maxCreateBodyBytes)
 
 	var req createUploadRequest
 
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 
-	if err := dec.Decode(&req); err != nil {
+	err := dec.Decode(&req)
+	if err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
 			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
@@ -173,7 +189,9 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	// "{"local_identifier":"x","filename":"y","creation_date":"z"}extra"
 	// from being silently accepted).
 	var trailing json.RawMessage
-	if err := dec.Decode(&trailing); err != io.EOF {
+
+	err = dec.Decode(&trailing)
+	if !errors.Is(err, io.EOF) {
 		writeError(w, http.StatusBadRequest, "request body contains trailing data")
 
 		return
@@ -206,7 +224,8 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	// YYYY-MM-DD values are accepted; everything else is rejected with 400.
 	// SafePathSegment in filestore is kept as defense-in-depth for any record
 	// that reaches the path builder through a non-API path.
-	if _, err := parseRFC3339(req.CreationDate); err != nil {
+	_, err = parseRFC3339(req.CreationDate)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "creation_date must be an RFC3339 timestamp (e.g. 2024-03-15T10:30:00Z)")
 
 		return
@@ -327,21 +346,21 @@ func (h *Handler) StoragePath() string {
 
 // uploadToResponse converts a store.Upload to a CreateUploadResponse for
 // the POST /uploads endpoint.
-func uploadToResponse(u *store.Upload) CreateUploadResponse {
+func uploadToResponse(upload *store.Upload) CreateUploadResponse {
 	return CreateUploadResponse{
-		ID:              u.ID,
-		LocalIdentifier: u.LocalIdentifier,
-		Status:          string(u.Status),
-		BackendID:       u.BackendID,
-		UploadURL:       "/uploads/" + u.ID + "/data",
+		ID:              upload.ID,
+		LocalIdentifier: upload.LocalIdentifier,
+		Status:          string(upload.Status),
+		BackendID:       upload.BackendID,
+		UploadURL:       "/uploads/" + upload.ID + "/data",
 	}
 }
 
 // existingToResponse is identical to uploadToResponse but used when
 // returning an existing (conflicting) record so the client can branch
 // on the current status.
-func existingToResponse(u *store.Upload) CreateUploadResponse {
-	return uploadToResponse(u)
+func existingToResponse(upload *store.Upload) CreateUploadResponse {
+	return uploadToResponse(upload)
 }
 
 // ---------------------------------------------------------------------------
@@ -358,22 +377,22 @@ func existingToResponse(u *store.Upload) CreateUploadResponse {
 // Returns a JSON object with "items" (array of Upload) and "next_cursor"
 // (empty string when all results have been returned).
 func (h *Handler) HandleListUploads(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
+	query := r.URL.Query()
 
 	// Parse date range.
-	from, to, err := parseDateRange(q.Get("from"), q.Get("to"))
+	from, toTime, err := parseDateRange(query.Get("from"), query.Get("to"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 
 		return
 	}
 
-	status := store.Status(q.Get("status"))
+	status := store.Status(query.Get("status"))
 
-	limit, _ := strconv.Atoi(q.Get("limit"))
-	cursor := q.Get("cursor")
+	limit, _ := strconv.Atoi(query.Get("limit"))
+	cursor := query.Get("cursor")
 
-	uploads, nextCursor, err := h.store.ListByDateRange(from, to, status, limit, cursor)
+	uploads, nextCursor, err := h.store.ListByDateRange(from, toTime, status, limit, cursor)
 	if err != nil {
 		if errors.Is(err, store.ErrInvalidCursor) {
 			writeError(w, http.StatusBadRequest, "invalid cursor")
@@ -417,38 +436,42 @@ func parseDateRange(fromStr, toStr string) (time.Time, time.Time, error) {
 		from = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 	}
 
-	var to time.Time
+	var toTime time.Time
 	if toStr != "" {
-		to, err = parseRFC3339(toStr)
+		toTime, err = parseRFC3339(toStr)
 		if err != nil {
 			return time.Time{}, time.Time{}, err
 		}
 	} else {
-		to = time.Date(2999, 12, 31, 23, 59, 59, 0, time.UTC)
+		toTime = time.Date(2999, 12, 31, 23, 59, 59, 0, time.UTC)
 	}
 
-	if to.Before(from) {
-		return time.Time{}, time.Time{}, errors.New("'to' must be after 'from'")
+	if toTime.Before(from) {
+		return time.Time{}, time.Time{}, errDateRangeOrder
 	}
 
-	return from, to, nil
+	return from, toTime, nil
 }
 
 // parseRFC3339 parses a timestamp string in RFC3339 or RFC3339Nano format.
-func parseRFC3339(s string) (time.Time, error) {
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t, nil
+func parseRFC3339(value string) (time.Time, error) {
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err == nil {
+		return parsed, nil
 	}
 
-	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return t, nil
+	parsed, err = time.Parse(time.RFC3339Nano, value)
+	if err == nil {
+		return parsed, nil
 	}
 	// Also accept a date-only format (YYYY-MM-DD) for convenience.
-	if t, err := time.Parse("2006-01-02", s); err == nil {
-		return t, nil
+	parsed, err = time.Parse("2006-01-02", value)
+	if err == nil {
+		return parsed, nil
 	}
 
-	return time.Time{}, errors.New("invalid timestamp: " + s + " (expected RFC3339 format, e.g. 2024-03-15T10:30:00Z)")
+	return time.Time{}, fmt.Errorf(
+		"%w: %s (expected RFC3339 format, e.g. 2024-03-15T10:30:00Z)", errInvalidTimestamp, value)
 }
 
 // ---------------------------------------------------------------------------
@@ -470,7 +493,8 @@ func (h *Handler) HandleGetUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate the safe ID format before attempting a DB lookup.
-	if err := ValidateSafeID(id); err != nil {
+	err := ValidateSafeID(id)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid upload id: "+err.Error())
 
 		return
@@ -515,7 +539,8 @@ func (h *Handler) HandleHeadUploadData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := ValidateSafeID(id); err != nil {
+	err := ValidateSafeID(id)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid upload id: "+err.Error())
 
 		return
@@ -626,7 +651,8 @@ func (h *Handler) HandlePatchUploadData(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := ValidateSafeID(id); err != nil {
+	err := ValidateSafeID(id)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid upload id: "+err.Error())
 
 		return
@@ -762,7 +788,8 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := ValidateSafeID(id); err != nil {
+	err := ValidateSafeID(id)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid upload id: "+err.Error())
 
 		return
@@ -770,7 +797,7 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 
 	// Limit body size to prevent abuse (16 KB is generous for a single-field
 	// JSON body). An unbounded body stream could be used as a DoS vector.
-	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	r.Body = http.MaxBytesReader(w, r.Body, maxStatusBodyBytes)
 
 	h.locks.Lock(id)
 	defer h.locks.Unlock(id)
@@ -823,7 +850,8 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 
-	if err := dec.Decode(&req); err != nil {
+	err = dec.Decode(&req)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 
 		return
@@ -831,7 +859,9 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 
 	// Reject trailing data after the JSON value.
 	var trailing json.RawMessage
-	if err := dec.Decode(&trailing); err != io.EOF {
+
+	err = dec.Decode(&trailing)
+	if !errors.Is(err, io.EOF) {
 		writeError(w, http.StatusBadRequest, "request body contains trailing data")
 
 		return
@@ -940,7 +970,8 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 
 		plan = existingPlan
 	} else {
-		p, err := h.mover.PlanAndMove(srcPath, upload.CreationDate, upload.CreatedAt, upload.Filename, upload.BackendID, saveIntent)
+		planned, err := h.mover.PlanAndMove(
+			srcPath, upload.CreationDate, upload.CreatedAt, upload.Filename, upload.BackendID, saveIntent)
 		if err != nil {
 			log.Printf("completion move failed for %s: %v", upload.ID, err)
 			writeError(w, http.StatusInternalServerError, "failed to move file")
@@ -948,13 +979,14 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 			return
 		}
 
-		plan = p
+		plan = planned
 	}
 
 	relPath := plan.Rel
 
 	// Update the DB record to complete with the organized path.
-	if _, err := h.store.UpdateComplete(upload.ID, relPath); err != nil {
+	_, err = h.store.UpdateComplete(upload.ID, relPath)
+	if err != nil {
 		log.Printf("failed to update status to complete for %s: %v", upload.ID, err)
 		writeError(w, http.StatusInternalServerError, "failed to complete upload")
 
@@ -999,7 +1031,8 @@ func (h *Handler) HandleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := ValidateSafeID(id); err != nil {
+	err := ValidateSafeID(id)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid upload id: "+err.Error())
 
 		return
@@ -1048,7 +1081,8 @@ func (h *Handler) HandleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update the DB record status to deleted.
-	if _, err := h.store.UpdateStatus(upload.ID, store.StatusDeleted); err != nil {
+	_, err = h.store.UpdateStatus(upload.ID, store.StatusDeleted)
+	if err != nil {
 		log.Printf("failed to update status to deleted for %s: %v", upload.ID, err)
 		writeError(w, http.StatusInternalServerError, "failed to delete upload")
 
@@ -1083,7 +1117,8 @@ func (h *Handler) handleBackendLost(w http.ResponseWriter, _ *http.Request, uplo
 	} else {
 		switch current.Status {
 		case store.StatusUploading, store.StatusCompleting:
-			if _, err := h.store.UpdateStatus(upload.ID, store.StatusBackendLost); err != nil {
+			_, err = h.store.UpdateStatus(upload.ID, store.StatusBackendLost)
+			if err != nil {
 				log.Printf("failed to set backend_lost for %s: %v", upload.ID, err)
 			}
 		case store.StatusComplete, store.StatusDeleted, store.StatusBackendLost:

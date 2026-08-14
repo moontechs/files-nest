@@ -1,5 +1,3 @@
-// Package api provides HTTP handlers, middleware, and shared utilities
-// for the iCloud Backup server API.
 package api
 
 import (
@@ -104,7 +102,8 @@ func writeUnauthorized(w http.ResponseWriter, message string) {
 	w.WriteHeader(http.StatusUnauthorized)
 	// Encode the error response. Encoding a static map cannot fail for these
 	// types, but we still check the error rather than silently ignoring it.
-	if err := json.NewEncoder(w).Encode(map[string]string{"error": message}); err != nil {
+	err := json.NewEncoder(w).Encode(map[string]string{"error": message})
+	if err != nil {
 		log.Printf("writeUnauthorized encode error: %v", err)
 	}
 }

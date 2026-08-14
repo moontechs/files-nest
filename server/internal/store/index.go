@@ -48,7 +48,7 @@ func newIndexRegistry() *indexRegistry {
 
 // writeEntries collects all index entries to create for the given upload.
 func (r *indexRegistry) writeEntries(upload *Upload) []IndexEntry {
-	var entries []IndexEntry
+	entries := make([]IndexEntry, 0, len(r.indexes))
 	for _, idx := range r.indexes {
 		entries = append(entries, idx.WriteEntries(upload)...)
 	}
@@ -58,7 +58,7 @@ func (r *indexRegistry) writeEntries(upload *Upload) []IndexEntry {
 
 // deleteEntries collects all index entries to remove for the given upload.
 func (r *indexRegistry) deleteEntries(upload *Upload) []IndexEntry {
-	var entries []IndexEntry
+	entries := make([]IndexEntry, 0, len(r.indexes))
 	for _, idx := range r.indexes {
 		entries = append(entries, idx.DeleteEntries(upload)...)
 	}

@@ -111,10 +111,10 @@ Task 1 measured baseline (golangci-lint v2.12.2, `default: all`, only `wsl`/`gom
 **Files:**
 - Modify: `server/internal/**/*.go`, `server/main.go` as needed (non-test files only — these linters are excluded for `_test.go` where listed in the Task 1 exclusion set; remaining non-excluded ones like `err113`/`exhaustruct`/`tagliatelle`/`revive`/`goconst` still apply to tests too)
 
-- [ ] fix all violations for this cluster; these are mechanical/pattern-based (e.g. `noinlineerr` extracts `if err := f(); err != nil {` into a separate assignment, `varnamelen` renames short identifiers per the tuned exceptions from Task 1) but numerous — work file-by-file, committing incrementally if the diff grows large enough to hurt reviewability
-- [ ] no new tests required for pure rename/style fixes; add a regression test only if a fix changes observable behavior (rare for this cluster)
-- [ ] run tests - must pass before task 5
-- [ ] run `golangci-lint run ./...` - record remaining violation count
+- [x] fix all violations for this cluster; these are mechanical/pattern-based (e.g. `noinlineerr` extracts `if err := f(); err != nil {` into a separate assignment, `varnamelen` renames short identifiers per the tuned exceptions from Task 1) but numerous — work file-by-file, committing incrementally if the diff grows large enough to hurt reviewability
+- [x] no new tests required for pure rename/style fixes; add a regression test only if a fix changes observable behavior (rare for this cluster)
+- [x] run tests - must pass before task 5
+- [x] run `golangci-lint run ./...` - record remaining violation count (remaining: 15, all Task 5 complexity cluster — cyclop 9, gocognit 3, nestif 3; full breakdown in `.ralphex/scratchpad/task4-remaining-summary.txt`)
 
 ### Task 5: Fix complexity violations (cyclop, gocognit, nestif, maintidx, funlen)
 

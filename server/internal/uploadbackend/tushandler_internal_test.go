@@ -1,5 +1,3 @@
-// Package uploadbackend contains internal tests for the tusd recorder adapter
-// and the NetworkTimeoutError fix (issue #8).
 package uploadbackend
 
 import (

@@ -74,6 +74,38 @@ linters:
       min-complexity: 5
     maintidx:
       under: 20
+    # The API wire format uses snake_case JSON keys (the Apple clients send
+    # snake_case; camelCase aliases exist only for backward-compat). The
+    # camelCase alias fields are ignored here rather than renamed, since
+    # renaming them would break the published API.
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+        ignored-fields:
+          - LocalIdentifierC
+          - CreationDateC
+          - BundleIDC
+
+    # Structs below are legitimately constructed with partial or empty
+    # literals: external library types have many optional/advanced fields,
+    # and project types have zero-value-ready sync primitives or optional
+    # (omitempty) DB-record fields where a partial literal is the norm.
+    exhaustruct:
+      exclude:
+        - 'github\.com/tus/tusd/v2/pkg/handler\.Config'
+        - 'github\.com/tus/tusd/v2/pkg/handler\.FileInfoChanges'
+        - 'github\.com/tus/tusd/v2/pkg/handler\.HTTPResponse'
+        - 'net/http\.Server'
+        - 'golang\.org/x/exp/slog\.HandlerOptions'
+        - 'github\.com/moontechs/files-nest/server/internal/filestore\.Mover'
+        - 'github\.com/moontechs/files-nest/server/internal/api\.UploadLocker'
+        - 'github\.com/moontechs/files-nest/server/internal/api\.uploadLock'
+        - 'github\.com/moontechs/files-nest/server/internal/api\.createUploadRequest'
+        - 'github\.com/moontechs/files-nest/server/internal/api\.AuthConfig'
+        - 'github\.com/moontechs/files-nest/server/internal/store\.Upload'
+        - 'github\.com/moontechs/files-nest/server/internal/store\.CompletionIntent'
+
     mnd:
       ignored-numbers:
         - "0"

@@ -99,6 +99,7 @@ func fileExists(path string) bool {
 // ---------------------------------------------------------------------------
 
 func TestRecover_NoIntents(t *testing.T) {
+	//nolint:dogsled // test only needs the Recoverer; other fixtures are intentionally ignored
 	rec, _, _, _ := setupRecovery(t)
 
 	// Should not error when there are no intents.
@@ -136,7 +137,7 @@ func TestRecover_Intent_AlreadyMoved(t *testing.T) {
 		Status:          store.StatusUploading,
 		BackendID:       backendID,
 		Filename:        "IMG_0001.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -206,7 +207,7 @@ func TestRecover_Intent_NotYetMoved(t *testing.T) {
 		Status:          store.StatusUploading,
 		BackendID:       backendID,
 		Filename:        "IMG_0002.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -282,7 +283,7 @@ func TestRecover_Intent_BothExist(t *testing.T) {
 		Status:          store.StatusUploading,
 		BackendID:       backendID,
 		Filename:        "IMG_0003.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -351,7 +352,7 @@ func TestRecover_Intent_AlreadyComplete(t *testing.T) {
 		Status:          store.StatusComplete,
 		BackendID:       backendID,
 		Filename:        "IMG_0011.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 		OrganizedPath:   dstRel,
@@ -419,7 +420,7 @@ func TestRecover_Intent_DataLost(t *testing.T) {
 		Status:          originalStatus,
 		BackendID:       backendID,
 		Filename:        "IMG_0004.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -542,7 +543,7 @@ func TestRecover_Intent_WithTusdCleanup(t *testing.T) {
 		Status:          store.StatusUploading,
 		BackendID:       backendID,
 		Filename:        "IMG_0006.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -587,9 +588,9 @@ func TestRecover_MultipleIntents(t *testing.T) {
 		backendID string
 		state     string // "moved", "not-moved", "lost"
 	}{
-		{"multi-001", "tusd-multi-001", "moved"},
-		{"multi-002", "tusd-multi-002", "not-moved"},
-		{"multi-003", "tusd-multi-003", "lost"},
+		{"multi-001", "tusd-multi-001", statusMoved},
+		{"multi-002", "tusd-multi-002", statusNotMoved},
+		{"multi-003", "tusd-multi-003", statusLost},
 	}
 
 	for _, it := range intents {
@@ -598,11 +599,11 @@ func TestRecover_MultipleIntents(t *testing.T) {
 		src := filepath.Join(storageDir, "incoming", it.backendID)
 
 		switch it.state {
-		case "moved":
+		case statusMoved:
 			writeTestFile(t, dst, "content "+it.id)
-		case "not-moved":
+		case statusNotMoved:
 			writeTestFile(t, src, "content "+it.id)
-		case "lost":
+		case statusLost:
 			// No files created.
 		}
 
@@ -615,7 +616,7 @@ func TestRecover_MultipleIntents(t *testing.T) {
 			Status:          store.StatusUploading,
 			BackendID:       it.backendID,
 			Filename:        it.id + ".jpg",
-			CreationDate:    "2024-03-15T10:30:00Z",
+			CreationDate:    creationDate,
 			CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 			UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 		}
@@ -637,11 +638,11 @@ func TestRecover_MultipleIntents(t *testing.T) {
 		}
 
 		switch it.state {
-		case "moved", "not-moved":
+		case statusMoved, statusNotMoved:
 			if got.Status != store.StatusComplete {
 				t.Errorf("intent %s: expected status complete, got %q", it.id, got.Status)
 			}
-		case "lost":
+		case statusLost:
 			// Data-lost records are left unchanged for manual repair.
 			if got.Status != store.StatusUploading {
 				t.Errorf("intent %s: expected status to remain uploading, got %q", it.id, got.Status)
@@ -651,14 +652,14 @@ func TestRecover_MultipleIntents(t *testing.T) {
 		// Verify intent status.
 		intentCheck, err := st.GetCompletionIntent(it.id)
 		switch it.state {
-		case "moved", "not-moved":
+		case statusMoved, statusNotMoved:
 			if !errors.Is(err, store.ErrNotFound) {
 				t.Fatalf("GetCompletionIntent %s: %v", it.id, err)
 			}
 			if intentCheck != nil {
 				t.Errorf("intent %s should have been deleted", it.id)
 			}
-		case "lost":
+		case statusLost:
 			if err != nil {
 				t.Fatalf("GetCompletionIntent %s: %v", it.id, err)
 			}
@@ -686,7 +687,7 @@ func TestRecover_BackendLost(t *testing.T) {
 		Status:          store.StatusUploading,
 		BackendID:       backendID,
 		Filename:        "IMG_0007.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -725,7 +726,7 @@ func TestRecover_BackendLost_OnlyNonExistent(t *testing.T) {
 		Status:          store.StatusUploading,
 		BackendID:       realBackendID,
 		Filename:        "IMG_0008.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -742,7 +743,7 @@ func TestRecover_BackendLost_OnlyNonExistent(t *testing.T) {
 		Status:          store.StatusUploading,
 		BackendID:       lostBackendID,
 		Filename:        "IMG_0009.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -800,7 +801,7 @@ func TestRecover_Idempotent(t *testing.T) {
 		Status:          store.StatusUploading,
 		BackendID:       backendID,
 		Filename:        "IMG_0010.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -840,6 +841,7 @@ func TestRecover_Idempotent(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRecover_EmptyStore(t *testing.T) {
+	//nolint:dogsled // test only needs the Recoverer; other fixtures are intentionally ignored
 	rec, _, _, _ := setupRecovery(t)
 
 	if err := rec.Recover(); err != nil {

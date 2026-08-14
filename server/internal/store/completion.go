@@ -114,13 +114,13 @@ func (s *Store) ListCompletionIntents() ([]*CompletionIntent, error) {
 	var intents []*CompletionIntent
 
 	err := s.db.View(func(txn *badger.Txn) error {
-		it := txn.NewIterator(badger.DefaultIteratorOptions)
-		defer it.Close()
+		iter := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer iter.Close()
 
-		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+		for iter.Seek(prefix); iter.ValidForPrefix(prefix); iter.Next() {
 			var intent CompletionIntent
 
-			err := it.Item().Value(func(val []byte) error {
+			err := iter.Item().Value(func(val []byte) error {
 				return json.Unmarshal(val, &intent)
 			})
 			if err != nil {

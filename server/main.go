@@ -19,6 +19,16 @@ import (
 	"github.com/moontechs/files-nest/server/internal/uploadbackend"
 )
 
+const (
+	readHeaderTimeout      = 15 * time.Second
+	idleTimeout            = 60 * time.Second
+	valueLogGCDiscardRatio = 0.5
+)
+
+// errPartialBackupCredentials is returned when only one of BACKUP_USER /
+// BACKUP_PASS is set.
+var errPartialBackupCredentials = errors.New("BACKUP_USER and BACKUP_PASS must be set together")
+
 func main() {
 	err := run()
 	if err != nil {
@@ -37,17 +47,17 @@ func run() error {
 	dbPath := filepath.Join(storagePath, "db")
 	log.Printf("opening store at %s", dbPath)
 
-	st, err := store.Open(dbPath)
+	dbStore, err := store.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open store: %w", err)
 	}
-	defer func() { _ = st.Close() }()
+	defer func() { _ = dbStore.Close() }()
 
 	// Start BadgerDB GC goroutine
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go runBadgerGC(ctx, st.DB())
+	go runBadgerGC(ctx, dbStore.DB())
 
 	// Create the embedded tusd upload backend (incoming/ directory).
 	tusdHandler, err := uploadbackend.New(storagePath)
@@ -58,13 +68,15 @@ func run() error {
 	// Run startup crash recovery before serving traffic.
 	// This ensures that any pending completion intents from a previous crash
 	// are resolved, and any uploading records with lost backends are marked.
-	recoverer := api.NewRecoverer(st, tusdHandler, storagePath)
-	if err := recoverer.Recover(); err != nil {
+	recoverer := api.NewRecoverer(dbStore, tusdHandler, storagePath)
+
+	err = recoverer.Recover()
+	if err != nil {
 		log.Printf("startup recovery completed with errors: %v", err)
 	}
 
 	// Create the API handler with per-upload locks and storage path.
-	handler := api.NewHandler(st, tusdHandler, storagePath)
+	handler := api.NewHandler(dbStore, tusdHandler, storagePath)
 
 	// Wire the chi-style router with BasicAuth middleware on all routes.
 	// The auth config is read from BACKUP_USER / BACKUP_PASS env vars.
@@ -83,9 +95,9 @@ func run() error {
 		// (subtle.ConstantTimeCompare of two empty byte slices returns 1).
 		// Refuse to start rather than expose an unauthenticated-with-username
 		// backdoor.
-		return fmt.Errorf("BACKUP_USER and BACKUP_PASS must be set together: got user=%q pass=%q. "+
+		return fmt.Errorf("%w: got user=%q pass=%q. "+
 			"Set both to enable Basic Auth, or leave both empty for unauthenticated dev mode",
-			getEnv("BACKUP_USER", ""), getEnv("BACKUP_PASS", ""))
+			errPartialBackupCredentials, getEnv("BACKUP_USER", ""), getEnv("BACKUP_PASS", ""))
 	}
 
 	mux := api.NewRouter(handler, authCfg)
@@ -99,8 +111,8 @@ func run() error {
 	server := &http.Server{
 		Addr:              ":" + port,
 		Handler:           mux,
-		ReadHeaderTimeout: 15 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 
 	// Graceful shutdown
@@ -123,7 +135,8 @@ func run() error {
 
 	log.Printf("server listening on :%s", port)
 
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	err = server.ListenAndServe()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("server error: %w", err)
 	}
 
@@ -145,7 +158,7 @@ func runBadgerGC(ctx context.Context, db BadgerGCer) {
 		case <-ticker.C:
 			again := true
 			for again {
-				err := db.RunValueLogGC(0.5)
+				err := db.RunValueLogGC(valueLogGCDiscardRatio)
 				if err != nil {
 					again = false
 					// ErrNoRewrite is expected when there is nothing to reclaim;

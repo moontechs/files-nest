@@ -43,7 +43,7 @@ func TestRouter_HealthEndpoint(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+	if ct := rec.Header().Get("Content-Type"); ct != jsonContentType {
 		t.Errorf("health Content-Type = %q, want application/json", ct)
 	}
 	var body map[string]string

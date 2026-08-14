@@ -26,7 +26,7 @@ func createUploadBody(localID, filename, creationDate string) string {
 func TestHandleCreateUpload_ReRegistersAfterBackendLost(t *testing.T) {
 	h, st, _ := setupHandler(t)
 
-	created := createTestUpload(t, h, "RE-REG/BL/001", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+	created := createTestUpload(t, h, "RE-REG/BL/001", "IMG_0001.jpg", creationDate)
 	originalBackend := created.BackendID
 
 	// Simulate a lost backend by manually terminating the tusd upload and
@@ -38,7 +38,7 @@ func TestHandleCreateUpload_ReRegistersAfterBackendLost(t *testing.T) {
 	// Re-POST with the same localIdentifier — should re-register, not return
 	// the stale backend_lost record.
 	rec := executeRequest(h.HandleCreateUpload, "POST", "/uploads",
-		strings.NewReader(createUploadBody("RE-REG/BL/001", "IMG_0001.jpg", "2024-03-15T10:30:00Z")))
+		strings.NewReader(createUploadBody("RE-REG/BL/001", "IMG_0001.jpg", creationDate)))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("re-register expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -89,7 +89,7 @@ func TestHandleCreateUpload_ReRegistersAfterBackendLost(t *testing.T) {
 func TestHandleCreateUpload_ReRegistersAfterDeleted(t *testing.T) {
 	h, st, _ := setupHandler(t)
 
-	created := createTestUpload(t, h, "RE-REG/DEL/001", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+	created := createTestUpload(t, h, "RE-REG/DEL/001", "IMG_0001.jpg", creationDate)
 	originalBackend := created.BackendID
 
 	// Soft-delete via the DELETE handler (keeps the record + local index).
@@ -100,7 +100,7 @@ func TestHandleCreateUpload_ReRegistersAfterDeleted(t *testing.T) {
 
 	// Re-POST — should re-register a fresh upload.
 	rec = executeRequest(h.HandleCreateUpload, "POST", "/uploads",
-		strings.NewReader(createUploadBody("RE-REG/DEL/001", "IMG_0001.jpg", "2024-03-15T10:30:00Z")))
+		strings.NewReader(createUploadBody("RE-REG/DEL/001", "IMG_0001.jpg", creationDate)))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("re-register after delete expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -134,10 +134,10 @@ func TestHandleCreateUpload_ReRegistersAfterDeleted(t *testing.T) {
 func TestHandleCreateUpload_DuplicateUploadingStillIdempotent(t *testing.T) {
 	h, st, _ := setupHandler(t)
 
-	created := createTestUpload(t, h, "RE-REG/DUP/001", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+	created := createTestUpload(t, h, "RE-REG/DUP/001", "IMG_0001.jpg", creationDate)
 
 	rec := executeRequest(h.HandleCreateUpload, "POST", "/uploads",
-		strings.NewReader(createUploadBody("RE-REG/DUP/001", "IMG_0001.jpg", "2024-03-15T10:30:00Z")))
+		strings.NewReader(createUploadBody("RE-REG/DUP/001", "IMG_0001.jpg", creationDate)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("duplicate uploading expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}

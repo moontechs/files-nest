@@ -1,15 +1,10 @@
-// Package uploadbackend_test tests the TUSHandler adapter against a real
-// embedded tusd instance with temp storage. These tests verify the exact
-// method names, handler configuration, deferred-length support, upload-info
-// access, file path resolution, not-found errors, and termination cleanup
-// behavior that the API handlers depend on.
 package uploadbackend_test
 
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"errors"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -562,9 +557,9 @@ func TestTUSForwardPatchMismatchedOffset(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for mismatched offset, got nil")
 	}
-	if errors.Is(err, uploadbackend.ErrInvalidOffset) {
-		// ErrInvalidOffset is acceptable for mismatched offset.
-	} else if !strings.Contains(err.Error(), "tusd") {
+	// ErrInvalidOffset is acceptable for mismatched offset; anything else must
+	// still be a tusd-related error.
+	if !errors.Is(err, uploadbackend.ErrInvalidOffset) && !strings.Contains(err.Error(), "tusd") {
 		t.Errorf("expected tusd-related error for mismatched offset, got %v", err)
 	}
 }
@@ -578,7 +573,6 @@ func TestTUSLargeUploadStress(t *testing.T) {
 
 	size := 64 * 1024 // 64 KB
 	payload := make([]byte, size)
-	//nolint:gosec // test-only random payload, not security-sensitive
 	_, err := rand.Read(payload)
 	if err != nil {
 		t.Fatal(err)

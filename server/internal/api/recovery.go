@@ -1,5 +1,3 @@
-// Package api provides HTTP handlers, middleware, shared utilities,
-// and startup crash recovery for the iCloud Backup server.
 package api
 
 import (
@@ -14,6 +12,10 @@ import (
 	"github.com/moontechs/files-nest/server/internal/store"
 	"github.com/moontechs/files-nest/server/internal/uploadbackend"
 )
+
+// dirPerm is the permission mode used when creating directories in the
+// storage tree (owner/group read-write-execute, no world access).
+const dirPerm = 0o750
 
 // ---------------------------------------------------------------------------
 // Recoverer
@@ -118,7 +120,8 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 	// If the upload record already shows complete, the file was already
 	// moved and the DB was already updated. The intent is stale — delete
 	// it and retry tusd cleanup.
-	if upload, err := r.store.GetUpload(intent.ID); err == nil && upload.Status == store.StatusComplete {
+	upload, err := r.store.GetUpload(intent.ID)
+	if err == nil && upload.Status == store.StatusComplete {
 		log.Printf("recovery: intent %s: record already complete, deleting stale intent", intent.ID)
 
 		delErr := r.store.DeleteCompletionIntent(intent.ID)
@@ -163,7 +166,8 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 		log.Printf("recovery: intent %s: moving file to organized directory", intent.ID)
 
 		dstDir := filepath.Dir(intent.Dst)
-		err := os.MkdirAll(dstDir, 0o750)
+
+		err := os.MkdirAll(dstDir, dirPerm)
 		if err != nil {
 			return fmt.Errorf("create destination directory %s: %w", dstDir, err)
 		}
@@ -177,7 +181,9 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 		// Neither src nor dst exists — data was lost. Leave the record
 		// unchanged and keep the intent for manual inspection. Do not
 		// delete data or change status — an operator should investigate.
-		log.Printf("recovery: intent %s: neither src (%s) nor dst (%s) exists for upload record %s (backend %s); keeping intent for manual repair",
+		log.Printf(
+			"recovery: intent %s: neither src (%s) nor dst (%s) exists for upload record %s "+
+				"(backend %s); keeping intent for manual repair",
 			intent.ID, intent.Src, intent.Dst, intent.ID, intent.BackendID)
 
 		return nil
@@ -185,7 +191,8 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 
 	// Update the DB record to complete.
 	// Use UpdateComplete which atomically sets status=complete and organized_path.
-	if _, err := r.store.UpdateComplete(intent.ID, intent.DstRel); err != nil {
+	_, err = r.store.UpdateComplete(intent.ID, intent.DstRel)
+	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			log.Printf("recovery: intent %s: upload record not found, cleaning up", intent.ID)
 		} else {
@@ -196,7 +203,7 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 	}
 
 	// Delete the intent — the DB is now consistent.
-	err := r.store.DeleteCompletionIntent(intent.ID)
+	err = r.store.DeleteCompletionIntent(intent.ID)
 	if err != nil {
 		log.Printf("recovery: intent %s: failed to delete completion intent: %v", intent.ID, err)
 	}
@@ -241,19 +248,21 @@ func (r *Recoverer) recoverBackendLost() error {
 			// Skip records that have a pending completion intent. Phase 1
 			// (completion intent recovery) handles or preserves those
 			// records; Phase 2 should not override that decision.
-			if intent, err := r.store.GetCompletionIntent(rec.ID); err == nil && intent != nil {
+			intent, err := r.store.GetCompletionIntent(rec.ID)
+			if err == nil && intent != nil {
 				log.Printf("recovery: skipping backend check for %s (has pending completion intent)", rec.ID)
 
 				continue
 			}
 
 			// Check if the backend still exists by querying its info.
-			_, err := r.backend.GetInfo(context.Background(), rec.BackendID)
+			_, err = r.backend.GetInfo(context.Background(), rec.BackendID)
 			if errors.Is(err, uploadbackend.ErrNotFound) {
 				log.Printf("recovery: backend lost for upload %s (status %s, backend %s)",
 					rec.ID, status, rec.BackendID)
 
-				if _, updateErr := r.store.UpdateStatus(rec.ID, store.StatusBackendLost); updateErr != nil {
+				_, updateErr := r.store.UpdateStatus(rec.ID, store.StatusBackendLost)
+				if updateErr != nil {
 					log.Printf("recovery: failed to set backend_lost for %s: %v", rec.ID, updateErr)
 				}
 

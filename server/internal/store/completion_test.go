@@ -116,7 +116,7 @@ func TestCompletionIntent_SaveAndGet_AllFields(t *testing.T) {
 				Src:       "/tmp/src",
 				Dst:       "/tmp/dst",
 				DstRel:    "",
-				CreatedAt: "2024-01-01T00:00:00Z",
+				CreatedAt: testDate20240101,
 			},
 		},
 	}
@@ -201,7 +201,7 @@ func TestCompletionIntent_Overwrite(t *testing.T) {
 		Src:       "/tmp/incoming/first",
 		Dst:       "/tmp/organized/first.jpg",
 		DstRel:    "organized/first.jpg",
-		CreatedAt: "2024-01-01T00:00:00Z",
+		CreatedAt: testDate20240101,
 	}
 	if err := s.SaveCompletionIntent(intent1); err != nil {
 		t.Fatalf("first SaveCompletionIntent failed: %v", err)
