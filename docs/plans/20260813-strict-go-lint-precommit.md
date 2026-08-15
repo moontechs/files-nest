@@ -154,10 +154,10 @@ Task 1 measured baseline (golangci-lint v2.12.2, `default: all`, only `wsl`/`gom
 **Files:**
 - Modify: `server/README.md`
 
-- [ ] add a "Linting" section documenting `make lint` (and `make lint-fix`) as the single canonical manual command, noting golangci-lint v2+ is required
-- [ ] add a "Pre-commit hook" section documenting one-time setup: `git config core.hooksPath .githooks` (run from repo root), what it does, that it only triggers on staged `server/` changes, and that it lints the current working-tree content of the module (not a snapshot of only staged hunks — relevant for partial `git add -p` stages)
-- [ ] no tests needed (docs-only)
-- [ ] run `make test` - must still pass before task 9
+- [x] add a "Linting" section documenting `make lint` (and `make lint-fix`) as the single canonical manual command, noting golangci-lint v2+ is required
+- [x] add a "Pre-commit hook" section documenting one-time setup: `git config core.hooksPath .githooks` (run from repo root), what it does, that it only triggers on staged `server/` changes, and that it lints the current working-tree content of the module (not a snapshot of only staged hunks — relevant for partial `git add -p` stages)
+- [x] no tests needed (docs-only)
+- [x] run `make test` - must still pass before task 9 (make unavailable in sandbox; ran equivalent `go test ./... -count=1` with /tmp/goroot/bin/go — all packages pass)
 
 ### Task 9: Verify acceptance criteria
 - [ ] verify `server/.golangci.yml` exists with `default: all` and only `wsl`/`gomodguard` disabled (both deprecated), plus the test-file style exclusions and `depguard` allow-list documented

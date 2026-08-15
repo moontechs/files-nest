@@ -686,6 +686,62 @@ tusd storage. There are no mocks of BadgerDB, tusd, or the filesystem.
 End-to-end tests are gated behind the `e2e` build tag and require a running
 Docker Compose stack. See [End-to-End Tests](#end-to-end-tests) below.
 
+### Linting
+
+The server is linted with a maximum-strictness `golangci-lint` configuration
+at `server/.golangci.yml` (`default: all`, disabling only the two deprecated
+linters `wsl` and `gomodguard`, whose non-deprecated successors `wsl_v5` /
+`gomodguard_v2` remain enabled). **golangci-lint v2+ is required** — the
+config uses the v2 schema, and older 1.x releases will not parse it.
+
+The single canonical manual command is:
+
+```bash
+cd server
+make lint
+```
+
+`make lint` runs `golangci-lint run ./...` and is expected to report zero
+violations at all times. To auto-format and apply auto-fixable fixes before a
+manual check:
+
+```bash
+cd server
+make lint-fix
+```
+
+`make lint-fix` runs `golangci-lint fmt ./...` followed by
+`golangci-lint run --fix ./...`. Run `make lint` afterwards to confirm zero
+violations remain (auto-fix does not address every linter, e.g. `gosec`
+findings require manual review).
+
+### Pre-commit Hook
+
+The repo ships a plain shell pre-commit hook at `.githooks/pre-commit` (no new
+dependency) that blocks a commit when staged changes touch `server/` and the
+linter reports any violation. Install it once per clone, from the repo root:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+What the hook does:
+
+- **Fails closed if `golangci-lint` is missing** — it never silently skips
+the gate. Install golangci-lint v2+ and put it on your `PATH` first.
+- **Only triggers on staged `server/` changes** — it inspects
+`git diff --cached --name-only --diff-filter=ACM` and exits 0 immediately
+when no staged path starts with `server/`.
+- **Lints the whole module, not a snapshot of staged hunks** — when `server/`
+files are staged it runs `(cd server && golangci-lint run ./...)`. This is
+deliberate: a partial `git add -p` stage can leave the working tree in a
+state that only fails when the full module is analysed, so the hook catches
+it before it lands. Fixing a violation therefore means editing the working
+tree (not just the staged hunks) and re-staging.
+
+On failure it prints the canonical fix commands (`make lint-fix`, then
+`make lint`) and exits non-zero, so the commit is aborted.
+
 ### Adding a New Endpoint
 
 1. Add the handler method to `internal/api/handlers.go`
