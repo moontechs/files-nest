@@ -160,16 +160,16 @@ Task 1 measured baseline (golangci-lint v2.12.2, `default: all`, only `wsl`/`gom
 - [x] run `make test` - must still pass before task 9 (make unavailable in sandbox; ran equivalent `go test ./... -count=1` with /tmp/goroot/bin/go — all packages pass)
 
 ### Task 9: Verify acceptance criteria
-- [ ] verify `server/.golangci.yml` exists with `default: all` and only `wsl`/`gomodguard` disabled (both deprecated), plus the test-file style exclusions and `depguard` allow-list documented
-- [ ] verify `golangci-lint run ./...` from `server/` reports zero violations
-- [ ] verify `make lint` is the single documented manual command and works
-- [ ] verify hook runs and blocks on a staged `server/` violation (manual smoke test: `git config core.hooksPath .githooks`, stage a deliberate violation, attempt commit, confirm block, then discard)
-- [ ] verify hook is skipped when only non-`server/` files are staged (manual smoke test)
-- [ ] verify hook fails closed when `golangci-lint` is missing from PATH
-- [ ] verify hook logic keys off staged files (`git diff --cached`), not working-tree state, for the trigger decision
-- [ ] run full test suite: `cd server && make test`
-- [ ] run e2e tests: `cd server && make e2e` if Docker is available locally (confirm Tasks 3-5 lint fixes didn't break server behavior — especially the `gosec` security fixes from Task 3); if Docker isn't available, note that in the plan and skip rather than treat as a blocker
-- [ ] re-read issue #19 acceptance criteria list end-to-end and confirm each is met or explicitly deferred (CI item — deferred, no CI exists)
+- [x] verify `server/.golangci.yml` exists with `default: all` and only `wsl`/`gomodguard` disabled (both deprecated), plus the test-file style exclusions and `depguard` allow-list documented
+- [x] verify `golangci-lint run ./...` from `server/` reports zero violations (measured: "0 issues", exit 0, golangci-lint v2.12.2)
+- [x] verify `make lint` is the single documented manual command and works (Makefile target + README canonical-command docs confirmed; `make` binary unavailable in sandbox, equivalent `golangci-lint run ./...` exits 0)
+- [x] verify hook runs and blocks on a staged `server/` violation (verified via `.githooks/pre-commit_test.sh` scenario 1: staged server/ violation blocked with the expected message)
+- [x] verify hook is skipped when only non-`server/` files are staged (verified via pre-commit_test.sh scenario 2: docs-only commit succeeds, golangci-lint never invoked)
+- [x] verify hook fails closed when `golangci-lint` is missing from PATH (verified via pre-commit_test.sh scenario 3: install-hint message, non-zero exit)
+- [x] verify hook logic keys off staged files (`git diff --cached`), not working-tree state, for the trigger decision (confirmed by reading hook: uses `git diff --cached --name-only --diff-filter=ACM`; scenario 2 exercises the trigger)
+- [x] run full test suite: `cd server && make test` (make unavailable in sandbox; ran equivalent `go test ./... -count=1` — all 5 packages pass)
+- [x] run e2e tests: Docker unavailable in sandbox — noted in plan and skipped per plan instruction (not a blocker; lint fixes are behavior-preserving and covered by the passing unit/integration suites)
+- [x] re-read issue #19 acceptance criteria list end-to-end and confirm each is met or explicitly deferred (strict config ✓, zero violations ✓, pre-commit hook ✓, docs ✓; CI item — deferred, no `.github/workflows` exists)
 
 ### Task 10: [Final] Update documentation
 - [ ] update `server/README.md` if any additional gaps found during Task 9 verification
