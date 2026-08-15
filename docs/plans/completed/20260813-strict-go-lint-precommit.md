@@ -172,9 +172,9 @@ Task 1 measured baseline (golangci-lint v2.12.2, `default: all`, only `wsl`/`gom
 - [x] re-read issue #19 acceptance criteria list end-to-end and confirm each is met or explicitly deferred (strict config ✓, zero violations ✓, pre-commit hook ✓, docs ✓; CI item — deferred, no `.github/workflows` exists)
 
 ### Task 10: [Final] Update documentation
-- [ ] update `server/README.md` if any additional gaps found during Task 9 verification
-- [ ] update root `CLAUDE.md` (or `server/CLAUDE.md` if it exists) with the new lint/hook workflow if such a file exists in this repo
-- [ ] move this plan to `docs/plans/completed/`
+- [x] update `server/README.md` if any additional gaps found during Task 9 verification (no gaps found — the Linting and Pre-commit hook sections added in Task 8 already fully cover `make lint`/`make lint-fix` as the canonical command and `git config core.hooksPath .githooks` one-time setup)
+- [x] update root `CLAUDE.md` (or `server/CLAUDE.md` if it exists) with the new lint/hook workflow if such a file exists in this repo (no `CLAUDE.md` exists at repo root or under `server/` — confirmed via `find . -iname CLAUDE.md` — so there is nothing to update)
+- [x] move this plan to `docs/plans/completed/` (moved via `git mv`)
 
 ## Post-Completion
 *Items requiring manual intervention or external systems - no checkboxes, informational only*
