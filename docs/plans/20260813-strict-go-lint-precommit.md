@@ -143,11 +143,11 @@ Task 1 measured baseline (golangci-lint v2.12.2, `default: all`, only `wsl`/`gom
 - Create: `.githooks/pre-commit`
 - Create: `.githooks/pre-commit_test.sh`
 
-- [ ] create `.githooks/pre-commit` (bash, executable) that: first checks `command -v golangci-lint` and fails with a clear install hint if missing (never silently skip the gate), then reads `git diff --cached --name-only --diff-filter=ACM`, skips (exit 0) if no path starts with `server/`, otherwise runs `(cd server && golangci-lint run ./...)` and exits non-zero on failure with a clear message
-- [ ] `chmod +x .githooks/pre-commit`
-- [ ] write `.githooks/pre-commit_test.sh`: a self-contained bash test with three scenarios — (1) stage a `server/`-path file with a deliberate lint violation, assert commit is blocked; (2) stage a non-`server/` file only (e.g. `README.md`), assert commit succeeds without invoking golangci-lint; (3) simulate `golangci-lint` missing from PATH (e.g. empty `PATH` override) with a staged `server/` file, assert the hook fails closed with the install-hint message
-- [ ] run `.githooks/pre-commit_test.sh` - must pass (all three scenarios) before task 8
-- [ ] run `golangci-lint run ./...` from `server/` - still zero violations (hook script is bash, not linted by golangci-lint)
+- [x] create `.githooks/pre-commit` (bash, executable) that: first checks `command -v golangci-lint` and fails with a clear install hint if missing (never silently skip the gate), then reads `git diff --cached --name-only --diff-filter=ACM`, skips (exit 0) if no path starts with `server/`, otherwise runs `(cd server && golangci-lint run ./...)` and exits non-zero on failure with a clear message
+- [x] `chmod +x .githooks/pre-commit`
+- [x] write `.githooks/pre-commit_test.sh`: a self-contained bash test with three scenarios — (1) stage a `server/`-path file with a deliberate lint violation, assert commit is blocked; (2) stage a non-`server/` file only (e.g. `README.md`), assert commit succeeds without invoking golangci-lint; (3) simulate `golangci-lint` missing from PATH (e.g. empty `PATH` override) with a staged `server/` file, assert the hook fails closed with the install-hint message
+- [x] run `.githooks/pre-commit_test.sh` - must pass (all three scenarios) before task 8
+- [x] run `golangci-lint run ./...` from `server/` - still zero violations (hook script is bash, not linted by golangci-lint)
 
 ### Task 8: Document lint command and hook installation
 
