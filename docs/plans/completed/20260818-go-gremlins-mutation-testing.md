@@ -350,14 +350,14 @@ feasibility before committing to the double-failure test design.
       is clean; execution skipped because make and Go are unavailable)
 
 ### Task 9: Update documentation
-- [ ] add `mutation-test` to any developer-facing docs that already
+- [x] add `mutation-test` to any developer-facing docs that already
       enumerate `make` targets, if such docs exist outside the Makefile's
-      own `help` output (check `server/README.md` if present)
-- [ ] confirm `docs/adr/0002-go-gremlins-mutation-testing.md` still
-      accurately reflects the final `.gremlins.yaml` contents (it already
-      does per this plan's Task 1/6 design — just double-check no drift
-      occurred during implementation)
-- [ ] move this plan to `docs/plans/completed/`
+      own `help` output (check `server/README.md` if present); added the
+      target to the README's mutation-testing section and make-target table
+- [x] confirm `docs/adr/0002-go-gremlins-mutation-testing.md` still
+      accurately reflects the final `.gremlins.yaml` contents; updated the
+      ADR to document the final scope and threshold settings
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 

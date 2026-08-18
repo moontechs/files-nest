@@ -715,6 +715,19 @@ make lint-fix
 violations remain (auto-fix does not address every linter, e.g. `gosec`
 findings require manual review).
 
+### Mutation Testing
+
+Mutation testing covers the server's unit-test packages with `go-gremlins`.
+Install `gremlins` once, then run:
+
+```bash
+cd server
+make mutation-test
+```
+
+The target uses `server/.gremlins.yaml`, which pins the mutation scope and
+stable concurrency settings and requires 100% efficacy and mutator coverage.
+
 ### Pre-commit Hook
 
 The repo ships a plain shell pre-commit hook at `.githooks/pre-commit` (no new
@@ -832,6 +845,7 @@ SERVER_URL=http://127.0.0.1:18080 \
 | `make e2e-logs`| Tail logs from the e2e stack.                                  |
 | `make e2e-ps`  | Show container status for the e2e stack.                       |
 | `make e2e-test`| Run e2e tests against an already-running stack.                |
+| `make mutation-test` | Run go-gremlins mutation tests for `internal/...`.       |
 
 #### Configuration Variables
 

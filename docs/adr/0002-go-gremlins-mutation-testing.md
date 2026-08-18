@@ -38,8 +38,11 @@ without the payoff of exercising individual unit-level assertions.
 - Local-only for now: the target isn't wired into CI, since there is no CI
   in this repo to wire it into yet. Follow-up if/when a CI pipeline is
   introduced.
-- `.gremlins.yaml` pins `workers: 2`, `test-cpu: 1`, and a raised
-  `timeout-coefficient` rather than leaving them at gremlins' defaults.
+- `.gremlins.yaml` scopes `coverpkg` to the four server internal packages,
+  pins `workers: 2`, `test-cpu: 1`, and a raised `timeout-coefficient`, and
+  requires `threshold-efficacy: 100` and `threshold-mcover: 100`.
+  These settings are kept in the config rather than left at gremlins'
+  defaults.
   Gremlins defaults `workers` to the host's CPU count with no `test-cpu`
   cap, so each worker's `go test` can itself use every CPU — on a 10-core
   machine that's 10 workers × unrestricted CPU each, and under that
