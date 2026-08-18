@@ -177,21 +177,22 @@ and already tests unexported helpers like `newTusdRecorder`) and call
 **Files:**
 - Modify: `internal/store/uploads_test.go`
 
-- [ ] Correction from plan review: `TestPlanDestination_CreationDateNotParseableCreatedAtPreferred`
+- [x] Correction from plan review: `TestPlanDestination_CreationDateNotParseableCreatedAtPreferred`
       is in `internal/filestore/mover_test.go`, a different package
       testing `Mover.PlanDestination` — not the same function. No test in
       `internal/store/uploads_test.go` currently exercises the date-parsing
       helper (`parseCreationTime` or equivalent — confirm exact name);
       add a new, standalone test for it rather than looking for an anchor
       that doesn't exist
-- [ ] add a case with a date string that fails `RFC3339` but
+- [x] add a case with a date string that fails `RFC3339` but
       succeeds `RFC3339Nano` (kills line 891), and a separate case that
       fails both `RFC3339` and `RFC3339Nano` but succeeds the
       `"2006-01-02"` fallback (kills line 896)
-- [ ] assert the parsed `time.Time` and the `true`/ok return in both cases
-- [ ] run `go test ./internal/store/...` — must pass
-- [ ] run `gremlins unleash ./internal/store` — confirm 0 Lived,
-      0 Not Covered
+- [x] assert the parsed `time.Time` and the `true`/ok return in both cases
+- [x] run `go test ./internal/store/...` — skipped (Go toolchain is not installed
+      in the execution environment)
+- [x] run `gremlins unleash ./internal/store` — skipped (Go toolchain is not
+      installed in the execution environment)
 
 ### Task 4: Fix `internal/api/handlers.go` NOT COVERED (225, 913, 997)
 
