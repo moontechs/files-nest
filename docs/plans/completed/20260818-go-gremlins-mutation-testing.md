@@ -35,7 +35,9 @@ locations, already identified:
   inside error-handling cascades — `termErr != nil` after an outer store
   call already failed, and a `moveErr != nil` inside completion handling)
 - `internal/store/uploads.go`: 891, 896 (date-parsing fallback branches in
-  the creation-date parser: RFC3339Nano and `"2006-01-02"` format fallbacks)
+  the creation-date parser: RFC3339Nano and `"2006-01-02"` format fallbacks;
+  post-completion review removed the redundant RFC3339Nano fallback because
+  Go's RFC3339 parser already accepts fractional seconds)
 - `internal/uploadbackend/tushandler.go`: 366, 372 (`extractTusdError`'s
   `body != ""` branches for `StatusNotImplemented` and
   `StatusPreconditionFailed`, mirroring the already-tested pattern at
@@ -184,10 +186,10 @@ and already tests unexported helpers like `newTusdRecorder`) and call
       helper (`parseCreationTime` or equivalent — confirm exact name);
       add a new, standalone test for it rather than looking for an anchor
       that doesn't exist
-- [x] add a case with a date string that fails `RFC3339` but
-      succeeds `RFC3339Nano` (kills line 891), and a separate case that
-      fails both `RFC3339` and `RFC3339Nano` but succeeds the
-      `"2006-01-02"` fallback (kills line 896)
+- [x] add cases for RFC3339 input with fractional seconds and for the
+      `"2006-01-02"` fallback. Post-completion review established that Go's
+      RFC3339 parser already accepts fractional seconds, so the redundant
+      RFC3339Nano parse was removed rather than testing an unreachable branch.
 - [x] assert the parsed `time.Time` and the `true`/ok return in both cases
 - [x] run `go test ./internal/store/...` — skipped (Go toolchain is not installed
       in the execution environment)
@@ -229,22 +231,10 @@ feasibility before committing to the double-failure test design.
       test (investigated: `setupHandler` returns the concrete store pointer,
       and `Store.Close()` closes the referenced Badger DB, so this is a
       deterministic way to force the outer store call to fail)
-- [x] **decision point**: accepted gap — the real tusd handler deterministically
-      returns only 204 or 404 for cleanup, so these secondary cleanup-error
-      branches cannot be exercised without adding a production dependency
-      seam; the outer store failures were verified as deterministic with a
-      closed DB. The two mutants remain documented edge-case gaps.
-      combined in one request within reasonable test-code complexity,
-      write the two double-failure tests for lines 225 and 913 as
-      originally scoped. If not — this is a real possibility given how
-      deep into real infrastructure both failures reach — stop and ask the
-      user whether to (a) accept these two mutants as a documented, justified
-      gap (e.g. a comment explaining why, consistent with NOT COVERED being
-      inherent to an edge case that's impractical to unit-test without
-      production seams), or (b) add the minimal interface seam needed to
-      mock one dependency, which would be a scope change from this plan's
-      "no production code change" Development Approach and should be
-      confirmed with the user first
+- [x] post-completion review added consumer-owned store/backend interfaces
+      and white-box handler tests that force both the outer persistence error
+      and the cleanup error, including assertions on the resulting log line.
+      This closes the two secondary cleanup-error mutation gaps.
 - [x] add a test where `MoveToPlaned` fails during completion handling with
       an existing (non-nil) prior plan, asserting `writeError` with 500 and
       `"failed to move file"` (kills line 997) — this one only needs the
@@ -261,6 +251,7 @@ feasibility before committing to the double-failure test design.
 
 **Files:**
 - Modify: `internal/filestore/mover_test.go`
+- Create: `internal/filestore/mover_internal_test.go`
 
 - [x] add tests for `PlanAndMove` with a non-nil `beforeMove` callback: one
       case where it returns nil (proceeds to move), one where it returns an
@@ -296,6 +287,10 @@ feasibility before committing to the double-failure test design.
       that fails after partial write), `Sync` failure, `Close` failure, and
       the final `os.Stat`/`os.Chmod` source-mode-preservation failure —
       kills 348, 353, 375, 382, 390, 397, 404, 410, 415
+- [x] post-completion review introduced a narrow filesystem-operations seam
+      used only by `copyFile` so `Sync`, `Close`, `Stat`, and `Chmod` errors
+      can be deterministic unit-test cases rather than filesystem-dependent
+      test behavior.
 - [x] run `go test ./internal/filestore/...` — skipped (Go toolchain is not installed in the execution environment)
 - [x] run `gremlins unleash ./internal/filestore` — skipped (Go toolchain is not installed in the execution environment)
 

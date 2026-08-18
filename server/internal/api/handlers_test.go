@@ -2326,6 +2326,21 @@ func TestHandlePatchUploadStatus_MoveToExistingPlanFailure(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "failed to move file") {
 		t.Fatalf("expected move failure response, got %s", rec.Body.String())
 	}
+
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.Status != store.StatusUploading {
+		t.Errorf("status after failed retry = %q, want %q", upload.Status, store.StatusUploading)
+	}
+	intent, err := st.GetCompletionIntent(created.ID)
+	if err != nil {
+		t.Fatalf("GetCompletionIntent: %v", err)
+	}
+	if intent == nil || intent.Dst != filepath.Join(blockedDir, "IMG_0002.jpg") {
+		t.Errorf("completion intent after failed retry = %+v", intent)
+	}
 }
 
 func TestHandlePatchUploadStatus_FileContentPreserved(t *testing.T) {

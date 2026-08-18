@@ -12,7 +12,7 @@ func TestParseCreationTime(t *testing.T) {
 		want time.Time
 	}{
 		{
-			name: "RFC3339Nano",
+			name: "RFC3339 with fractional seconds",
 			date: "2024-03-15T10:30:00.123456789Z",
 			want: time.Date(2024, time.March, 15, 10, 30, 0, 123456789, time.UTC),
 		},
