@@ -129,16 +129,18 @@ All work here is achievable within the repo (config, test files, Makefile)
 **Files:**
 - Create: `server/.gremlins.yaml`
 
-- [ ] create `server/.gremlins.yaml` with `coverpkg` scoped to the four
+- [x] create `server/.gremlins.yaml` with `coverpkg` scoped to the four
       `internal/...` packages, `workers: 2`, `test-cpu: 1`,
       `timeout-coefficient: 10` (thresholds added in Task 6 once the suite
       is clean — setting `threshold-efficacy: 100` now would make every
       intermediate `gremlins unleash` in this plan fail loudly on
       not-yet-fixed packages, which is unhelpful mid-work)
-- [ ] run `gremlins unleash ./internal/uploadbackend` (config auto-picked
+- [x] run `gremlins unleash ./internal/uploadbackend` (config auto-picked
       up) and confirm it reports the same 2 NOT COVERED at `tushandler.go`
       366/372, 0 Lived, 0 Timed out — confirms the config file works
-      identically to the equivalent CLI flags
+      identically to the equivalent CLI flags (skipped - Go toolchain is not
+      installed in the execution environment; gremlins did load the config
+      before failing while gathering coverage)
 
 ### Task 2: Fix `internal/uploadbackend/tushandler.go` NOT COVERED (366, 372)
 
