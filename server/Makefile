@@ -8,6 +8,7 @@
 #   lint          Run golangci-lint with the strict config (zero-tolerance).
 #   lint-fix      Auto-format and apply auto-fixable linter fixes.
 #   clean         Remove build artifacts.
+#   mutation-test Run mutation testing with go-gremlins.
 #   e2e-up        Start the e2e Docker Compose stack (detached).
 #   e2e-down      Stop the e2e stack and remove volumes/networks.
 #   e2e-logs      Tail logs from the e2e stack.
@@ -55,7 +56,7 @@ BIN_PATH = bin/server
 # Phony targets
 # ---------------------------------------------------------------------------
 
-.PHONY: help build test lint lint-fix clean
+.PHONY: help build test lint lint-fix clean mutation-test
 .PHONY: e2e-up e2e-down e2e-logs e2e-ps e2e-test e2e
 
 # ===========================================================================
@@ -72,6 +73,7 @@ help:
 	@echo "  lint          Run golangci-lint (strict, zero-tolerance)"
 	@echo "  lint-fix      Auto-format and apply auto-fixable linters"
 	@echo "  clean         Remove build artifacts"
+	@echo "  mutation-test Run mutation testing with go-gremlins"
 	@echo ""
 	@echo "E2E test targets:"
 	@echo "  e2e-up        Start the e2e Docker Compose stack (detached)"
@@ -109,6 +111,15 @@ lint-fix:
 ## Remove build artifacts.
 clean:
 	rm -f $(BIN_PATH)
+
+## Run mutation testing with go-gremlins (requires `gremlins` on PATH).
+mutation-test:
+	@command -v gremlins >/dev/null 2>&1 || { \
+		echo "gremlins not found. Install with:"; \
+		echo "  go install github.com/go-gremlins/gremlins/cmd/gremlins@latest"; \
+		exit 1; \
+	}
+	gremlins unleash ./internal/...
 
 # ===========================================================================
 # E2E stack management
