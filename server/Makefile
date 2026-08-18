@@ -5,6 +5,8 @@
 #   help          Show this help.
 #   build         Build the server binary (statically linked, CGO disabled).
 #   test          Run all unit/integration tests (excludes e2e).
+#   lint          Run golangci-lint with the strict config (zero-tolerance).
+#   lint-fix      Auto-format and apply auto-fixable linter fixes.
 #   clean         Remove build artifacts.
 #   e2e-up        Start the e2e Docker Compose stack (detached).
 #   e2e-down      Stop the e2e stack and remove volumes/networks.
@@ -53,7 +55,7 @@ BIN_PATH = bin/server
 # Phony targets
 # ---------------------------------------------------------------------------
 
-.PHONY: help build test clean
+.PHONY: help build test lint lint-fix clean
 .PHONY: e2e-up e2e-down e2e-logs e2e-ps e2e-test e2e
 
 # ===========================================================================
@@ -67,6 +69,8 @@ help:
 	@echo "Development targets:"
 	@echo "  build         Build the server binary"
 	@echo "  test          Run all unit/integration tests"
+	@echo "  lint          Run golangci-lint (strict, zero-tolerance)"
+	@echo "  lint-fix      Auto-format and apply auto-fixable linters"
 	@echo "  clean         Remove build artifacts"
 	@echo ""
 	@echo "E2E test targets:"
@@ -93,6 +97,14 @@ build:
 ## Run all unit/integration tests (excludes e2e via build tag).
 test:
 	go test ./... -v -count=1
+
+## Run golangci-lint with the strict config (zero-tolerance).
+lint:
+	golangci-lint run ./...
+
+## Auto-format code and apply auto-fixable linter fixes.
+lint-fix:
+	golangci-lint fmt ./... && golangci-lint run --fix ./...
 
 ## Remove build artifacts.
 clean:

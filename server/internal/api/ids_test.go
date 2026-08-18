@@ -200,8 +200,11 @@ func TestSanitizeFilename_WithSpaces(t *testing.T) {
 }
 
 func TestSanitizeFilename_UnicodeFilename(t *testing.T) {
+	//nolint:gosmopolitan // test fixture: unicode filename preservation
 	result := api.SanitizeFilename("照片.jpg")
+	//nolint:gosmopolitan // test fixture: unicode filename preservation
 	if result != "照片.jpg" {
+		//nolint:gosmopolitan // test fixture: unicode filename preservation
 		t.Errorf("expected %q, got %q", "照片.jpg", result)
 	}
 }

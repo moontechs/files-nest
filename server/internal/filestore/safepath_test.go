@@ -1,6 +1,10 @@
-package filestore
+package filestore_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/moontechs/files-nest/server/internal/filestore"
+)
 
 func TestSafePathSegment(t *testing.T) {
 	cases := []struct {
@@ -9,18 +13,19 @@ func TestSafePathSegment(t *testing.T) {
 		{"", ""},
 		{".", ""},
 		{"..", ""},
-		{"../etc/passwd", "etc_passwd"},     // leading ".." trimmed, '/' -> '_'
-		{"foo/bar", "foo_bar"},               // '/' -> '_'
-		{"foo\\bar", "foo_bar"},              // backslash -> '_'
-		{"  spaced  ", "spaced"},             // trim spaces
-		{"...dots...", "dots"},               // trim dots
-		{"a\x00b", "ab"},                     // NULL removed
-		{"a\x1Fb", "ab"},                     // control char removed
-		{"正常", "正常"},                       // unicode preserved
-		{"2024-03-15", "2024-03-15"},         // normal date preserved
+		{"../etc/passwd", "etc_passwd"}, // leading ".." trimmed, '/' -> '_'
+		{"foo/bar", "foo_bar"},          // '/' -> '_'
+		{"foo\\bar", "foo_bar"},         // backslash -> '_'
+		{"  spaced  ", "spaced"},        // trim spaces
+		{"...dots...", "dots"},          // trim dots
+		{"a\x00b", "ab"},                // NULL removed
+		{"a\x1Fb", "ab"},                // control char removed
+		//nolint:gosmopolitan // test fixture: unicode segment preservation
+		{"正常", "正常"},                 // unicode preserved
+		{"2024-03-15", "2024-03-15"}, // normal date preserved
 	}
 	for _, c := range cases {
-		got := SafePathSegment(c.in)
+		got := filestore.SafePathSegment(c.in)
 		if got != c.want {
 			t.Errorf("SafePathSegment(%q) = %q, want %q", c.in, got, c.want)
 		}
@@ -30,7 +35,7 @@ func TestSafePathSegment(t *testing.T) {
 // TestPlanDestination_MalformedDateNoTraversal ensures a malformed/adversarial
 // creation_date cannot escape the organized tree via path traversal.
 func TestPlanDestination_MalformedDateNoTraversal(t *testing.T) {
-	m := New(t.TempDir())
+	m := filestore.New(t.TempDir())
 	plan := m.PlanDestination("../../../etc/passwd", "", "IMG.jpg", "bk-1")
 	// The relative path must stay under organized/ and contain no ".." segment
 	// and no raw '/' from the date (it must have been sanitized to '_').

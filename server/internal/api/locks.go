@@ -1,5 +1,3 @@
-// Package api provides HTTP handlers, middleware, and shared utilities
-// for the iCloud Backup server API.
 package api
 
 import "sync"
@@ -32,6 +30,7 @@ type UploadLocker struct {
 // Mutex, so the map entry can be safely deleted when no one needs it.
 type uploadLock struct {
 	sync.Mutex
+
 	refCount int
 }
 
@@ -43,15 +42,17 @@ func (l *UploadLocker) Lock(id string) {
 	if l.locks == nil {
 		l.locks = make(map[string]*uploadLock)
 	}
-	ul, ok := l.locks[id]
+
+	lock, ok := l.locks[id]
 	if !ok {
-		ul = &uploadLock{}
-		l.locks[id] = ul
+		lock = &uploadLock{}
+		l.locks[id] = lock
 	}
-	ul.refCount++
+
+	lock.refCount++
 	l.mu.Unlock()
 
-	ul.Lock()
+	lock.Lock()
 }
 
 // Unlock releases the lock for the given upload ID. It is safe to
@@ -60,14 +61,17 @@ func (l *UploadLocker) Lock(id string) {
 // error that may cause the underlying mutex to panic.
 func (l *UploadLocker) Unlock(id string) {
 	l.mu.Lock()
-	ul, ok := l.locks[id]
+
+	lock, ok := l.locks[id]
 	if !ok {
 		l.mu.Unlock()
+
 		return
 	}
-	ul.Unlock()
-	ul.refCount--
-	if ul.refCount <= 0 {
+	lock.Unlock()
+
+	lock.refCount--
+	if lock.refCount <= 0 {
 		delete(l.locks, id)
 	}
 	l.mu.Unlock()
@@ -77,8 +81,9 @@ func (l *UploadLocker) Unlock(id string) {
 // fn returns — even if fn panics. It returns the error from fn.
 // This is a convenience wrapper around Lock/Unlock for callers that
 // want a scoped critical section without an explicit defer.
-func (l *UploadLocker) Do(id string, fn func() error) (err error) {
+func (l *UploadLocker) Do(id string, fn func() error) error {
 	l.Lock(id)
 	defer l.Unlock(id)
+
 	return fn()
 }

@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/dgraph-io/badger/v4"
@@ -30,13 +31,19 @@ type CompletionIntent struct {
 
 // SaveCompletionIntent persists a completion intent for crash recovery.
 func (s *Store) SaveCompletionIntent(intent *CompletionIntent) error {
-	return s.db.Update(func(txn *badger.Txn) error {
+	err := s.db.Update(func(txn *badger.Txn) error {
 		val, err := json.Marshal(intent)
 		if err != nil {
 			return fmt.Errorf("marshal completion intent: %w", err)
 		}
+
 		return txn.Set(completionIntentKey(intent.ID), val)
 	})
+	if err != nil {
+		return fmt.Errorf("save completion intent: %w", err)
+	}
+
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -44,30 +51,37 @@ func (s *Store) SaveCompletionIntent(intent *CompletionIntent) error {
 // ---------------------------------------------------------------------------
 
 // GetCompletionIntent retrieves a completion intent by upload ID.
-// Returns nil, nil if not found.
+// Returns ErrNotFound if not found.
 func (s *Store) GetCompletionIntent(id string) (*CompletionIntent, error) {
-	var intent CompletionIntent
-	var found bool
+	var (
+		intent CompletionIntent
+		found  bool
+	)
 
 	err := s.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(completionIntentKey(id))
 		if err != nil {
-			if err == badger.ErrKeyNotFound {
+			if errors.Is(err, badger.ErrKeyNotFound) {
 				return nil
 			}
+
 			return fmt.Errorf("get completion intent: %w", err)
 		}
+
 		found = true
+
 		return item.Value(func(val []byte) error {
 			return json.Unmarshal(val, &intent)
 		})
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get completion intent: %w", err)
 	}
+
 	if !found {
-		return nil, nil
+		return nil, ErrNotFound
 	}
+
 	return &intent, nil
 }
 
@@ -77,9 +91,14 @@ func (s *Store) GetCompletionIntent(id string) (*CompletionIntent, error) {
 
 // DeleteCompletionIntent removes a completion intent from the database.
 func (s *Store) DeleteCompletionIntent(id string) error {
-	return s.db.Update(func(txn *badger.Txn) error {
+	err := s.db.Update(func(txn *badger.Txn) error {
 		return txn.Delete(completionIntentKey(id))
 	})
+	if err != nil {
+		return fmt.Errorf("delete completion intent: %w", err)
+	}
+
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -91,22 +110,31 @@ func (s *Store) DeleteCompletionIntent(id string) error {
 // move, the DB update, and the tusd cleanup.
 func (s *Store) ListCompletionIntents() ([]*CompletionIntent, error) {
 	prefix := []byte("completion/")
+
 	var intents []*CompletionIntent
 
 	err := s.db.View(func(txn *badger.Txn) error {
-		it := txn.NewIterator(badger.DefaultIteratorOptions)
-		defer it.Close()
+		iter := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer iter.Close()
 
-		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+		for iter.Seek(prefix); iter.ValidForPrefix(prefix); iter.Next() {
 			var intent CompletionIntent
-			if err := it.Item().Value(func(val []byte) error {
+
+			err := iter.Item().Value(func(val []byte) error {
 				return json.Unmarshal(val, &intent)
-			}); err != nil {
+			})
+			if err != nil {
 				return fmt.Errorf("unmarshal completion intent: %w", err)
 			}
+
 			intents = append(intents, &intent)
 		}
+
 		return nil
 	})
-	return intents, err
+	if err != nil {
+		return nil, fmt.Errorf("list completion intents: %w", err)
+	}
+
+	return intents, nil
 }

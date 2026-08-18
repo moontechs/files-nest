@@ -1,8 +1,7 @@
-// Package api provides HTTP handlers, middleware, shared utilities,
-// and startup crash recovery for the iCloud Backup server.
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -13,6 +12,10 @@ import (
 	"github.com/moontechs/files-nest/server/internal/store"
 	"github.com/moontechs/files-nest/server/internal/uploadbackend"
 )
+
+// dirPerm is the permission mode used when creating directories in the
+// storage tree (owner/group read-write-execute, no world access).
+const dirPerm = 0o750
 
 // ---------------------------------------------------------------------------
 // Recoverer
@@ -51,16 +54,19 @@ func (r *Recoverer) Recover() error {
 	log.Printf("recovery: starting startup recovery...")
 
 	// Phase 1: Recover any pending completion intents from crashed completions.
-	if err := r.recoverCompletionIntents(); err != nil {
+	err := r.recoverCompletionIntents()
+	if err != nil {
 		return fmt.Errorf("completion intent recovery failed: %w", err)
 	}
 
 	// Phase 2: Check for uploading records whose tusd backend has gone missing.
-	if err := r.recoverBackendLost(); err != nil {
+	err = r.recoverBackendLost()
+	if err != nil {
 		log.Printf("recovery: backend lost recovery error: %v", err)
 	}
 
 	log.Printf("recovery: startup recovery complete")
+
 	return nil
 }
 
@@ -82,6 +88,7 @@ func (r *Recoverer) recoverCompletionIntents() error {
 
 	if len(intents) == 0 {
 		log.Printf("recovery: no pending completion intents found")
+
 		return nil
 	}
 
@@ -92,9 +99,10 @@ func (r *Recoverer) recoverCompletionIntents() error {
 		// any handler operations that might also touch this upload. At
 		// startup this is strictly defensive (no handlers are running yet),
 		// but it documents the shared-state contract.
-		if err := r.locks.Do(intent.ID, func() error {
+		err := r.locks.Do(intent.ID, func() error {
 			return r.recoverIntent(intent)
-		}); err != nil {
+		})
+		if err != nil {
 			log.Printf("recovery: failed to recover intent %s: %v", intent.ID, err)
 			// Continue processing remaining intents.
 		}
@@ -112,16 +120,7 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 	// If the upload record already shows complete, the file was already
 	// moved and the DB was already updated. The intent is stale — delete
 	// it and retry tusd cleanup.
-	if upload, err := r.store.GetUpload(intent.ID); err == nil && upload.Status == store.StatusComplete {
-		log.Printf("recovery: intent %s: record already complete, deleting stale intent", intent.ID)
-		if delErr := r.store.DeleteCompletionIntent(intent.ID); delErr != nil {
-			log.Printf("recovery: intent %s: failed to delete stale intent: %v", intent.ID, delErr)
-		}
-		if intent.BackendID != "" {
-			if termErr := r.backend.TerminateOrCleanup(intent.BackendID); termErr != nil && !errors.Is(termErr, uploadbackend.ErrNotFound) {
-				log.Printf("recovery: intent %s: failed to clean up tusd backend: %v", intent.ID, termErr)
-			}
-		}
+	if r.recoverAlreadyCompleteIntent(intent) {
 		return nil
 	}
 
@@ -134,7 +133,9 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 		// successfully and both copies remain. Remove the source file and
 		// complete the DB update.
 		log.Printf("recovery: intent %s: both src and dst exist, removing src", intent.ID)
-		if err := os.Remove(intent.Src); err != nil {
+
+		err := os.Remove(intent.Src)
+		if err != nil {
 			log.Printf("recovery: intent %s: failed to remove source file after move: %v", intent.ID, err)
 		}
 		// Fall through to complete the DB update.
@@ -148,44 +149,98 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 		// Source exists but destination does not — the intent was saved
 		// but the file was never moved (crash before the os.Rename).
 		log.Printf("recovery: intent %s: moving file to organized directory", intent.ID)
-		dstDir := filepath.Dir(intent.Dst)
-		if err := os.MkdirAll(dstDir, 0755); err != nil {
-			return fmt.Errorf("create destination directory %s: %w", dstDir, err)
-		}
-		if err := filestore.MoveFile(intent.Src, intent.Dst); err != nil {
-			return fmt.Errorf("move file %s -> %s: %w", intent.Src, intent.Dst, err)
+
+		err := moveIntentSource(intent)
+		if err != nil {
+			return err
 		}
 
 	default:
 		// Neither src nor dst exists — data was lost. Leave the record
 		// unchanged and keep the intent for manual inspection. Do not
 		// delete data or change status — an operator should investigate.
-		log.Printf("recovery: intent %s: neither src (%s) nor dst (%s) exists for upload record %s (backend %s); keeping intent for manual repair",
+		log.Printf(
+			"recovery: intent %s: neither src (%s) nor dst (%s) exists for upload record %s "+
+				"(backend %s); keeping intent for manual repair",
 			intent.ID, intent.Src, intent.Dst, intent.ID, intent.BackendID)
+
 		return nil
 	}
 
 	// Update the DB record to complete.
 	// Use UpdateComplete which atomically sets status=complete and organized_path.
-	if _, err := r.store.UpdateComplete(intent.ID, intent.DstRel); err != nil {
+	_, err := r.store.UpdateComplete(intent.ID, intent.DstRel)
+	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			log.Printf("recovery: intent %s: upload record not found, cleaning up", intent.ID)
 		} else {
 			log.Printf("recovery: intent %s: UpdateComplete failed: %v", intent.ID, err)
+
 			return fmt.Errorf("update complete for %s: %w", intent.ID, err)
 		}
 	}
 
 	// Delete the intent — the DB is now consistent.
-	if err := r.store.DeleteCompletionIntent(intent.ID); err != nil {
+	err = r.store.DeleteCompletionIntent(intent.ID)
+	if err != nil {
 		log.Printf("recovery: intent %s: failed to delete completion intent: %v", intent.ID, err)
 	}
 
 	// Best-effort cleanup of the tusd sidecar (.info file).
-	if intent.BackendID != "" {
-		if err := r.backend.TerminateOrCleanup(intent.BackendID); err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
-			log.Printf("recovery: intent %s: failed to clean up tusd backend: %v", intent.ID, err)
-		}
+	r.cleanupTusdBackend(intent)
+
+	return nil
+}
+
+// recoverAlreadyCompleteIntent handles the stale-intent case where the upload
+// record already shows complete (the file was moved and the DB updated before
+// a crash). It deletes the stale intent, retries tusd cleanup, and reports
+// whether the intent was already complete.
+func (r *Recoverer) recoverAlreadyCompleteIntent(intent *store.CompletionIntent) bool {
+	upload, err := r.store.GetUpload(intent.ID)
+	if err != nil || upload.Status != store.StatusComplete {
+		return false
+	}
+
+	log.Printf("recovery: intent %s: record already complete, deleting stale intent", intent.ID)
+
+	delErr := r.store.DeleteCompletionIntent(intent.ID)
+	if delErr != nil {
+		log.Printf("recovery: intent %s: failed to delete stale intent: %v", intent.ID, delErr)
+	}
+
+	r.cleanupTusdBackend(intent)
+
+	return true
+}
+
+// cleanupTusdBackend best-effort cleans up the tusd sidecar for an intent.
+// ErrNotFound is ignored (the backend may already be gone); any other error
+// is logged but not surfaced, matching the recovery flow's best-effort policy.
+func (r *Recoverer) cleanupTusdBackend(intent *store.CompletionIntent) {
+	if intent.BackendID == "" {
+		return
+	}
+
+	err := r.backend.TerminateOrCleanup(context.Background(), intent.BackendID)
+	if err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
+		log.Printf("recovery: intent %s: failed to clean up tusd backend: %v", intent.ID, err)
+	}
+}
+
+// moveIntentSource moves a pending intent's source file into its organized
+// destination, creating the destination directory first.
+func moveIntentSource(intent *store.CompletionIntent) error {
+	dstDir := filepath.Dir(intent.Dst)
+
+	err := os.MkdirAll(dstDir, dirPerm)
+	if err != nil {
+		return fmt.Errorf("create destination directory %s: %w", dstDir, err)
+	}
+
+	err = filestore.MoveFile(intent.Src, intent.Dst)
+	if err != nil {
+		return fmt.Errorf("move file %s -> %s: %w", intent.Src, intent.Dst, err)
 	}
 
 	return nil
@@ -212,6 +267,7 @@ func (r *Recoverer) recoverBackendLost() error {
 
 		for _, rec := range records {
 			total++
+
 			if rec.BackendID == "" {
 				continue
 			}
@@ -219,19 +275,24 @@ func (r *Recoverer) recoverBackendLost() error {
 			// Skip records that have a pending completion intent. Phase 1
 			// (completion intent recovery) handles or preserves those
 			// records; Phase 2 should not override that decision.
-			if intent, err := r.store.GetCompletionIntent(rec.ID); err == nil && intent != nil {
+			intent, err := r.store.GetCompletionIntent(rec.ID)
+			if err == nil && intent != nil {
 				log.Printf("recovery: skipping backend check for %s (has pending completion intent)", rec.ID)
+
 				continue
 			}
 
 			// Check if the backend still exists by querying its info.
-			_, err := r.backend.GetInfo(rec.BackendID)
+			_, err = r.backend.GetInfo(context.Background(), rec.BackendID)
 			if errors.Is(err, uploadbackend.ErrNotFound) {
 				log.Printf("recovery: backend lost for upload %s (status %s, backend %s)",
 					rec.ID, status, rec.BackendID)
-				if _, updateErr := r.store.UpdateStatus(rec.ID, store.StatusBackendLost); updateErr != nil {
+
+				_, updateErr := r.store.UpdateStatus(rec.ID, store.StatusBackendLost)
+				if updateErr != nil {
 					log.Printf("recovery: failed to set backend_lost for %s: %v", rec.ID, updateErr)
 				}
+
 				lost++
 			} else if err != nil {
 				// Non-ErrNotFound error — log but don't change status (the
@@ -244,6 +305,7 @@ func (r *Recoverer) recoverBackendLost() error {
 	if total > 0 {
 		log.Printf("recovery: checked %d in-progress uploads, %d backends lost", total, lost)
 	}
+
 	return nil
 }
 
@@ -258,5 +320,6 @@ func fileExists(path string) bool {
 	if err != nil {
 		return false
 	}
+
 	return !info.IsDir()
 }

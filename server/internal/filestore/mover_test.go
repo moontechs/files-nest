@@ -11,6 +11,12 @@ import (
 	"github.com/moontechs/files-nest/server/internal/filestore"
 )
 
+const (
+	relMar2024IMG1234 = "organized/2024/03/15/IMG_1234.jpg"
+	relDec2024IMG9999 = "organized/2024/12/31/IMG_9999.jpg"
+	img0001Name       = "IMG_0001.jpg"
+)
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -22,28 +28,13 @@ func openTestMover(t *testing.T) *filestore.Mover {
 	return filestore.New(dir)
 }
 
-// touchFile creates an empty file at the given path, creating parent
-// directories if needed. Returns the absolute path.
-func touchFile(t *testing.T, path string) string {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		t.Fatalf("MkdirAll %s: %v", filepath.Dir(path), err)
-	}
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatalf("Create %s: %v", path, err)
-	}
-	f.Close()
-	return path
-}
-
 // writeFile writes content to a file at the given path.
 func writeFile(t *testing.T, path string, content []byte) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatalf("MkdirAll %s: %v", filepath.Dir(path), err)
 	}
-	if err := os.WriteFile(path, content, 0644); err != nil {
+	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatalf("WriteFile %s: %v", path, err)
 	}
 }
@@ -75,7 +66,7 @@ func TestOrganizedPath_ParsesRFC3339(t *testing.T) {
 
 	rel, abs := m.OrganizedPath("2024-03-15T10:30:00Z", "IMG_1234.jpg")
 
-	expectedRel := "organized/2024/03/15/IMG_1234.jpg"
+	expectedRel := relMar2024IMG1234
 	if rel != expectedRel {
 		t.Errorf("rel: got %q, want %q", rel, expectedRel)
 	}
@@ -121,7 +112,7 @@ func TestOrganizedPath_UnparseableDateFallsBack(t *testing.T) {
 func TestOrganizedPath_EmptyDate(t *testing.T) {
 	m := openTestMover(t)
 
-	rel, abs := m.OrganizedPath("", "IMG_0001.jpg")
+	rel, abs := m.OrganizedPath("", img0001Name)
 
 	// filepath.Join collapses empty segments, so the result has no double slash.
 	expectedRel := "organized/unknown/unknown/IMG_0001.jpg"
@@ -140,7 +131,7 @@ func TestOrganizedPath_RFC3339Nano(t *testing.T) {
 
 	rel, abs := m.OrganizedPath("2024-12-31T23:59:59.123456789Z", "IMG_9999.jpg")
 
-	expectedRel := "organized/2024/12/31/IMG_9999.jpg"
+	expectedRel := relDec2024IMG9999
 	if rel != expectedRel {
 		t.Errorf("rel: got %q, want %q", rel, expectedRel)
 	}
@@ -155,21 +146,21 @@ func TestOrganizedPath_DifferentDates(t *testing.T) {
 	m := openTestMover(t)
 
 	tests := []struct {
-		date       string
-		filename   string
-		wantRel    string
-		desc       string
+		date     string
+		filename string
+		wantRel  string
+		desc     string
 	}{
 		{
 			date:     "2024-01-01T00:00:00Z",
-			filename: "IMG_0001.jpg",
+			filename: img0001Name,
 			wantRel:  "organized/2024/01/01/IMG_0001.jpg",
 			desc:     "january start",
 		},
 		{
 			date:     "2024-12-31T23:59:59Z",
 			filename: "IMG_9999.jpg",
-			wantRel:  "organized/2024/12/31/IMG_9999.jpg",
+			wantRel:  relDec2024IMG9999,
 			desc:     "december end",
 		},
 		{
@@ -230,8 +221,8 @@ func TestMoveFile_Success(t *testing.T) {
 	if result.Src != srcPath {
 		t.Errorf("result.Src: got %q, want %q", result.Src, srcPath)
 	}
-	if result.DstRel != "organized/2024/03/15/IMG_1234.jpg" {
-		t.Errorf("result.DstRel: got %q, want %q", result.DstRel, "organized/2024/03/15/IMG_1234.jpg")
+	if result.DstRel != relMar2024IMG1234 {
+		t.Errorf("result.DstRel: got %q, want %q", result.DstRel, relMar2024IMG1234)
 	}
 	expectedAbs := filepath.Join(m.StoragePath(), result.DstRel)
 	if result.Dst != expectedAbs {
@@ -288,7 +279,7 @@ func TestMoveFile_DeduplicatesWhenDestinationExists(t *testing.T) {
 	m := openTestMover(t)
 
 	// Create an existing file at the computed destination path.
-	existingRel := "organized/2024/03/15/IMG_1234.jpg"
+	existingRel := relMar2024IMG1234
 	existingAbs := filepath.Join(m.StoragePath(), existingRel)
 	writeFile(t, existingAbs, []byte("existing content"))
 
@@ -320,6 +311,7 @@ func TestMoveFile_DeduplicatesWhenDestinationExists(t *testing.T) {
 
 	// Original existing file should still be present.
 	assertPathExists(t, existingAbs)
+	//nolint:gosec // test-only read/write of a temp-dir file, not attacker-controlled
 	gotExisting, err := os.ReadFile(existingAbs)
 	if err != nil {
 		t.Fatalf("ReadFile existing: %v", err)
@@ -354,8 +346,8 @@ func TestMoveFile_MultipleDeduplications(t *testing.T) {
 	if result1.Deduplicated {
 		t.Error("first move should not be deduplicated")
 	}
-	if result1.DstRel != "organized/2024/03/15/IMG_1234.jpg" {
-		t.Errorf("first DstRel: got %q, want %q", result1.DstRel, "organized/2024/03/15/IMG_1234.jpg")
+	if result1.DstRel != relMar2024IMG1234 {
+		t.Errorf("first DstRel: got %q, want %q", result1.DstRel, relMar2024IMG1234)
 	}
 
 	// Move second file — same date and filename, should deduplicate.
@@ -396,8 +388,8 @@ func TestMoveFile_MultipleDeduplications(t *testing.T) {
 
 	// All three files should exist and have correct content.
 	for _, tc := range []struct {
-		path    string
-		want    string
+		path string
+		want string
 	}{
 		{result1.Dst, "first"},
 		{result2.Dst, "second"},
@@ -520,7 +512,7 @@ func TestMoveFile_SameDateDifferentFilenames(t *testing.T) {
 		content   string
 		backendID string
 	}{
-		{"tusd-a", "IMG_0001.jpg", "first photo", "tusd-a"},
+		{"tusd-a", img0001Name, "first photo", "tusd-a"},
 		{"tusd-b", "IMG_0002.jpg", "second photo", "tusd-b"},
 		{"tusd-c", "IMG_0003.jpg", "third photo", "tusd-c"},
 	}
@@ -567,7 +559,7 @@ func TestMoveFile_DifferentDatesSameFilename(t *testing.T) {
 		src := filepath.Join(m.StoragePath(), "incoming", d.backendID)
 		writeFile(t, src, []byte(d.backendID))
 
-		result, err := m.MoveFile(src, d.date, "IMG_0001.jpg", d.backendID)
+		result, err := m.MoveFile(src, d.date, img0001Name, d.backendID)
 		if err != nil {
 			t.Fatalf("MoveFile for %s failed: %v", d.date, err)
 		}
@@ -652,8 +644,7 @@ func TestMoveFile_ConcurrentDifferentPaths(t *testing.T) {
 	const n = 10
 	errCh := make(chan error, n)
 
-	for i := 0; i < n; i++ {
-		i := i
+	for i := range n {
 		go func() {
 			srcName := "tusd-concurrent-" + itoa(i)
 			srcPath := filepath.Join(m.StoragePath(), "incoming", srcName)
@@ -666,14 +657,14 @@ func TestMoveFile_ConcurrentDifferentPaths(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if err := <-errCh; err != nil {
 			t.Errorf("concurrent move %d: %v", i, err)
 		}
 	}
 
 	// Verify all files were moved.
-	for i := 0; i < n; i++ {
+	for i := range n {
 		dstPath := filepath.Join(m.StoragePath(), "organized/2024/03/15/IMG_"+itoa(i)+".jpg")
 		assertPathExists(t, dstPath)
 	}
@@ -1104,7 +1095,7 @@ func TestRemoveOrganizedFile_PathTraversal(t *testing.T) {
 	// Create a file just outside the storage root to verify it is NOT removed.
 	outsidePath := filepath.Join(filepath.Dir(m.StoragePath()), "escaped_file.txt")
 	writeFile(t, outsidePath, []byte("should not be removed"))
-	t.Cleanup(func() { os.Remove(outsidePath) })
+	t.Cleanup(func() { _ = os.Remove(outsidePath) })
 
 	// Attempt traversal with ".." segments.
 	err := m.RemoveOrganizedFile("../../escaped_file.txt")
@@ -1123,7 +1114,7 @@ func TestRemoveOrganizedFile_DeepPathTraversal(t *testing.T) {
 
 	outsidePath := filepath.Join(filepath.Dir(m.StoragePath()), "deep_escape.txt")
 	writeFile(t, outsidePath, []byte("should not be removed"))
-	t.Cleanup(func() { os.Remove(outsidePath) })
+	t.Cleanup(func() { _ = os.Remove(outsidePath) })
 
 	// Deeper traversal.
 	err := m.RemoveOrganizedFile("organized/2024/../../../deep_escape.txt")
@@ -1150,10 +1141,11 @@ func TestRemoveOrganizedFile_PermissionDenied(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat parent dir: %v", err)
 	}
-	if err := os.Chmod(parentDir, 0555); err != nil {
+	//nolint:gosec // permission-denial test intentionally changes directory mode
+	if err := os.Chmod(parentDir, 0o555); err != nil {
 		t.Fatalf("Chmod parent dir to 0555: %v", err)
 	}
-	t.Cleanup(func() { os.Chmod(parentDir, origMode.Mode()) })
+	t.Cleanup(func() { _ = os.Chmod(parentDir, origMode.Mode()) })
 
 	// Removing the file should fail because the directory is read-only.
 	err = m.RemoveOrganizedFile(relPath)
@@ -1167,7 +1159,8 @@ func TestRemoveOrganizedFile_PermissionDenied(t *testing.T) {
 	assertPathExists(t, absPath)
 
 	// Restore permissions so cleanup can remove the temp dir.
-	os.Chmod(parentDir, 0755)
+	//nolint:gosec // permission-denial test intentionally restores directory mode
+	_ = os.Chmod(parentDir, 0o755)
 }
 
 // ---------------------------------------------------------------------------
@@ -1178,8 +1171,8 @@ func TestPlanDestination_BasicRFC3339(t *testing.T) {
 	m := openTestMover(t)
 
 	plan := m.PlanDestination("2024-03-15T10:30:00Z", "", "IMG_1234.jpg", "tusd-abc")
-	if plan.Rel != "organized/2024/03/15/IMG_1234.jpg" {
-		t.Errorf("rel: got %q, want %q", plan.Rel, "organized/2024/03/15/IMG_1234.jpg")
+	if plan.Rel != relMar2024IMG1234 {
+		t.Errorf("rel: got %q, want %q", plan.Rel, relMar2024IMG1234)
 	}
 	expectedAbs := filepath.Join(m.StoragePath(), plan.Rel)
 	if plan.Abs != expectedAbs {
@@ -1232,7 +1225,7 @@ func TestPlanDestination_CollisionInsertsBackendID(t *testing.T) {
 	m := openTestMover(t)
 
 	// Create an existing file at the computed path.
-	existingAbs := filepath.Join(m.StoragePath(), "organized/2024/03/15/IMG_1234.jpg")
+	existingAbs := filepath.Join(m.StoragePath(), relMar2024IMG1234)
 	writeFile(t, existingAbs, []byte("existing"))
 
 	// PlanDestination should detect the collision and insert backendID.
@@ -1283,6 +1276,7 @@ func TestPlanDestination_PreservesExistingOnCollision(t *testing.T) {
 
 	// The original file must still be at its original path.
 	assertPathExists(t, existingAbs)
+	//nolint:gosec // test-only read/write of a temp-dir file, not attacker-controlled
 	got, err := os.ReadFile(existingAbs)
 	if err != nil {
 		t.Fatalf("ReadFile existing: %v", err)
@@ -1354,6 +1348,7 @@ func TestMoveFileStandalone_Basic(t *testing.T) {
 
 	// Destination should exist with content.
 	assertPathExists(t, dst)
+	//nolint:gosec // test-only read/write of a temp-dir file, not attacker-controlled
 	got, err := os.ReadFile(dst)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -1391,6 +1386,7 @@ func TestMoveFileStandalone_SameDirectoryMove(t *testing.T) {
 
 	assertPathNotExists(t, src)
 	assertPathExists(t, dst)
+	//nolint:gosec // test-only read/write of a temp-dir file, not attacker-controlled
 	got, err := os.ReadFile(dst)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -1418,6 +1414,7 @@ func TestMoveFileStandalone_IdempotentSrcMissingDstExists(t *testing.T) {
 
 	// Destination should still exist with original content.
 	assertPathExists(t, dst)
+	//nolint:gosec // test-only read/write of a temp-dir file, not attacker-controlled
 	got, err := os.ReadFile(dst)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -1439,7 +1436,7 @@ func TestMoveFileStandalone_IdempotentSrcMissingDstExistsLarge(t *testing.T) {
 	for i := range content {
 		content[i] = byte(i % 256)
 	}
-	if err := os.WriteFile(dst, content, 0644); err != nil {
+	if err := os.WriteFile(dst, content, 0o600); err != nil {
 		t.Fatalf("WriteFile dst: %v", err)
 	}
 
@@ -1449,6 +1446,7 @@ func TestMoveFileStandalone_IdempotentSrcMissingDstExistsLarge(t *testing.T) {
 	}
 
 	// Verify content intact.
+	//nolint:gosec // test-only read/write of a temp-dir file, not attacker-controlled
 	got, err := os.ReadFile(dst)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -1573,6 +1571,7 @@ func TestPlanDestinationWithCollisionThenMoveFile(t *testing.T) {
 	assertPathExists(t, plan.Abs)
 
 	// Verify content of both.
+	//nolint:gosec // test-only read/write of a temp-dir file, not attacker-controlled
 	gotExisting, _ := os.ReadFile(existingAbs)
 	if string(gotExisting) != "existing photo" {
 		t.Errorf("existing content: got %q, want %q", string(gotExisting), "existing photo")
@@ -1682,8 +1681,8 @@ func TestPlanDestination_DifferentDates(t *testing.T) {
 		wantRel  string
 		desc     string
 	}{
-		{"2024-01-01T00:00:00Z", "IMG_0001.jpg", "organized/2024/01/01/IMG_0001.jpg", "january start"},
-		{"2024-12-31T23:59:59Z", "IMG_9999.jpg", "organized/2024/12/31/IMG_9999.jpg", "december end"},
+		{"2024-01-01T00:00:00Z", img0001Name, "organized/2024/01/01/IMG_0001.jpg", "january start"},
+		{"2024-12-31T23:59:59Z", "IMG_9999.jpg", relDec2024IMG9999, "december end"},
 		{"2025-06-15T12:00:00Z", "VID_2025.mp4", "organized/2025/06/15/VID_2025.mp4", "june mid-year"},
 		{"2024-02-29T10:30:00Z", "leap_day.txt", "organized/2024/02/29/leap_day.txt", "leap day"},
 	}

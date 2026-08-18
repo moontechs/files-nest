@@ -1,5 +1,3 @@
-// Package api_test tests the HTTP handlers and middleware for the iCloud
-// Backup server API.
 package api_test
 
 import (
@@ -13,14 +11,30 @@ import (
 	"github.com/moontechs/files-nest/server/internal/api"
 )
 
+const (
+	testUsername      = "admin"
+	testPassword      = "secret123"
+	jsonContentType   = "application/json"
+	creationDate      = "2024-03-15T10:30:00Z"
+	statusUploading   = "uploading"
+	statusBackendLost = "backend_lost"
+	statusMoved       = "moved"
+	statusNotMoved    = "not-moved"
+	statusLost        = "lost"
+)
+
+// stringKey is a context key type distinct from api.UserKey, used to verify
+// that AuthUserFromContext ignores values stored under a different key type.
+type stringKey string
+
 // ---------------------------------------------------------------------------
 // AuthMiddleware: valid credentials
 // ---------------------------------------------------------------------------
 
 func TestAuthMiddleware_ValidCredentials(t *testing.T) {
 	middleware := api.AuthMiddleware(api.AuthConfig{
-		Username: "admin",
-		Password: "secret123",
+		Username: testUsername,
+		Password: testPassword,
 	})
 
 	var capturedUser string
@@ -29,15 +43,15 @@ func TestAuthMiddleware_ValidCredentials(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("GET", "/uploads", nil)
-	req.SetBasicAuth("admin", "secret123")
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
+	req.SetBasicAuth(testUsername, testPassword)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", rec.Code)
 	}
-	if capturedUser != "admin" {
+	if capturedUser != testUsername {
 		t.Errorf("expected context user 'admin', got %q", capturedUser)
 	}
 }
@@ -54,7 +68,7 @@ func TestAuthMiddleware_ValidCredentialsDifferentUser(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("PUT", "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/uploads", nil)
 	req.SetBasicAuth("backup-bot", "s3cr3t!")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -72,45 +86,27 @@ func TestAuthMiddleware_ValidCredentialsDifferentUser(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestAuthMiddleware_WrongPassword(t *testing.T) {
-	middleware := api.AuthMiddleware(api.AuthConfig{
-		Username: "admin",
-		Password: "secret123",
-	})
-
-	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Error("handler should not have been called for wrong password")
-	}))
-
-	req := httptest.NewRequest("GET", "/uploads", nil)
-	req.SetBasicAuth("admin", "wrong-password")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401, got %d", rec.Code)
-	}
-
-	var body map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
-		t.Fatalf("failed to decode response body: %v", err)
-	}
-	if body["error"] != "invalid credentials" {
-		t.Errorf("expected error 'invalid credentials', got %q", body["error"])
-	}
+	assertUnauthorized(t, testUsername, "wrong-password", "wrong password")
 }
 
 func TestAuthMiddleware_WrongUsername(t *testing.T) {
+	assertUnauthorized(t, "hacker", testPassword, "wrong username")
+}
+
+func assertUnauthorized(t *testing.T, username, password, desc string) {
+	t.Helper()
+
 	middleware := api.AuthMiddleware(api.AuthConfig{
-		Username: "admin",
-		Password: "secret123",
+		Username: testUsername,
+		Password: testPassword,
 	})
 
-	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Error("handler should not have been called for wrong username")
+	handler := middleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Errorf("handler should not have been called for %s", desc)
 	}))
 
-	req := httptest.NewRequest("GET", "/uploads", nil)
-	req.SetBasicAuth("hacker", "secret123")
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
+	req.SetBasicAuth(username, password)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -129,15 +125,15 @@ func TestAuthMiddleware_WrongUsername(t *testing.T) {
 
 func TestAuthMiddleware_EmptyCredentials(t *testing.T) {
 	middleware := api.AuthMiddleware(api.AuthConfig{
-		Username: "admin",
-		Password: "secret123",
+		Username: testUsername,
+		Password: testPassword,
 	})
 
-	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := middleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Error("handler should not have been called for empty credentials")
 	}))
 
-	req := httptest.NewRequest("GET", "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	// No Authorization header set
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -149,15 +145,15 @@ func TestAuthMiddleware_EmptyCredentials(t *testing.T) {
 
 func TestAuthMiddleware_MalformedAuthHeader(t *testing.T) {
 	middleware := api.AuthMiddleware(api.AuthConfig{
-		Username: "admin",
-		Password: "secret123",
+		Username: testUsername,
+		Password: testPassword,
 	})
 
-	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := middleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Error("handler should not have been called for malformed header")
 	}))
 
-	req := httptest.NewRequest("GET", "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	// Set a non-Basic auth scheme
 	req.Header.Set("Authorization", "Bearer some-token")
 	rec := httptest.NewRecorder()
@@ -170,15 +166,15 @@ func TestAuthMiddleware_MalformedAuthHeader(t *testing.T) {
 
 func TestAuthMiddleware_InvalidBase64Credentials(t *testing.T) {
 	middleware := api.AuthMiddleware(api.AuthConfig{
-		Username: "admin",
-		Password: "secret123",
+		Username: testUsername,
+		Password: testPassword,
 	})
 
-	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := middleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Error("handler should not have been called for invalid base64")
 	}))
 
-	req := httptest.NewRequest("GET", "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	// "Basic " followed by invalid base64
 	req.Header.Set("Authorization", "Basic !!!invalid-base64!!!")
 	rec := httptest.NewRecorder()
@@ -191,15 +187,15 @@ func TestAuthMiddleware_InvalidBase64Credentials(t *testing.T) {
 
 func TestAuthMiddleware_WWWAuthenticateHeader(t *testing.T) {
 	middleware := api.AuthMiddleware(api.AuthConfig{
-		Username: "admin",
-		Password: "secret123",
+		Username: testUsername,
+		Password: testPassword,
 	})
 
-	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := middleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Error("handler should not have been called")
 	}))
 
-	req := httptest.NewRequest("GET", "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -226,12 +222,12 @@ func TestAuthMiddleware_NoAuthConfigured_PassesRequests(t *testing.T) {
 	})
 
 	called := false
-	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("GET", "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -255,7 +251,7 @@ func TestAuthMiddleware_NoAuthConfigured_EmptyContextUser(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("GET", "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -276,8 +272,8 @@ func TestAuthMiddleware_NoAuthConfigured_EvenWithAuthHeader(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("GET", "/uploads", nil)
-	req.SetBasicAuth("admin", "secret")
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
+	req.SetBasicAuth(testUsername, "secret")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -296,7 +292,7 @@ func TestAuthMiddleware_NoAuthConfigured_EvenWithAuthHeader(t *testing.T) {
 
 func TestAuthMiddleware_EmptyPassword(t *testing.T) {
 	middleware := api.AuthMiddleware(api.AuthConfig{
-		Username: "admin",
+		Username: testUsername,
 		Password: "",
 	})
 
@@ -307,31 +303,31 @@ func TestAuthMiddleware_EmptyPassword(t *testing.T) {
 	}))
 
 	// An empty password credential: "admin:"
-	req := httptest.NewRequest("GET", "/uploads", nil)
-	req.SetBasicAuth("admin", "")
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
+	req.SetBasicAuth(testUsername, "")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200 for empty password match, got %d", rec.Code)
 	}
-	if capturedUser != "admin" {
+	if capturedUser != testUsername {
 		t.Errorf("expected context user 'admin', got %q", capturedUser)
 	}
 }
 
 func TestAuthMiddleware_WrongPasswordWithEmptyConfigPassword(t *testing.T) {
 	middleware := api.AuthMiddleware(api.AuthConfig{
-		Username: "admin",
+		Username: testUsername,
 		Password: "",
 	})
 
-	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := middleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Error("handler should not have been called")
 	}))
 
-	req := httptest.NewRequest("GET", "/uploads", nil)
-	req.SetBasicAuth("admin", "some-password")
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
+	req.SetBasicAuth(testUsername, "some-password")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -343,7 +339,7 @@ func TestAuthMiddleware_WrongPasswordWithEmptyConfigPassword(t *testing.T) {
 func TestAuthMiddleware_EmptyUsername(t *testing.T) {
 	middleware := api.AuthMiddleware(api.AuthConfig{
 		Username: "",
-		Password: "secret123",
+		Password: testPassword,
 	})
 
 	var capturedUser string
@@ -352,8 +348,8 @@ func TestAuthMiddleware_EmptyUsername(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("GET", "/uploads", nil)
-	req.SetBasicAuth("", "secret123")
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
+	req.SetBasicAuth("", testPassword)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -367,7 +363,7 @@ func TestAuthMiddleware_EmptyUsername(t *testing.T) {
 
 func TestAuthMiddleware_ColonInPassword(t *testing.T) {
 	middleware := api.AuthMiddleware(api.AuthConfig{
-		Username: "admin",
+		Username: testUsername,
 		Password: "pass:word:with:colons",
 	})
 
@@ -377,22 +373,24 @@ func TestAuthMiddleware_ColonInPassword(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("GET", "/uploads", nil)
-	req.SetBasicAuth("admin", "pass:word:with:colons")
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
+	req.SetBasicAuth(testUsername, "pass:word:with:colons")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", rec.Code)
 	}
-	if capturedUser != "admin" {
+	if capturedUser != testUsername {
 		t.Errorf("expected context user 'admin', got %q", capturedUser)
 	}
 }
 
 func TestAuthMiddleware_UnicodeCredentials(t *testing.T) {
 	middleware := api.AuthMiddleware(api.AuthConfig{
+		//nolint:gosmopolitan // test fixture: unicode credential handling
 		Username: "用户",
+		//nolint:gosmopolitan // test fixture: unicode credential handling
 		Password: "密码123!",
 	})
 
@@ -402,7 +400,8 @@ func TestAuthMiddleware_UnicodeCredentials(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("GET", "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
+	//nolint:gosmopolitan // test fixture: unicode credential handling
 	req.SetBasicAuth("用户", "密码123!")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -410,7 +409,9 @@ func TestAuthMiddleware_UnicodeCredentials(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", rec.Code)
 	}
+	//nolint:gosmopolitan // test fixture: unicode credential handling
 	if capturedUser != "用户" {
+		//nolint:gosmopolitan // test fixture: unicode credential handling
 		t.Errorf("expected context user '用户', got %q", capturedUser)
 	}
 }
@@ -421,15 +422,15 @@ func TestAuthMiddleware_UnicodeCredentials(t *testing.T) {
 
 func TestAuthMiddleware_ErrorResponseBody(t *testing.T) {
 	middleware := api.AuthMiddleware(api.AuthConfig{
-		Username: "admin",
-		Password: "secret123",
+		Username: testUsername,
+		Password: testPassword,
 	})
 
-	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := middleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Error("handler should not have been called")
 	}))
 
-	req := httptest.NewRequest("GET", "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	// Missing auth header
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -445,20 +446,20 @@ func TestAuthMiddleware_ErrorResponseBody(t *testing.T) {
 
 func TestAuthMiddleware_ContentTypeOnFailure(t *testing.T) {
 	middleware := api.AuthMiddleware(api.AuthConfig{
-		Username: "admin",
-		Password: "secret123",
+		Username: testUsername,
+		Password: testPassword,
 	})
 
-	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := middleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Error("handler should not have been called")
 	}))
 
-	req := httptest.NewRequest("GET", "/uploads", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/uploads", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
 	ct := rec.Header().Get("Content-Type")
-	if ct != "application/json" {
+	if ct != jsonContentType {
 		t.Errorf("expected Content-Type 'application/json', got %q", ct)
 	}
 }
@@ -468,6 +469,7 @@ func TestAuthMiddleware_ContentTypeOnFailure(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestAuthUserFromContext_NoAuthSet(t *testing.T) {
+	//nolint:staticcheck // intentionally passing nil to exercise the nil-context guard
 	user := api.AuthUserFromContext(nil)
 	if user != "" {
 		t.Errorf("expected empty user from nil context, got %q", user)
@@ -483,7 +485,7 @@ func TestAuthUserFromContext_BackgroundContext(t *testing.T) {
 
 func TestAuthUserFromContext_WrongContextKeyType(t *testing.T) {
 	// Using a different key type should not return a value
-	ctx := context.WithValue(context.Background(), "some-other-key", "admin")
+	ctx := context.WithValue(context.Background(), stringKey("some-other-key"), testUsername)
 	user := api.AuthUserFromContext(ctx)
 	if user != "" {
 		t.Errorf("expected empty user for wrong key type, got %q", user)

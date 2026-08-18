@@ -16,7 +16,7 @@ func TestOpen_CreatesDBDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	// Verify the directory was created
 	info, err := os.Stat(dbPath)
@@ -36,13 +36,13 @@ func TestOpen_SecondOpenOnSamePathSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Open failed: %v", err)
 	}
-	s1.Close()
+	_ = s1.Close()
 
 	s2, err := store.Open(dbPath)
 	if err != nil {
 		t.Fatalf("second Open on same path failed: %v", err)
 	}
-	s2.Close()
+	_ = s2.Close()
 }
 
 func TestOpen_ReturnsStoreOnSuccess(t *testing.T) {
@@ -53,7 +53,7 @@ func TestOpen_ReturnsStoreOnSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	if s.DB() == nil {
 		t.Fatal("expected non-nil DB from Store")

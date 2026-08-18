@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+#
+# files-nest pre-commit hook: lint the Go server when staged changes touch it.
+#
+# The hook is a no-op unless at least one staged file lives under server/.
+# When server/ files ARE staged, it lints the whole module (not just the
+# staged hunks) with the strict config in server/.golangci.yml and blocks the
+# commit on any violation.
+#
+# Install once per clone, from the repo root:
+#   git config core.hooksPath .githooks
+
+set -u
+
+# Fail closed if the linter is missing — never silently skip the gate.
+if ! command -v golangci-lint >/dev/null 2>&1; then
+  printf '%s\n' \
+    'ERROR: golangci-lint was not found on your PATH.' \
+    '' \
+    'This pre-commit hook requires golangci-lint v2+ to lint the Go server.' \
+    'Install it (e.g. "brew install golangci-lint" on macOS, or the official' \
+    'installer script) and make sure it is on your PATH, then re-run your' \
+    'commit. See server/README.md for setup details.' >&2
+  exit 1
+fi
+
+# Staged files that were Added, Copied, or Modified.
+staged="$(git diff --cached --name-only --diff-filter=ACM)"
+
+# Nothing staged under server/ — nothing for this hook to do.
+if ! printf '%s\n' "$staged" | grep -q '^server/'; then
+  exit 0
+fi
+
+printf '%s\n' 'pre-commit: staged changes under server/ — running golangci-lint (strict config)...'
+
+# Lint the whole module rather than only staged hunks: a partial `git add -p`
+# stage can leave the working tree in a state that only fails when the full
+# module is analysed, so we lint ./... to catch it before it lands.
+if ! (cd server && golangci-lint run ./...); then
+  printf '%s\n' \
+    '' \
+    'ERROR: golangci-lint reported violations in server/.' \
+    'Fix them, then re-stage and commit again:' \
+    '  cd server && make lint-fix   # auto-fix what can be fixed' \
+    '  cd server && make lint       # verify zero violations remain' >&2
+  exit 1
+fi
+
+exit 0

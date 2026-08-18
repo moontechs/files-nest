@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -82,7 +83,7 @@ func TestCompletionIntent_SaveAndGet_AllFields(t *testing.T) {
 		intent *store.CompletionIntent
 	}{
 		{
-			name: "simple id and path",
+			name:   "simple id and path",
 			intent: testIntent("intent-001"),
 		},
 		{
@@ -115,7 +116,7 @@ func TestCompletionIntent_SaveAndGet_AllFields(t *testing.T) {
 				Src:       "/tmp/src",
 				Dst:       "/tmp/dst",
 				DstRel:    "",
-				CreatedAt: "2024-01-01T00:00:00Z",
+				CreatedAt: testDate20240101,
 			},
 		},
 	}
@@ -162,7 +163,7 @@ func TestCompletionIntent_SaveAndGet_MultipleIntents(t *testing.T) {
 
 	// Save multiple intents and verify each is independently retrievable
 	intents := make([]*store.CompletionIntent, 5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		id := fmt.Sprintf("multi-intent-%d", i)
 		intent := testIntent(id)
 		intents[i] = intent
@@ -200,7 +201,7 @@ func TestCompletionIntent_Overwrite(t *testing.T) {
 		Src:       "/tmp/incoming/first",
 		Dst:       "/tmp/organized/first.jpg",
 		DstRel:    "organized/first.jpg",
-		CreatedAt: "2024-01-01T00:00:00Z",
+		CreatedAt: testDate20240101,
 	}
 	if err := s.SaveCompletionIntent(intent1); err != nil {
 		t.Fatalf("first SaveCompletionIntent failed: %v", err)
@@ -252,7 +253,7 @@ func TestCompletionIntent_GetNotFound(t *testing.T) {
 	s := openTestStore(t)
 
 	got, err := s.GetCompletionIntent("nonexistent")
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent failed: %v", err)
 	}
 	if got != nil {
@@ -274,7 +275,7 @@ func TestCompletionIntent_GetNotFound_AfterDelete(t *testing.T) {
 	}
 
 	got, err := s.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent after delete failed: %v", err)
 	}
 	if got != nil {
@@ -286,7 +287,7 @@ func TestCompletionIntent_GetNotFound_EmptyID(t *testing.T) {
 	s := openTestStore(t)
 
 	got, err := s.GetCompletionIntent("")
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent with empty ID failed: %v", err)
 	}
 	if got != nil {
@@ -320,7 +321,7 @@ func TestCompletionIntent_Delete(t *testing.T) {
 	}
 
 	got, err := s.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent after delete failed: %v", err)
 	}
 	if got != nil {
@@ -368,7 +369,7 @@ func TestCompletionIntent_Delete_DoesNotAffectOtherIntents(t *testing.T) {
 
 	// Deleted should be gone
 	got, err := s.GetCompletionIntent("delete-b")
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent delete-b failed: %v", err)
 	}
 	if got != nil {
@@ -487,7 +488,7 @@ func TestCompletionIntent_List_LargeCount(t *testing.T) {
 
 	// Save 100 intents
 	const n = 100
-	for i := 0; i < n; i++ {
+	for i := range n {
 		id := fmt.Sprintf("list-large-%d", i)
 		if err := s.SaveCompletionIntent(testIntent(id)); err != nil {
 			t.Fatalf("SaveCompletionIntent %s failed: %v", id, err)
@@ -554,7 +555,7 @@ func TestCompletionIntent_FullLifecycle(t *testing.T) {
 
 	// Step 5: Get returns nil
 	got, err = s.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("Get after delete failed: %v", err)
 	}
 	if got != nil {
@@ -588,13 +589,13 @@ func TestCompletionIntent_StoreIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open s1 failed: %v", err)
 	}
-	defer s1.Close()
+	defer func() { _ = s1.Close() }()
 
 	s2, err := store.Open(filepath.Join(dir2, "db"))
 	if err != nil {
 		t.Fatalf("Open s2 failed: %v", err)
 	}
-	defer s2.Close()
+	defer func() { _ = s2.Close() }()
 
 	// Save in s1
 	intent1 := testIntent("store-1-intent")
@@ -638,8 +639,7 @@ func TestCompletionIntent_ConcurrentSaveAndList(t *testing.T) {
 	errCh := make(chan error, n*2)
 
 	// Concurrently save intents
-	for i := 0; i < n; i++ {
-		i := i
+	for i := range n {
 		go func() {
 			id := fmt.Sprintf("concurrent-intent-%d", i)
 			errCh <- s.SaveCompletionIntent(testIntent(id))
@@ -647,15 +647,14 @@ func TestCompletionIntent_ConcurrentSaveAndList(t *testing.T) {
 	}
 
 	// Collect save results
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if err := <-errCh; err != nil {
 			t.Errorf("concurrent save %d: %v", i, err)
 		}
 	}
 
 	// Concurrently read all
-	for i := 0; i < n; i++ {
-		i := i
+	for i := range n {
 		go func() {
 			id := fmt.Sprintf("concurrent-intent-%d", i)
 			_, err := s.GetCompletionIntent(id)
@@ -663,7 +662,7 @@ func TestCompletionIntent_ConcurrentSaveAndList(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if err := <-errCh; err != nil {
 			t.Errorf("concurrent get %d: %v", i, err)
 		}
@@ -691,13 +690,13 @@ func TestCompletionIntent_ConcurrentDeleteOnSameIntent(t *testing.T) {
 	errCh := make(chan error, 5)
 
 	// 5 concurrent deletes — only one should succeed in effect, but none should error
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		go func() {
 			errCh <- s.DeleteCompletionIntent(id)
 		}()
 	}
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if err := <-errCh; err != nil {
 			t.Errorf("concurrent delete %d: %v", i, err)
 		}
@@ -705,7 +704,7 @@ func TestCompletionIntent_ConcurrentDeleteOnSameIntent(t *testing.T) {
 
 	// Intent should be gone
 	got, err := s.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent after concurrent deletes: %v", err)
 	}
 	if got != nil {

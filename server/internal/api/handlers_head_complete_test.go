@@ -1,8 +1,8 @@
 package api_test
 
 import (
-	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -16,11 +16,11 @@ import (
 // backend_lost — corrupting a successful completion.
 func TestHandleHeadUploadData_CompletedUpload(t *testing.T) {
 	h, st, _ := setupHandler(t)
-	created := createTestUpload(t, h, "HEAD-COMPLETE/L0/000", "IMG_0001.jpg", "2024-03-15T10:30:00Z")
+	created := createTestUpload(t, h, "HEAD-COMPLETE/L0/000", "IMG_0001.jpg", creationDate)
 
 	data := []byte("completed content for head test")
 	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
-		fmt.Sprintf("%d", len(data)), strings.NewReader(string(data)))
+		strconv.Itoa(len(data)), strings.NewReader(string(data)))
 	if patchRec.Code != http.StatusNoContent {
 		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
 	}

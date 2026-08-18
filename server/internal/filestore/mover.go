@@ -15,6 +15,21 @@ import (
 	"time"
 )
 
+// dirPerm is the permission mode used when creating directories in the
+// organized storage tree (owner/group read-write-execute, no world access).
+const (
+	dirPerm           = 0o750
+	maxPathSegmentLen = 200
+	unknownSegment    = "unknown"
+)
+
+// Sentinel errors for path/file operations, wrapped at the call site with
+// contextual details rather than constructed dynamically.
+var (
+	errPathEscape  = errors.New("path escapes storage root")
+	errBothMissing = errors.New("source and destination do not exist")
+)
+
 // Mover organizes completed upload files from the tusd incoming directory
 // into the date-based organized tree under the storage root path.
 //
@@ -53,30 +68,36 @@ func (m *Mover) StoragePath() string {
 // If the creation date cannot be parsed as RFC3339 or YYYY-MM-DD, the
 // raw date string is used as a single path segment under organized/ and
 // month/day default to "unknown".
-func (m *Mover) OrganizedPath(creationDate, filename string) (rel, abs string) {
+func (m *Mover) OrganizedPath(creationDate, filename string) (string, string) {
 	var year, month, day string
-	if t, err := time.Parse(time.RFC3339, creationDate); err == nil {
-		year = t.Format("2006")
-		month = t.Format("01")
-		day = t.Format("02")
-	} else if t, err := time.Parse("2006-01-02", creationDate); err == nil {
-		year = t.Format("2006")
-		month = t.Format("01")
-		day = t.Format("02")
+
+	parsed, err := time.Parse(time.RFC3339, creationDate)
+	if err == nil {
+		year = parsed.Format("2006")
+		month = parsed.Format("01")
+		day = parsed.Format("02")
 	} else {
-		// Fallback: sanitize the raw date string as a single path segment.
-		// SafePathSegment rejects traversal characters ('/', '\\', '..') so an
-		// unparseable date can never escape the organized root. An empty result
-		// (empty or unsafe input) is left empty so filepath.Join collapses it,
-		// preserving the organized/unknown/unknown/<file> layout for empty dates.
-		year = SafePathSegment(creationDate)
-		month = "unknown"
-		day = "unknown"
+		parsed, err = time.Parse("2006-01-02", creationDate)
+		if err == nil {
+			year = parsed.Format("2006")
+			month = parsed.Format("01")
+			day = parsed.Format("02")
+		} else {
+			// Fallback: sanitize the raw date string as a single path segment.
+			// SafePathSegment rejects traversal characters ('/', '\\', '..') so an
+			// unparseable date can never escape the organized root. An empty result
+			// (empty or unsafe input) is left empty so filepath.Join collapses it,
+			// preserving the organized/unknown/unknown/<file> layout for empty dates.
+			year = SafePathSegment(creationDate)
+			month = unknownSegment
+			day = unknownSegment
+		}
 	}
 
-	rel = filepath.Join("organized", year, month, day, filename)
-	abs = filepath.Join(m.storagePath, rel)
-	return
+	rel := filepath.Join("organized", year, month, day, filename)
+	abs := filepath.Join(m.storagePath, rel)
+
+	return rel, abs
 }
 
 // PlanDestResult holds the planned destination paths for an upload.
@@ -115,18 +136,21 @@ func (m *Mover) RemoveOrganizedFile(organizedPath string) error {
 	// Without this check, a relative path containing ".." segments could
 	// escape the organized tree even after filepath.Join and Clean.
 	if !strings.HasPrefix(cleanAbs, cleanRoot+string(filepath.Separator)) && cleanAbs != cleanRoot {
-		return fmt.Errorf("path %q escapes storage root %q", organizedPath, m.storagePath)
+		return fmt.Errorf("%w: path %q escapes storage root %q", errPathEscape, organizedPath, m.storagePath)
 	}
 
 	m.moveMu.Lock()
 	defer m.moveMu.Unlock()
 
-	if err := os.Remove(cleanAbs); err != nil {
+	err := os.Remove(cleanAbs)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return err
+
+		return fmt.Errorf("remove organized file: %w", err)
 	}
+
 	return nil
 }
 
@@ -145,47 +169,28 @@ func (m *Mover) RemoveOrganizedFile(organizedPath string) error {
 // existing file (e.g. IMG_0001.jpg → IMG_0001_<backendID>.jpg).
 func (m *Mover) PlanDestination(creationDate, createdAt, filename, backendID string) PlanDestResult {
 	// Determine the best available date for path construction.
-	var dateToUse string
-	if creationDate != "" && isParseableDate(creationDate) {
-		dateToUse = creationDate
-	} else if createdAt != "" && isParseableDate(createdAt) {
-		dateToUse = createdAt
-	} else {
-		dateToUse = creationDate
-		if dateToUse == "" {
+	dateToUse := creationDate
+	if dateToUse == "" || !isParseableDate(dateToUse) {
+		if createdAt != "" && isParseableDate(createdAt) {
 			dateToUse = createdAt
+		} else {
+			dateToUse = creationDate
+			if dateToUse == "" {
+				dateToUse = createdAt
+			}
 		}
 	}
 
 	// Parse date into YYYY/MM/DD.
-	var year, month, day string
-	t1, err1 := time.Parse(time.RFC3339, dateToUse)
-	if err1 == nil {
-		year = t1.Format("2006")
-		month = t1.Format("01")
-		day = t1.Format("02")
-	} else {
-		t2, err2 := time.Parse("2006-01-02", dateToUse)
-		if err2 == nil {
-			year = t2.Format("2006")
-			month = t2.Format("01")
-			day = t2.Format("02")
-		} else {
-			year = SafePathSegment(dateToUse)
-			if year == "" {
-				year = "unknown"
-			}
-			month = "unknown"
-			day = "unknown"
-		}
-	}
+	year, month, day := datePathSegments(dateToUse)
 
 	rel := filepath.Join("organized", year, month, day, filename)
 	abs := filepath.Join(m.storagePath, rel)
 
 	// Collision: if a file already exists at the computed path, insert
 	// backendID before the extension to avoid overwriting.
-	if _, err := os.Stat(abs); err == nil {
+	_, err := os.Stat(abs)
+	if err == nil {
 		ext := filepath.Ext(abs)
 		base := strings.TrimSuffix(abs, ext)
 		abs = base + "_" + backendID + ext
@@ -226,6 +231,7 @@ type MoveResult struct {
 func (m *Mover) MoveFile(srcPath, creationDate, filename, backendID string) (*MoveResult, error) {
 	m.moveMu.Lock()
 	defer m.moveMu.Unlock()
+
 	plan := m.PlanDestination(creationDate, "", filename, backendID)
 
 	// Determine if deduplication occurred by comparing the final path
@@ -233,7 +239,8 @@ func (m *Mover) MoveFile(srcPath, creationDate, filename, backendID string) (*Mo
 	baseRel, _ := m.OrganizedPath(creationDate, filename)
 	deduped := plan.Rel != baseRel
 
-	if err := MoveFile(srcPath, plan.Abs); err != nil {
+	err := MoveFile(srcPath, plan.Abs)
+	if err != nil {
 		return nil, err
 	}
 
@@ -255,18 +262,25 @@ func (m *Mover) MoveFile(srcPath, creationDate, filename, backendID string) (*Mo
 //
 // If beforeMove returns an error, no move is performed and that error is
 // returned to the caller.
-func (m *Mover) PlanAndMove(src, creationDate, createdAt, filename, backendID string, beforeMove func(PlanDestResult) error) (PlanDestResult, error) {
+func (m *Mover) PlanAndMove(
+	src, creationDate, createdAt, filename, backendID string, beforeMove func(PlanDestResult) error,
+) (PlanDestResult, error) {
 	m.moveMu.Lock()
 	defer m.moveMu.Unlock()
+
 	plan := m.PlanDestination(creationDate, createdAt, filename, backendID)
 	if beforeMove != nil {
-		if err := beforeMove(plan); err != nil {
+		err := beforeMove(plan)
+		if err != nil {
 			return plan, err
 		}
 	}
-	if err := MoveFile(src, plan.Abs); err != nil {
+
+	err := MoveFile(src, plan.Abs)
+	if err != nil {
 		return plan, err
 	}
+
 	return plan, nil
 }
 
@@ -278,11 +292,14 @@ func (m *Mover) PlanAndMove(src, creationDate, createdAt, filename, backendID st
 func (m *Mover) MoveToPlaned(src string, plan PlanDestResult, beforeMove func(PlanDestResult) error) error {
 	m.moveMu.Lock()
 	defer m.moveMu.Unlock()
+
 	if beforeMove != nil {
-		if err := beforeMove(plan); err != nil {
+		err := beforeMove(plan)
+		if err != nil {
 			return err
 		}
 	}
+
 	return MoveFile(src, plan.Abs)
 }
 
@@ -295,28 +312,46 @@ func (m *Mover) MoveToPlaned(src string, plan PlanDestResult, beforeMove func(Pl
 // and dst are missing, it returns a descriptive error.
 func MoveFile(src, dst string) error {
 	// Idempotent recovery: if src is gone but dst exists, treat as already moved.
-	if _, err := os.Stat(src); os.IsNotExist(err) {
-		if _, err := os.Stat(dst); err == nil {
+	_, err := os.Stat(src)
+	if os.IsNotExist(err) {
+		_, err = os.Stat(dst)
+		if err == nil {
 			return nil
 		}
-		return fmt.Errorf("source %s does not exist and destination %s does not exist either", src, dst)
+
+		return fmt.Errorf("%w: source %s does not exist and destination %s does not exist either", errBothMissing, src, dst)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	err = os.MkdirAll(filepath.Dir(dst), dirPerm)
+	if err != nil {
 		return fmt.Errorf("create destination directory %s: %w", filepath.Dir(dst), err)
 	}
 
-	if err := os.Rename(src, dst); err != nil {
-		if errors.Is(err, syscall.EXDEV) {
-			if err := copyFile(src, dst); err != nil {
-				return fmt.Errorf("copy %s -> %s (cross-device): %w", src, dst, err)
-			}
-			if err := os.Remove(src); err != nil {
-				return fmt.Errorf("remove source %s after cross-device copy: %w", src, err)
-			}
-		} else {
-			return fmt.Errorf("rename %s -> %s: %w", src, dst, err)
-		}
+	return renameOrCopy(src, dst)
+}
+
+// renameOrCopy renames src to dst, falling back to a copy-then-delete on
+// EXDEV (cross-device link). os.Rename fails across filesystem boundaries,
+// which happens when the incoming and organized directories live on
+// different mounts; the copy fallback preserves behavior in that case.
+func renameOrCopy(src, dst string) error {
+	err := os.Rename(src, dst)
+	if err == nil {
+		return nil
+	}
+
+	if !errors.Is(err, syscall.EXDEV) {
+		return fmt.Errorf("rename %s -> %s: %w", src, dst, err)
+	}
+
+	err = copyFile(src, dst)
+	if err != nil {
+		return fmt.Errorf("copy %s -> %s (cross-device): %w", src, dst, err)
+	}
+
+	err = os.Remove(src)
+	if err != nil {
+		return fmt.Errorf("remove source %s after cross-device copy: %w", src, err)
 	}
 
 	return nil
@@ -334,12 +369,15 @@ func MoveFile(src, dst string) error {
 // (which can surface a deferred write error from the kernel) before
 // reporting success.
 func copyFile(src, dst string) error {
+	//nolint:gosec // src/dst are built from sanitized components (SafeID,
+	// SanitizeFilename, SafePathSegment) or server-generated tusd paths, never raw user input
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("open source: %w", err)
 	}
-	defer srcFile.Close()
+	defer func() { _ = srcFile.Close() }()
 
+	//nolint:gosec // dst is a sanitized organized-tree path computed by PlanDestination
 	dstFile, err := os.Create(dst)
 	if err != nil {
 		return fmt.Errorf("create destination: %w", err)
@@ -348,15 +386,22 @@ func copyFile(src, dst string) error {
 	// Copy data, flush it to disk, then close while surfacing any deferred
 	// write error. A bare `defer dstFile.Close()` would swallow Close errors
 	// that indicate the data did not reach stable storage.
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		dstFile.Close()
+	_, err = io.Copy(dstFile, srcFile)
+	if err != nil {
+		_ = dstFile.Close()
+
 		return fmt.Errorf("copy data: %w", err)
 	}
-	if err := dstFile.Sync(); err != nil {
-		dstFile.Close()
+
+	err = dstFile.Sync()
+	if err != nil {
+		_ = dstFile.Close()
+
 		return fmt.Errorf("sync destination: %w", err)
 	}
-	if err := dstFile.Close(); err != nil {
+
+	err = dstFile.Close()
+	if err != nil {
 		return fmt.Errorf("close destination: %w", err)
 	}
 
@@ -365,26 +410,53 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("stat source after copy: %w", err)
 	}
-	if err := os.Chmod(dst, srcInfo.Mode()); err != nil {
+
+	err = os.Chmod(dst, srcInfo.Mode())
+	if err != nil {
 		return fmt.Errorf("chmod destination: %w", err)
 	}
 
 	return nil
 }
 
+// datePathSegments converts a date string into the YYYY/MM/DD path segments
+// used by the organized tree. RFC3339 and YYYY-MM-DD values are parsed into
+// their calendar components; anything else falls back to a sanitized single
+// segment with "unknown" month/day placeholders.
+func datePathSegments(dateToUse string) (string, string, string) {
+	t1, err1 := time.Parse(time.RFC3339, dateToUse)
+	if err1 == nil {
+		return t1.Format("2006"), t1.Format("01"), t1.Format("02")
+	}
+
+	t2, err2 := time.Parse("2006-01-02", dateToUse)
+	if err2 == nil {
+		return t2.Format("2006"), t2.Format("01"), t2.Format("02")
+	}
+
+	year := SafePathSegment(dateToUse)
+	if year == "" {
+		year = unknownSegment
+	}
+
+	return year, unknownSegment, unknownSegment
+}
+
 // isParseableDate checks whether a string can be parsed as a standard date
 // format (RFC3339 or YYYY-MM-DD).
-func isParseableDate(s string) bool {
-	if s == "" {
+func isParseableDate(value string) bool {
+	if value == "" {
 		return false
 	}
-	if _, err := time.Parse(time.RFC3339, s); err == nil {
+
+	_, err := time.Parse(time.RFC3339, value)
+	if err == nil {
 		return true
 	}
-	if _, err := time.Parse("2006-01-02", s); err == nil {
-		return true
-	}
-	return false
+
+	_, err = time.Parse("2006-01-02", value)
+
+	return err == nil
 }
 
 // SafePathSegment converts an arbitrary string into a single path-safe path
@@ -402,32 +474,38 @@ func isParseableDate(s string) bool {
 //   - truncates to 200 bytes (well under common FS name limits).
 //
 // It returns empty string if the result is empty or unsafe.
-func SafePathSegment(s string) string {
-	if s == "" {
+func SafePathSegment(value string) string {
+	if value == "" {
 		return ""
 	}
-	var b strings.Builder
-	for _, r := range s {
+
+	var builder strings.Builder
+
+	for _, r := range value {
 		switch r {
 		case '/', '\\':
-			b.WriteRune('_')
+			builder.WriteRune('_')
 		case '.', ' ':
 			// keep; handled by trimming below
-			b.WriteRune(r)
+			builder.WriteRune(r)
 		default:
 			if r < 32 || r == 0 {
 				continue
 			}
-			b.WriteRune(r)
+
+			builder.WriteRune(r)
 		}
 	}
-	out := strings.Trim(b.String(), ". _")
+
+	out := strings.Trim(builder.String(), ". _")
 	if out == "" || out == "." || out == ".." {
 		return ""
 	}
-	if len(out) > 200 {
-		out = out[:200]
+
+	if len(out) > maxPathSegmentLen {
+		out = out[:maxPathSegmentLen]
 		out = strings.TrimRight(out, ". _")
 	}
+
 	return out
 }

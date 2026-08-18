@@ -10,9 +10,10 @@ package uploadbackend_test
 
 import (
 	"bytes"
+	"context"
+	"crypto/rand"
 	"errors"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -30,10 +31,10 @@ import (
 // setupHandler creates a tusd routed handler backed by a real FileStore +
 // MemoryLocker against a temp directory. Returns the handler, the store path,
 // and a cleanup function.
-func setupHandler(t *testing.T) (h http.Handler, storePath string, cleanup func()) {
+func setupHandler(t *testing.T) (http.Handler, string) {
 	t.Helper()
 
-	storePath = t.TempDir()
+	storePath := t.TempDir()
 
 	fs := filestore.New(storePath)
 	ml := memorylocker.New()
@@ -51,7 +52,7 @@ func setupHandler(t *testing.T) (h http.Handler, storePath string, cleanup func(
 		t.Fatalf("failed to create tusd handler: %v", err)
 	}
 
-	return handlerInstance, storePath, func() {}
+	return handlerInstance, storePath
 }
 
 // httpDo is a convenience that sends an HTTP request to the test server and
@@ -62,7 +63,6 @@ func httpDo(t *testing.T, srv *httptest.Server, req *http.Request) *http.Respons
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	t.Cleanup(func() { resp.Body.Close() })
 	return resp
 }
 
@@ -84,18 +84,19 @@ func readAll(t *testing.T, r io.Reader) string {
 // handler with FileStore and MemoryLocker, and that it responds to OPTIONS
 // with the expected tus extensions.
 func TestHandlerConfiguration(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
 	// OPTIONS request for protocol discovery
-	req, err := http.NewRequest("OPTIONS", srv.URL+"/", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodOptions, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Tus-Resumable", "1.0.0")
 
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("OPTIONS returned %d, want 200", resp.StatusCode)
@@ -128,12 +129,12 @@ func TestHandlerConfiguration(t *testing.T) {
 // TestUploadCreation verifies that POST creates an upload and returns a 201
 // with a Location header pointing to the new resource.
 func TestUploadCreation(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
 	body := bytes.NewReader(nil)
-	req, err := http.NewRequest("POST", srv.URL+"/", body)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/", body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,6 +142,7 @@ func TestUploadCreation(t *testing.T) {
 	req.Header.Set("Upload-Length", "100")
 
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST returned %d, want 201", resp.StatusCode)
@@ -158,11 +160,11 @@ func TestUploadCreation(t *testing.T) {
 // TestUploadCreationWithMetadata verifies that Upload-Metadata is preserved
 // and accessible via the HEAD response.
 func TestUploadCreationWithMetadata(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,6 +173,7 @@ func TestUploadCreationWithMetadata(t *testing.T) {
 	req.Header.Set("Upload-Metadata", "filename aW1nXzEyMzQuanBn,filetype aW1hZ2UvanBlZw==")
 
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST returned %d, want 201: %s", resp.StatusCode, readAll(t, resp.Body))
@@ -182,13 +185,14 @@ func TestUploadCreationWithMetadata(t *testing.T) {
 	}
 
 	// HEAD the new resource and verify metadata is preserved
-	headReq, err := http.NewRequest("HEAD", location, nil)
+	headReq, err := http.NewRequestWithContext(context.Background(), http.MethodHead, location, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	headReq.Header.Set("Tus-Resumable", "1.0.0")
 
 	headResp := httpDo(t, srv, headReq)
+	defer func() { _ = headResp.Body.Close() }()
 
 	if headResp.StatusCode != http.StatusOK {
 		t.Fatalf("HEAD returned %d, want 200: %s", headResp.StatusCode, readAll(t, headResp.Body))
@@ -210,12 +214,12 @@ func TestUploadCreationWithMetadata(t *testing.T) {
 // TestUploadInfo verifies that HEAD returns Upload-Offset, Upload-Length, and
 // related headers.
 func TestUploadInfo(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
 	// Create an upload
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,19 +227,21 @@ func TestUploadInfo(t *testing.T) {
 	req.Header.Set("Upload-Length", "300")
 
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST returned %d, want 201", resp.StatusCode)
 	}
 	location := resp.Header.Get("Location")
 
 	// HEAD the upload
-	headReq, err := http.NewRequest("HEAD", location, nil)
+	headReq, err := http.NewRequestWithContext(context.Background(), http.MethodHead, location, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	headReq.Header.Set("Tus-Resumable", "1.0.0")
 
 	headResp := httpDo(t, srv, headReq)
+	defer func() { _ = headResp.Body.Close() }()
 	if headResp.StatusCode != http.StatusOK {
 		t.Fatalf("HEAD returned %d, want 200: %s", headResp.StatusCode, readAll(t, headResp.Body))
 	}
@@ -274,7 +280,7 @@ func TestUploadInfo(t *testing.T) {
 // TestUploadChunkWrite verifies that PATCH writes data and returns the updated
 // Upload-Offset header.
 func TestUploadChunkWrite(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -282,7 +288,7 @@ func TestUploadChunkWrite(t *testing.T) {
 	payload := []byte("hello world, this is a test upload chunk")
 	uploadLength := len(payload)
 
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,13 +296,14 @@ func TestUploadChunkWrite(t *testing.T) {
 	req.Header.Set("Upload-Length", strconv.Itoa(uploadLength))
 
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST returned %d, want 201", resp.StatusCode)
 	}
 	location := resp.Header.Get("Location")
 
 	// PATCH: write the data
-	patchReq, err := http.NewRequest("PATCH", location, bytes.NewReader(payload))
+	patchReq, err := http.NewRequestWithContext(context.Background(), http.MethodPatch, location, bytes.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,6 +312,7 @@ func TestUploadChunkWrite(t *testing.T) {
 	patchReq.Header.Set("Content-Type", "application/offset+octet-stream")
 
 	patchResp := httpDo(t, srv, patchReq)
+	defer func() { _ = patchResp.Body.Close() }()
 	if patchResp.StatusCode != http.StatusNoContent {
 		t.Fatalf("PATCH returned %d, want 204: %s", patchResp.StatusCode, readAll(t, patchResp.Body))
 	}
@@ -320,13 +328,14 @@ func TestUploadChunkWrite(t *testing.T) {
 	}
 
 	// HEAD to verify persisted offset
-	headReq, err := http.NewRequest("HEAD", location, nil)
+	headReq, err := http.NewRequestWithContext(context.Background(), http.MethodHead, location, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	headReq.Header.Set("Tus-Resumable", "1.0.0")
 
 	headResp := httpDo(t, srv, headReq)
+	defer func() { _ = headResp.Body.Close() }()
 	if headResp.StatusCode != http.StatusOK {
 		t.Fatalf("HEAD returned %d, want 200: %s", headResp.StatusCode, readAll(t, headResp.Body))
 	}
@@ -344,18 +353,19 @@ func TestUploadChunkWrite(t *testing.T) {
 // TestUploadChunkWriteIncremental verifies that multiple PATCH requests can
 // incrementally upload a file.
 func TestUploadChunkWriteIncremental(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
 	totalLength := 50
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Tus-Resumable", "1.0.0")
 	req.Header.Set("Upload-Length", strconv.Itoa(totalLength))
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST returned %d, want 201", resp.StatusCode)
 	}
@@ -363,7 +373,7 @@ func TestUploadChunkWriteIncremental(t *testing.T) {
 
 	// Write first 20 bytes
 	chunk1 := []byte("aaaaaaaaaaaaaaaaaaaa")
-	patchReq, err := http.NewRequest("PATCH", location, bytes.NewReader(chunk1))
+	patchReq, err := http.NewRequestWithContext(context.Background(), http.MethodPatch, location, bytes.NewReader(chunk1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,6 +381,7 @@ func TestUploadChunkWriteIncremental(t *testing.T) {
 	patchReq.Header.Set("Upload-Offset", "0")
 	patchReq.Header.Set("Content-Type", "application/offset+octet-stream")
 	patchResp := httpDo(t, srv, patchReq)
+	defer func() { _ = patchResp.Body.Close() }()
 	if patchResp.StatusCode != http.StatusNoContent {
 		t.Fatalf("PATCH1 returned %d, want 204", patchResp.StatusCode)
 	}
@@ -381,7 +392,7 @@ func TestUploadChunkWriteIncremental(t *testing.T) {
 
 	// Write remaining 30 bytes
 	chunk2 := []byte("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
-	patchReq2, err := http.NewRequest("PATCH", location, bytes.NewReader(chunk2))
+	patchReq2, err := http.NewRequestWithContext(context.Background(), http.MethodPatch, location, bytes.NewReader(chunk2))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,6 +400,7 @@ func TestUploadChunkWriteIncremental(t *testing.T) {
 	patchReq2.Header.Set("Upload-Offset", "20")
 	patchReq2.Header.Set("Content-Type", "application/offset+octet-stream")
 	patchResp2 := httpDo(t, srv, patchReq2)
+	defer func() { _ = patchResp2.Body.Close() }()
 	if patchResp2.StatusCode != http.StatusNoContent {
 		t.Fatalf("PATCH2 returned %d, want 204", patchResp2.StatusCode)
 	}
@@ -405,19 +417,20 @@ func TestUploadChunkWriteIncremental(t *testing.T) {
 // TestFilePathResolution verifies that the filestore creates actual files on
 // disk and that the Storage map in FileInfo contains the expected file paths.
 func TestFilePathResolution(t *testing.T) {
-	h, storePath, _ := setupHandler(t)
+	h, storePath := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
 	// Create an upload
 	payload := []byte("file path resolution test data")
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Tus-Resumable", "1.0.0")
 	req.Header.Set("Upload-Length", strconv.Itoa(len(payload)))
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST returned %d, want 201", resp.StatusCode)
 	}
@@ -429,7 +442,7 @@ func TestFilePathResolution(t *testing.T) {
 	}
 
 	// Write data so the binary file appears on disk
-	patchReq, err := http.NewRequest("PATCH", location, bytes.NewReader(payload))
+	patchReq, err := http.NewRequestWithContext(context.Background(), http.MethodPatch, location, bytes.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,6 +450,7 @@ func TestFilePathResolution(t *testing.T) {
 	patchReq.Header.Set("Upload-Offset", "0")
 	patchReq.Header.Set("Content-Type", "application/offset+octet-stream")
 	patchResp := httpDo(t, srv, patchReq)
+	defer func() { _ = patchResp.Body.Close() }()
 	if patchResp.StatusCode != http.StatusNoContent {
 		t.Fatalf("PATCH returned %d, want 204", patchResp.StatusCode)
 	}
@@ -454,6 +468,7 @@ func TestFilePathResolution(t *testing.T) {
 	}
 
 	// Verify the binary file has the correct content
+	//nolint:gosec // test-only read of a temp-dir file, not attacker-controlled
 	content, err := os.ReadFile(binPath)
 	if err != nil {
 		t.Fatalf("failed to read binary file: %v", err)
@@ -470,18 +485,19 @@ func TestFilePathResolution(t *testing.T) {
 // TestNotFoundError verifies that tusd returns 404 (handler.ErrNotFound) for
 // HEAD and PATCH requests targeting non-existent upload IDs.
 func TestNotFoundError_Head(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
 	// HEAD a non-existent upload
-	req, err := http.NewRequest("HEAD", srv.URL+"/nonexistent-upload-id", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodHead, srv.URL+"/nonexistent-upload-id", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Tus-Resumable", "1.0.0")
 
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("HEAD nonexistent returned %d, want 404", resp.StatusCode)
 	}
@@ -491,12 +507,13 @@ func TestNotFoundError_Head(t *testing.T) {
 }
 
 func TestNotFoundError_Patch(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
 	// PATCH a non-existent upload
-	req, err := http.NewRequest("PATCH", srv.URL+"/nonexistent-upload-id", bytes.NewReader([]byte("data")))
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodPatch, srv.URL+"/nonexistent-upload-id", bytes.NewReader([]byte("data")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,6 +522,7 @@ func TestNotFoundError_Patch(t *testing.T) {
 	req.Header.Set("Content-Type", "application/offset+octet-stream")
 
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("PATCH nonexistent returned %d, want 404: %s", resp.StatusCode, readAll(t, resp.Body))
 	}
@@ -516,18 +534,19 @@ func TestNotFoundError_Patch(t *testing.T) {
 }
 
 func TestNotFoundError_Delete(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
 	// DELETE a non-existent upload
-	req, err := http.NewRequest("DELETE", srv.URL+"/nonexistent-upload-id", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodDelete, srv.URL+"/nonexistent-upload-id", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Tus-Resumable", "1.0.0")
 
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("DELETE nonexistent returned %d, want 404: %s", resp.StatusCode, readAll(t, resp.Body))
 	}
@@ -540,19 +559,20 @@ func TestNotFoundError_Delete(t *testing.T) {
 // TestUploadTerminationCleanup verifies that DELETE terminates an upload and
 // removes both the binary file and the .info file from disk.
 func TestUploadTerminationCleanup(t *testing.T) {
-	h, storePath, _ := setupHandler(t)
+	h, storePath := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
 	// Create upload and write some data
 	payload := []byte("data to be cleaned up")
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Tus-Resumable", "1.0.0")
 	req.Header.Set("Upload-Length", strconv.Itoa(len(payload)))
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST returned %d, want 201", resp.StatusCode)
 	}
@@ -560,7 +580,7 @@ func TestUploadTerminationCleanup(t *testing.T) {
 	id := filepath.Base(location)
 
 	// Write data
-	patchReq, err := http.NewRequest("PATCH", location, bytes.NewReader(payload))
+	patchReq, err := http.NewRequestWithContext(context.Background(), http.MethodPatch, location, bytes.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,6 +588,7 @@ func TestUploadTerminationCleanup(t *testing.T) {
 	patchReq.Header.Set("Upload-Offset", "0")
 	patchReq.Header.Set("Content-Type", "application/offset+octet-stream")
 	patchResp := httpDo(t, srv, patchReq)
+	defer func() { _ = patchResp.Body.Close() }()
 	if patchResp.StatusCode != http.StatusNoContent {
 		t.Fatalf("PATCH returned %d, want 204", patchResp.StatusCode)
 	}
@@ -583,13 +604,14 @@ func TestUploadTerminationCleanup(t *testing.T) {
 	}
 
 	// DELETE the upload
-	delReq, err := http.NewRequest("DELETE", location, nil)
+	delReq, err := http.NewRequestWithContext(context.Background(), http.MethodDelete, location, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	delReq.Header.Set("Tus-Resumable", "1.0.0")
 
 	delResp := httpDo(t, srv, delReq)
+	defer func() { _ = delResp.Body.Close() }()
 	if delResp.StatusCode != http.StatusNoContent {
 		t.Fatalf("DELETE returned %d, want 204: %s", delResp.StatusCode, readAll(t, delResp.Body))
 	}
@@ -603,12 +625,13 @@ func TestUploadTerminationCleanup(t *testing.T) {
 	}
 
 	// Verify HEAD on terminated upload returns 404
-	headReq, err := http.NewRequest("HEAD", location, nil)
+	headReq, err := http.NewRequestWithContext(context.Background(), http.MethodHead, location, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	headReq.Header.Set("Tus-Resumable", "1.0.0")
 	headResp := httpDo(t, srv, headReq)
+	defer func() { _ = headResp.Body.Close() }()
 	if headResp.StatusCode != http.StatusNotFound {
 		t.Errorf("HEAD after DELETE returned %d, want 404: %s", headResp.StatusCode, readAll(t, headResp.Body))
 	}
@@ -621,13 +644,15 @@ func TestUploadTerminationCleanup(t *testing.T) {
 // TestDeferredLengthUpload verifies that creating an upload with
 // Upload-Defer-Length: 1 succeeds, and that the length can be declared later
 // via the Upload-Length header in a PATCH request.
+//
+//nolint:cyclop,funlen // TUS protocol flow test; complexity/statements reflect asserted steps
 func TestDeferredLengthUpload(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
 	// Create upload with deferred length
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -635,6 +660,7 @@ func TestDeferredLengthUpload(t *testing.T) {
 	req.Header.Set("Upload-Defer-Length", "1")
 
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST (deferred) returned %d, want 201: %s", resp.StatusCode, readAll(t, resp.Body))
 	}
@@ -645,12 +671,13 @@ func TestDeferredLengthUpload(t *testing.T) {
 	}
 
 	// HEAD should report Upload-Defer-Length: 1
-	headReq, err := http.NewRequest("HEAD", location, nil)
+	headReq, err := http.NewRequestWithContext(context.Background(), http.MethodHead, location, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	headReq.Header.Set("Tus-Resumable", "1.0.0")
 	headResp := httpDo(t, srv, headReq)
+	defer func() { _ = headResp.Body.Close() }()
 	if headResp.StatusCode != http.StatusOK {
 		t.Fatalf("HEAD after deferred POST returned %d, want 200: %s", headResp.StatusCode, readAll(t, headResp.Body))
 	}
@@ -664,7 +691,7 @@ func TestDeferredLengthUpload(t *testing.T) {
 
 	// Write some data
 	payload := []byte("deferred upload data")
-	patchReq, err := http.NewRequest("PATCH", location, bytes.NewReader(payload))
+	patchReq, err := http.NewRequestWithContext(context.Background(), http.MethodPatch, location, bytes.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -674,6 +701,7 @@ func TestDeferredLengthUpload(t *testing.T) {
 	patchReq.Header.Set("Upload-Length", strconv.Itoa(len(payload)))
 
 	patchResp := httpDo(t, srv, patchReq)
+	defer func() { _ = patchResp.Body.Close() }()
 	if patchResp.StatusCode != http.StatusNoContent {
 		t.Fatalf("PATCH (declaring length) returned %d, want 204: %s", patchResp.StatusCode, readAll(t, patchResp.Body))
 	}
@@ -689,12 +717,13 @@ func TestDeferredLengthUpload(t *testing.T) {
 	}
 
 	// HEAD should now have Upload-Length set and no Upload-Defer-Length
-	headReq2, err := http.NewRequest("HEAD", location, nil)
+	headReq2, err := http.NewRequestWithContext(context.Background(), http.MethodHead, location, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	headReq2.Header.Set("Tus-Resumable", "1.0.0")
 	headResp2 := httpDo(t, srv, headReq2)
+	defer func() { _ = headResp2.Body.Close() }()
 	if headResp2.StatusCode != http.StatusOK {
 		t.Fatalf("HEAD after completion returned %d, want 200: %s", headResp2.StatusCode, readAll(t, headResp2.Body))
 	}
@@ -727,7 +756,7 @@ func TestDeferredLength_NotSupported(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -735,6 +764,7 @@ func TestDeferredLength_NotSupported(t *testing.T) {
 	req.Header.Set("Upload-Defer-Length", "1")
 
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotImplemented {
 		t.Errorf("POST with defer-length on unsupported store returned %d, want 501: %s",
 			resp.StatusCode, readAll(t, resp.Body))
@@ -754,7 +784,7 @@ func TestErrNotFoundSentinel(t *testing.T) {
 	fs := filestore.New(storePath)
 
 	// GetUpload for a non-existent ID should return handler.ErrNotFound
-	_, err := fs.GetUpload(nil, "does-not-exist")
+	_, err := fs.GetUpload(context.TODO(), "does-not-exist")
 	if err == nil {
 		t.Fatal("expected error from GetUpload for non-existent ID")
 	}
@@ -772,25 +802,27 @@ func TestErrNotFoundSentinel(t *testing.T) {
 // TestPatchMismatchedOffset verifies that PATCH with an incorrect
 // Upload-Offset returns 409 Conflict.
 func TestPatchMismatchedOffset(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
 	// Create upload
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Tus-Resumable", "1.0.0")
 	req.Header.Set("Upload-Length", "100")
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST returned %d, want 201", resp.StatusCode)
 	}
 	location := resp.Header.Get("Location")
 
 	// PATCH with wrong offset
-	patchReq, err := http.NewRequest("PATCH", location, bytes.NewReader([]byte("data")))
+	patchReq, err := http.NewRequestWithContext(
+		context.Background(), http.MethodPatch, location, bytes.NewReader([]byte("data")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -799,6 +831,7 @@ func TestPatchMismatchedOffset(t *testing.T) {
 	patchReq.Header.Set("Content-Type", "application/offset+octet-stream")
 
 	patchResp := httpDo(t, srv, patchReq)
+	defer func() { _ = patchResp.Body.Close() }()
 	if patchResp.StatusCode != http.StatusConflict {
 		t.Errorf("PATCH with mismatched offset returned %d, want 409: %s",
 			patchResp.StatusCode, readAll(t, patchResp.Body))
@@ -821,7 +854,9 @@ func TestFileStoreUsesTerminater(t *testing.T) {
 	if !composer.UsesTerminater {
 		t.Fatal("FileStore should register as TerminaterDataStore via UseIn")
 	}
+	//nolint:misspell // Terminater is the upstream tusd API name, not a typo
 	if composer.Terminater == nil {
+		//nolint:misspell // Terminater is the upstream tusd API name, not a typo
 		t.Fatal("Terminater should be non-nil after UseIn")
 	}
 }
@@ -845,7 +880,7 @@ func TestPreUploadCreateCallback(t *testing.T) {
 	h, err := handler.NewHandler(handler.Config{
 		StoreComposer: composer,
 		BasePath:      "/",
-		PreUploadCreateCallback: func(event handler.HookEvent) (handler.HTTPResponse, handler.FileInfoChanges, error) {
+		PreUploadCreateCallback: func(_ handler.HookEvent) (handler.HTTPResponse, handler.FileInfoChanges, error) {
 			// Override the upload ID and metadata
 			changes := handler.FileInfoChanges{
 				ID: "my-custom-id-42",
@@ -863,7 +898,7 @@ func TestPreUploadCreateCallback(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -872,6 +907,7 @@ func TestPreUploadCreateCallback(t *testing.T) {
 	req.Header.Set("Upload-Metadata", "original meta b3JpZ2luYWw=")
 
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST returned %d, want 201: %s", resp.StatusCode, readAll(t, resp.Body))
 	}
@@ -882,12 +918,13 @@ func TestPreUploadCreateCallback(t *testing.T) {
 	}
 
 	// HEAD the upload and verify overridden metadata
-	headReq, err := http.NewRequest("HEAD", location, nil)
+	headReq, err := http.NewRequestWithContext(context.Background(), http.MethodHead, location, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	headReq.Header.Set("Tus-Resumable", "1.0.0")
 	headResp := httpDo(t, srv, headReq)
+	defer func() { _ = headResp.Body.Close() }()
 	if headResp.StatusCode != http.StatusOK {
 		t.Fatalf("HEAD returned %d, want 200: %s", headResp.StatusCode, readAll(t, headResp.Body))
 	}
@@ -934,7 +971,7 @@ func TestNotifyCompleteUploads(t *testing.T) {
 	defer srv.Close()
 
 	// Create upload with 0 bytes (immediately complete)
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -942,6 +979,7 @@ func TestNotifyCompleteUploads(t *testing.T) {
 	req.Header.Set("Upload-Length", "0")
 
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST returned %d, want 201: %s", resp.StatusCode, readAll(t, resp.Body))
 	}
@@ -955,7 +993,7 @@ func TestNotifyCompleteUploads(t *testing.T) {
 		if event.Upload.Offset != 0 {
 			t.Errorf("completed upload Offset = %d, want 0", event.Upload.Offset)
 		}
-		if event.HTTPRequest.Method != "POST" {
+		if event.HTTPRequest.Method != http.MethodPost {
 			t.Errorf("event HTTP method = %q, want %q", event.HTTPRequest.Method, "POST")
 		}
 	case <-time.After(5 * time.Second):
@@ -970,7 +1008,7 @@ func TestNotifyCompleteUploads(t *testing.T) {
 // TestLargeUploadStress writes a larger payload to exercise the filestore and
 // verify that offset tracking works correctly for multi-kilobyte uploads.
 func TestLargeUploadStress(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -982,20 +1020,21 @@ func TestLargeUploadStress(t *testing.T) {
 	}
 
 	// Create
-	req, err := http.NewRequest("POST", srv.URL+"/", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Tus-Resumable", "1.0.0")
 	req.Header.Set("Upload-Length", strconv.Itoa(size))
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST returned %d, want 201", resp.StatusCode)
 	}
 	location := resp.Header.Get("Location")
 
 	// Upload in a single PATCH
-	patchReq, err := http.NewRequest("PATCH", location, bytes.NewReader(payload))
+	patchReq, err := http.NewRequestWithContext(context.Background(), http.MethodPatch, location, bytes.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1004,6 +1043,7 @@ func TestLargeUploadStress(t *testing.T) {
 	patchReq.Header.Set("Content-Type", "application/offset+octet-stream")
 
 	patchResp := httpDo(t, srv, patchReq)
+	defer func() { _ = patchResp.Body.Close() }()
 	if patchResp.StatusCode != http.StatusNoContent {
 		t.Fatalf("PATCH returned %d, want 204: %s", patchResp.StatusCode, readAll(t, patchResp.Body))
 	}
@@ -1025,17 +1065,18 @@ func TestLargeUploadStress(t *testing.T) {
 // TestGetFileNotFound verifies GET on a non-existent upload returns 404 when
 // download is enabled.
 func TestGetFileNotFound(t *testing.T) {
-	h, _, _ := setupHandler(t)
+	h, _ := setupHandler(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	req, err := http.NewRequest("GET", srv.URL+"/nonexistent-upload-id", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/nonexistent-upload-id", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Tus-Resumable", "1.0.0")
 
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("GET nonexistent returned %d, want 404: %s", resp.StatusCode, readAll(t, resp.Body))
 	}
@@ -1057,9 +1098,9 @@ func TestDisableTermination(t *testing.T) {
 	ml.UseIn(composer)
 
 	h, err := handler.NewHandler(handler.Config{
-		StoreComposer:       composer,
-		BasePath:            "/",
-		DisableTermination:  true,
+		StoreComposer:      composer,
+		BasePath:           "/",
+		DisableTermination: true,
 	})
 	if err != nil {
 		t.Fatalf("failed to create handler with DisableTermination: %v", err)
@@ -1068,13 +1109,14 @@ func TestDisableTermination(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	req, err := http.NewRequest("DELETE", srv.URL+"/some-id", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodDelete, srv.URL+"/some-id", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Tus-Resumable", "1.0.0")
 
 	resp := httpDo(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("DELETE with DisableTermination returned %d, want 405: %s",
 			resp.StatusCode, readAll(t, resp.Body))

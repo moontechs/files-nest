@@ -15,7 +15,9 @@ type IndexEntry struct {
 //
 // For a Create operation, only WriteEntries is called.
 // For an UpdateStatus operation, DeleteEntries is called with the old record
-//   state, then WriteEntries is called with the new record state.
+//
+//	state, then WriteEntries is called with the new record state.
+//
 // For a Delete operation, only DeleteEntries is called.
 type index interface {
 	// WriteEntries returns index entries that should exist for the given upload.
@@ -46,19 +48,21 @@ func newIndexRegistry() *indexRegistry {
 
 // writeEntries collects all index entries to create for the given upload.
 func (r *indexRegistry) writeEntries(upload *Upload) []IndexEntry {
-	var entries []IndexEntry
+	entries := make([]IndexEntry, 0, len(r.indexes))
 	for _, idx := range r.indexes {
 		entries = append(entries, idx.WriteEntries(upload)...)
 	}
+
 	return entries
 }
 
 // deleteEntries collects all index entries to remove for the given upload.
 func (r *indexRegistry) deleteEntries(upload *Upload) []IndexEntry {
-	var entries []IndexEntry
+	entries := make([]IndexEntry, 0, len(r.indexes))
 	for _, idx := range r.indexes {
 		entries = append(entries, idx.DeleteEntries(upload)...)
 	}
+
 	return entries
 }
 
@@ -75,7 +79,9 @@ func (d *dateIndex) WriteEntries(upload *Upload) []IndexEntry {
 	if len(date) >= 10 {
 		date = date[:10]
 	}
+
 	key := []byte("idx/date/" + date + "/" + upload.ID)
+
 	return []IndexEntry{{Key: key, Value: []byte(upload.CreationDate)}}
 }
 
@@ -93,6 +99,7 @@ type statusIndex struct{}
 
 func (s *statusIndex) WriteEntries(upload *Upload) []IndexEntry {
 	key := []byte("idx/status/" + string(upload.Status) + "/" + upload.ID)
+
 	return []IndexEntry{{Key: key, Value: []byte(upload.BackendID)}}
 }
 
@@ -111,6 +118,7 @@ type localIndex struct{}
 func (l *localIndex) WriteEntries(upload *Upload) []IndexEntry {
 	enc := base64.RawURLEncoding.EncodeToString([]byte(upload.LocalIdentifier))
 	key := []byte("idx/local/" + enc)
+
 	return []IndexEntry{{Key: key, Value: []byte(upload.ID)}}
 }
 
@@ -128,6 +136,7 @@ type backendIndex struct{}
 
 func (b *backendIndex) WriteEntries(upload *Upload) []IndexEntry {
 	key := []byte("idx/backend/" + upload.BackendID)
+
 	return []IndexEntry{{Key: key, Value: []byte(upload.ID)}}
 }
 
@@ -153,6 +162,7 @@ func completionIntentKey(id string) []byte {
 // used to look up whether an upload already exists for a localIdentifier.
 func localIndexKey(localIdentifier string) []byte {
 	enc := base64.RawURLEncoding.EncodeToString([]byte(localIdentifier))
+
 	return []byte("idx/local/" + enc)
 }
 

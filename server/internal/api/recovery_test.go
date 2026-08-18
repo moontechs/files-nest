@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -29,7 +30,7 @@ func setupRecovery(t *testing.T) (*api.Recoverer, *store.Store, string, *uploadb
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() { _ = st.Close() })
 
 	// Create tusd backend (incoming/ is created inside storageDir)
 	bh, err := uploadbackend.New(storageDir)
@@ -65,10 +66,10 @@ func createIntent(id, src, dst, dstRel, backendID string) *store.CompletionInten
 func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatalf("MkdirAll %s: %v", dir, err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("WriteFile %s: %v", path, err)
 	}
 }
@@ -76,6 +77,7 @@ func writeTestFile(t *testing.T, path, content string) {
 // fileContent reads the content of a file, failing the test on error.
 func fileContent(t *testing.T, path string) string {
 	t.Helper()
+	//nolint:gosec // test-only read of a temp-dir file, not attacker-controlled
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile %s: %v", path, err)
@@ -97,6 +99,7 @@ func fileExists(path string) bool {
 // ---------------------------------------------------------------------------
 
 func TestRecover_NoIntents(t *testing.T) {
+	//nolint:dogsled // test only needs the Recoverer; other fixtures are intentionally ignored
 	rec, _, _, _ := setupRecovery(t)
 
 	// Should not error when there are no intents.
@@ -134,7 +137,7 @@ func TestRecover_Intent_AlreadyMoved(t *testing.T) {
 		Status:          store.StatusUploading,
 		BackendID:       backendID,
 		Filename:        "IMG_0001.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -161,7 +164,7 @@ func TestRecover_Intent_AlreadyMoved(t *testing.T) {
 
 	// Verify the completion intent was deleted.
 	intentCheck, err := st.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent after recovery: %v", err)
 	}
 	if intentCheck != nil {
@@ -204,7 +207,7 @@ func TestRecover_Intent_NotYetMoved(t *testing.T) {
 		Status:          store.StatusUploading,
 		BackendID:       backendID,
 		Filename:        "IMG_0002.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -244,7 +247,7 @@ func TestRecover_Intent_NotYetMoved(t *testing.T) {
 
 	// Verify the intent was deleted.
 	intentCheck, err := st.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent: %v", err)
 	}
 	if intentCheck != nil {
@@ -280,7 +283,7 @@ func TestRecover_Intent_BothExist(t *testing.T) {
 		Status:          store.StatusUploading,
 		BackendID:       backendID,
 		Filename:        "IMG_0003.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -314,7 +317,7 @@ func TestRecover_Intent_BothExist(t *testing.T) {
 
 	// Verify the intent was deleted.
 	intentCheck, err := st.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent: %v", err)
 	}
 	if intentCheck != nil {
@@ -349,7 +352,7 @@ func TestRecover_Intent_AlreadyComplete(t *testing.T) {
 		Status:          store.StatusComplete,
 		BackendID:       backendID,
 		Filename:        "IMG_0011.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 		OrganizedPath:   dstRel,
@@ -377,7 +380,7 @@ func TestRecover_Intent_AlreadyComplete(t *testing.T) {
 
 	// Verify the stale intent was deleted.
 	intentCheck, err := st.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent: %v", err)
 	}
 	if intentCheck != nil {
@@ -417,7 +420,7 @@ func TestRecover_Intent_DataLost(t *testing.T) {
 		Status:          originalStatus,
 		BackendID:       backendID,
 		Filename:        "IMG_0004.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -478,7 +481,7 @@ func TestRecover_Intent_UploadRecordDeleted(t *testing.T) {
 
 	// Verify the intent was deleted (cleaned up orphan).
 	intentCheck, err := st.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent: %v", err)
 	}
 	if intentCheck != nil {
@@ -499,20 +502,20 @@ func TestRecover_Intent_WithTusdCleanup(t *testing.T) {
 	rec, st, storageDir, bh := setupRecovery(t)
 
 	// Create a real tusd upload to generate an .info sidecar.
-	backendID, err := bh.CreateUpload("filename " + "aW1nXzAwMDEuanBn")
+	backendID, err := bh.CreateUpload(context.Background(), "filename "+"aW1nXzAwMDEuanBn")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
 
 	// Write some data to the upload so there's a binary file.
 	data := []byte("test content for tusd cleanup recovery")
-	_, err = bh.ForwardPatch(backendID, strings.NewReader(string(data)), 0, "")
+	_, err = bh.ForwardPatch(context.Background(), backendID, strings.NewReader(string(data)), 0, "")
 	if err != nil {
 		t.Fatalf("ForwardPatch: %v", err)
 	}
 
 	// Get the file path to use as src in the intent.
-	srcPath, err := bh.FilePath(backendID)
+	srcPath, err := bh.FilePath(context.Background(), backendID)
 	if err != nil {
 		t.Fatalf("FilePath: %v", err)
 	}
@@ -540,7 +543,7 @@ func TestRecover_Intent_WithTusdCleanup(t *testing.T) {
 		Status:          store.StatusUploading,
 		BackendID:       backendID,
 		Filename:        "IMG_0006.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -563,7 +566,7 @@ func TestRecover_Intent_WithTusdCleanup(t *testing.T) {
 	}
 
 	// Verify the tusd backend was cleaned up (.info sidecar removed).
-	_, err = bh.GetInfo(backendID)
+	_, err = bh.GetInfo(context.Background(), backendID)
 	if !errors.Is(err, uploadbackend.ErrNotFound) {
 		t.Errorf("expected backend to be cleaned up, got %v", err)
 	}
@@ -573,6 +576,7 @@ func TestRecover_Intent_WithTusdCleanup(t *testing.T) {
 // Multiple intents
 // ---------------------------------------------------------------------------
 
+//nolint:cyclop,gocognit // table-driven recovery test; complexity reflects per-scenario coverage
 func TestRecover_MultipleIntents(t *testing.T) {
 	rec, st, storageDir, _ := setupRecovery(t)
 
@@ -585,9 +589,9 @@ func TestRecover_MultipleIntents(t *testing.T) {
 		backendID string
 		state     string // "moved", "not-moved", "lost"
 	}{
-		{"multi-001", "tusd-multi-001", "moved"},
-		{"multi-002", "tusd-multi-002", "not-moved"},
-		{"multi-003", "tusd-multi-003", "lost"},
+		{"multi-001", "tusd-multi-001", statusMoved},
+		{"multi-002", "tusd-multi-002", statusNotMoved},
+		{"multi-003", "tusd-multi-003", statusLost},
 	}
 
 	for _, it := range intents {
@@ -596,11 +600,11 @@ func TestRecover_MultipleIntents(t *testing.T) {
 		src := filepath.Join(storageDir, "incoming", it.backendID)
 
 		switch it.state {
-		case "moved":
+		case statusMoved:
 			writeTestFile(t, dst, "content "+it.id)
-		case "not-moved":
+		case statusNotMoved:
 			writeTestFile(t, src, "content "+it.id)
-		case "lost":
+		case statusLost:
 			// No files created.
 		}
 
@@ -613,7 +617,7 @@ func TestRecover_MultipleIntents(t *testing.T) {
 			Status:          store.StatusUploading,
 			BackendID:       it.backendID,
 			Filename:        it.id + ".jpg",
-			CreationDate:    "2024-03-15T10:30:00Z",
+			CreationDate:    creationDate,
 			CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 			UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 		}
@@ -635,11 +639,11 @@ func TestRecover_MultipleIntents(t *testing.T) {
 		}
 
 		switch it.state {
-		case "moved", "not-moved":
+		case statusMoved, statusNotMoved:
 			if got.Status != store.StatusComplete {
 				t.Errorf("intent %s: expected status complete, got %q", it.id, got.Status)
 			}
-		case "lost":
+		case statusLost:
 			// Data-lost records are left unchanged for manual repair.
 			if got.Status != store.StatusUploading {
 				t.Errorf("intent %s: expected status to remain uploading, got %q", it.id, got.Status)
@@ -648,15 +652,18 @@ func TestRecover_MultipleIntents(t *testing.T) {
 
 		// Verify intent status.
 		intentCheck, err := st.GetCompletionIntent(it.id)
-		if err != nil {
-			t.Fatalf("GetCompletionIntent %s: %v", it.id, err)
-		}
 		switch it.state {
-		case "moved", "not-moved":
+		case statusMoved, statusNotMoved:
+			if !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("GetCompletionIntent %s: %v", it.id, err)
+			}
 			if intentCheck != nil {
 				t.Errorf("intent %s should have been deleted", it.id)
 			}
-		case "lost":
+		case statusLost:
+			if err != nil {
+				t.Fatalf("GetCompletionIntent %s: %v", it.id, err)
+			}
 			if intentCheck == nil {
 				t.Errorf("intent %s should have been kept for manual repair", it.id)
 			}
@@ -681,7 +688,7 @@ func TestRecover_BackendLost(t *testing.T) {
 		Status:          store.StatusUploading,
 		BackendID:       backendID,
 		Filename:        "IMG_0007.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -708,7 +715,7 @@ func TestRecover_BackendLost_OnlyNonExistent(t *testing.T) {
 	rec, st, _, bh := setupRecovery(t)
 
 	// Create a real tusd upload so it should NOT be marked as lost.
-	realBackendID, err := bh.CreateUpload("filename " + "aW1nXzAwMDguanBn")
+	realBackendID, err := bh.CreateUpload(context.Background(), "filename "+"aW1nXzAwMDguanBn")
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
@@ -720,7 +727,7 @@ func TestRecover_BackendLost_OnlyNonExistent(t *testing.T) {
 		Status:          store.StatusUploading,
 		BackendID:       realBackendID,
 		Filename:        "IMG_0008.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -737,7 +744,7 @@ func TestRecover_BackendLost_OnlyNonExistent(t *testing.T) {
 		Status:          store.StatusUploading,
 		BackendID:       lostBackendID,
 		Filename:        "IMG_0009.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -795,7 +802,7 @@ func TestRecover_Idempotent(t *testing.T) {
 		Status:          store.StatusUploading,
 		BackendID:       backendID,
 		Filename:        "IMG_0010.jpg",
-		CreationDate:    "2024-03-15T10:30:00Z",
+		CreationDate:    creationDate,
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
@@ -822,7 +829,7 @@ func TestRecover_Idempotent(t *testing.T) {
 
 	// Verify intent was deleted after first recovery.
 	intentCheck, err := st.GetCompletionIntent(id)
-	if err != nil {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetCompletionIntent: %v", err)
 	}
 	if intentCheck != nil {
@@ -835,11 +842,10 @@ func TestRecover_Idempotent(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRecover_EmptyStore(t *testing.T) {
+	//nolint:dogsled // test only needs the Recoverer; other fixtures are intentionally ignored
 	rec, _, _, _ := setupRecovery(t)
 
 	if err := rec.Recover(); err != nil {
 		t.Fatalf("Recover on empty store: %v", err)
 	}
 }
-
-
