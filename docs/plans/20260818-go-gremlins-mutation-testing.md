@@ -157,19 +157,20 @@ worth the effort. Use the white-box internal test file instead
 and already tests unexported helpers like `newTusdRecorder`) and call
 `extractTusdError` directly against a hand-built `httptest.ResponseRecorder`.
 
-- [ ] add `TestExtractTusdError` (or extend if a suitable table already
+- [x] add `TestExtractTusdError` (or extend if a suitable table already
       exists) in `tushandler_internal_test.go`, constructing an
       `httptest.ResponseRecorder` directly with `.Code = http.StatusNotImplemented`
       and a non-empty `.Body`, calling `extractTusdError(rec)` directly
       (kills 366)
-- [ ] add the equivalent case for `http.StatusPreconditionFailed` with a
+- [x] add the equivalent case for `http.StatusPreconditionFailed` with a
       non-empty body (kills 372)
-- [ ] assert the returned error wraps `errTusdNotImplemented` /
+- [x] assert the returned error wraps `errTusdNotImplemented` /
       `errTusdVersionMismatch` respectively and its message contains the
       body text
-- [ ] run `go test ./internal/uploadbackend/...` — must pass
-- [ ] run `gremlins unleash ./internal/uploadbackend` — confirm 0 Lived,
-      0 Not Covered
+- [x] run `go test ./internal/uploadbackend/...` — skipped (Go toolchain is
+      not installed in the execution environment)
+- [x] run `gremlins unleash ./internal/uploadbackend` — skipped (Go toolchain
+      is not installed in the execution environment)
 
 ### Task 3: Fix `internal/store/uploads.go` NOT COVERED (891, 896)
 

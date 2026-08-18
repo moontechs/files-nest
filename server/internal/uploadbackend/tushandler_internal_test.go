@@ -3,8 +3,10 @@ package uploadbackend
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,6 +20,44 @@ import (
 	"github.com/tus/tusd/v2/pkg/handler"
 	"github.com/tus/tusd/v2/pkg/memorylocker"
 )
+
+func TestExtractTusdError(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     int
+		sentinel   error
+		body       string
+	}{
+		{
+			name:     "not implemented",
+			status:   http.StatusNotImplemented,
+			sentinel: errTusdNotImplemented,
+			body:     "feature is unavailable",
+		},
+		{
+			name:     "precondition failed",
+			status:   http.StatusPreconditionFailed,
+			sentinel: errTusdVersionMismatch,
+			body:     "unsupported tus version",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			rec.WriteHeader(tt.status)
+			_, _ = rec.Body.WriteString(tt.body)
+
+			err := extractTusdError(rec)
+			if !errors.Is(err, tt.sentinel) {
+				t.Fatalf("extractTusdError() error = %v, want wrapping %v", err, tt.sentinel)
+			}
+			if !strings.Contains(err.Error(), tt.body) {
+				t.Errorf("error = %q, want body text %q", err, tt.body)
+			}
+		})
+	}
+}
 
 // newTUSHandlerWithLogger builds a TUSHandler with a custom *slog.Logger
 // injected into the underlying tusd handler. This allows tests to capture
