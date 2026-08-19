@@ -7,14 +7,16 @@
 #   3. Add security headers appropriate for an upload API
 #
 # The DOMAIN environment variable is injected by docker-compose.
-# For local/LAN use, set DOMAIN=localhost (auto-HTTPS is skipped; Caddy
-# uses plain HTTP). For production, set DOMAIN to your FQDN.
+# For local/LAN use, set DOMAIN=localhost. The explicit `http://` scheme
+# disables Caddy's automatic HTTPS, so local clients do not need a TLS
+# certificate. For production, set DOMAIN to your FQDN and remove the scheme
+# to enable automatic HTTPS.
 #
 # Usage:
 #   DOMAIN=backup.example.com docker compose up -d
 # =============================================================================
 
-{$DOMAIN:localhost} {
+http://{$DOMAIN:localhost} {
     # -----------------------------------------------------------------------
     # Security headers
     # -----------------------------------------------------------------------

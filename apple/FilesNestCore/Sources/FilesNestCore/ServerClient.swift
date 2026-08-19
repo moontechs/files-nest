@@ -5,10 +5,17 @@ public struct ServerClient: Sendable {
     let credentials: any CredentialStore
     let session: URLSession
 
-    public init(baseURL: URL, credentials: any CredentialStore, session: URLSession = .shared) {
+    public init(baseURL: URL, credentials: any CredentialStore, session: URLSession? = nil) {
         self.baseURL = baseURL
         self.credentials = credentials
-        self.session = session
+        self.session = session ?? Self.makeNonPersistentSession()
+    }
+
+    private static func makeNonPersistentSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: configuration)
     }
 
     // MARK: URL construction (client-side; server's upload_url is ignored)

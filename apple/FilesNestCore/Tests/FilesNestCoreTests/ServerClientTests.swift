@@ -7,6 +7,14 @@ struct FakeCredentialStore: CredentialStore {
     func basicCredentials() async throws -> BasicCredentials? { creds }
 }
 
+@Test func defaultSessionDoesNotCacheResponsesOrRedirects() {
+    let client = ServerClient(baseURL: URL(string: "https://h.test")!,
+                              credentials: FakeCredentialStore(creds: nil))
+
+    #expect(client.session.configuration.urlCache == nil)
+    #expect(client.session.configuration.requestCachePolicy == .reloadIgnoringLocalCacheData)
+}
+
 @Test func fakeCredentialStoreReturnsValue() async throws {
     let store = FakeCredentialStore(creds: .init(username: "u", password: "p"))
     #expect(try await store.basicCredentials() == .init(username: "u", password: "p"))
