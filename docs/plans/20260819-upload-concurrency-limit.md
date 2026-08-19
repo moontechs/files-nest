@@ -78,11 +78,11 @@ A `ConcurrencyLimiter` (buffered-channel semaphore) wraps only the `PATCH /uploa
 **Files:**
 - Modify: `server/internal/api/router.go`
 
-- [ ] register `GET /config` in `NewRouter`, authenticated (`auth(...)`, same as all routes except `/health`), as an inline closure matching the existing `/health` closure style
-- [ ] handler encodes `{"maxConcurrentUploads": limiter.Cap()}` as JSON with `Content-Type: application/json`
-- [ ] write test: `GET /config` (authenticated) returns `200` with the configured `maxConcurrentUploads` value matching the limiter passed to `NewRouter`
-- [ ] write test: `GET /config` without credentials returns `401` (consistent with other authenticated routes) when auth is configured
-- [ ] run tests - must pass before task 4
+- [x] register `GET /config` in `NewRouter`, authenticated (`auth(...)`, same as all routes except `/health`), as an inline closure matching the existing `/health` closure style
+- [x] handler encodes `{"maxConcurrentUploads": limiter.Cap()}` as JSON with `Content-Type: application/json`
+- [x] write test: `GET /config` (authenticated) returns `200` with the configured `maxConcurrentUploads` value matching the limiter passed to `NewRouter`
+- [x] write test: `GET /config` without credentials returns `401` (consistent with other authenticated routes) when auth is configured
+- [x] run tests - must pass before task 4
 
 ### Task 4: Run mutation testing on new/changed code and strengthen unit tests
 

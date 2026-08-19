@@ -36,6 +36,14 @@ func NewRouter(handler *Handler, authCfg AuthConfig, limiter *ConcurrencyLimiter
 	// Auth middleware wrapping all API routes.
 	auth := AuthMiddleware(authCfg)
 
+	// Read-only server configuration, exposed so clients can discover the
+	// concurrency limit before issuing parallel uploads.
+	mux.Handle("GET /config", auth(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"maxConcurrentUploads":` + strconv.Itoa(limiter.Cap()) + `}`))
+	})))
+
 	// Upload management endpoints.
 	mux.Handle("POST /uploads", auth(http.HandlerFunc(handler.HandleCreateUpload)))
 	mux.Handle("GET /uploads", auth(http.HandlerFunc(handler.HandleListUploads)))

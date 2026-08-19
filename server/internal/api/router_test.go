@@ -205,3 +205,97 @@ func TestRouter_ConcurrencyLimitAppliedToPatchData(t *testing.T) {
 		}
 	}
 }
+
+// TestRouter_ConfigEndpoint verifies the authenticated GET /config endpoint
+// returns the limiter's cap as {maxConcurrentUploads:<n>} with JSON content.
+func TestRouter_ConfigEndpoint(t *testing.T) {
+	const cap = 4
+	limiter := api.NewConcurrencyLimiter(cap)
+	router := newRouterWithLimiterForTest(t, limiter)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/config", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != jsonContentType {
+		t.Errorf("config Content-Type = %q, want application/json", ct)
+	}
+	var body struct {
+		MaxConcurrentUploads int `json:"maxConcurrentUploads"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("config body not JSON: %v", err)
+	}
+	if body.MaxConcurrentUploads != cap {
+		t.Errorf("config maxConcurrentUploads = %d, want %d", body.MaxConcurrentUploads, cap)
+	}
+}
+
+// TestRouter_ConfigEndpointReflectsPassedLimiter verifies the value served by
+// /config matches the limiter actually passed to NewRouter, not a hardcoded
+// constant.
+func TestRouter_ConfigEndpointReflectsPassedLimiter(t *testing.T) {
+	router := newRouterWithLimiterForTest(t, api.NewConcurrencyLimiter(17))
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/config", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		MaxConcurrentUploads int `json:"maxConcurrentUploads"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("config body not JSON: %v", err)
+	}
+	if body.MaxConcurrentUploads != 17 {
+		t.Errorf("config maxConcurrentUploads = %d, want 17", body.MaxConcurrentUploads)
+	}
+}
+
+// TestRouter_ConfigRequiresAuth verifies GET /config is protected by the same
+// Basic Auth as the other API routes: unauthenticated requests get 401.
+func TestRouter_ConfigRequiresAuth(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	bk, err := uploadbackend.New(dir)
+	if err != nil {
+		t.Fatalf("uploadbackend.New: %v", err)
+	}
+	h := api.NewHandler(st, bk, dir)
+	router := api.NewRouter(h, api.AuthConfig{Username: testUsername, Password: testPassword},
+		api.NewConcurrencyLimiter(4))
+
+	// No credentials -> 401.
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/config", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without credentials, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Wrong credentials -> 401.
+	req.SetBasicAuth("admin", "wrong")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 with wrong credentials, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Correct credentials -> 200.
+	req.SetBasicAuth(testUsername, testPassword)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 with valid credentials, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
