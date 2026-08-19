@@ -4,9 +4,9 @@ import FilesNestCore
 
 @MainActor
 final class SettingsModel: ObservableObject {
-    @Published var serverURL = ""
-    @Published var username = ""
-    @Published var password = ""
+    @Published var serverURL = "" { didSet { markDraftAsEdited() } }
+    @Published var username = "" { didSet { markDraftAsEdited() } }
+    @Published var password = "" { didSet { markDraftAsEdited() } }
     @Published var testResult: ConnectionResult?
     @Published var isTesting = false
     @Published var saveError: String?
@@ -14,6 +14,9 @@ final class SettingsModel: ObservableObject {
     private let urlStore: any ServerURLStore
     private let credStore: KeychainStore
     private let probe: ConnectionProbe
+    private var hasLoadedInitialValues = false
+    private var hasDraftEdits = false
+    private var isApplyingInitialValues = false
     var onSaved: (() -> Void)?
 
     init(urlStore: any ServerURLStore, credStore: KeychainStore, probe: ConnectionProbe) {
@@ -25,10 +28,30 @@ final class SettingsModel: ObservableObject {
     var hasCredentials: Bool { !username.isEmpty && !password.isEmpty }
 
     func load() async {
-        if let u = urlStore.load() { serverURL = u.absoluteString }
-        if let c = try? await credStore.basicCredentials() {
-            username = c.username; password = c.password
+        // SettingsView is recreated whenever the menu-bar panel is dismissed and
+        // opened again. Load persisted values only once; subsequent appearances
+        // must keep the in-memory draft, including pasted credentials.
+        guard !hasLoadedInitialValues else { return }
+        hasLoadedInitialValues = true
+
+        let savedURL = urlStore.load()?.absoluteString
+        let savedCredentials = try? await credStore.basicCredentials()
+
+        // Keychain access awaits. If the user starts typing before it completes,
+        // do not overwrite their draft with the older persisted configuration.
+        guard !hasDraftEdits else { return }
+        isApplyingInitialValues = true
+        if let savedURL { serverURL = savedURL }
+        if let savedCredentials {
+            username = savedCredentials.username
+            password = savedCredentials.password
         }
+        isApplyingInitialValues = false
+    }
+
+    private func markDraftAsEdited() {
+        guard !isApplyingInitialValues else { return }
+        hasDraftEdits = true
     }
 
     func test() async {
