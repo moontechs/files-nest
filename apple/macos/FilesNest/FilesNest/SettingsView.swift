@@ -15,13 +15,17 @@ struct SettingsView: View {
                     .buttonStyle(.link)
                 Spacer()
             }
-            Text("FilesNest Settings").font(.headline)
+            Text("Connect your server").font(.title3.weight(.semibold))
+            Text("FilesNest keeps your password in your Mac keychain.")
+                .font(.caption).foregroundStyle(.secondary)
 
             Form {
-                TextField("Server URL", text: $model.serverURL)
-                    .textContentType(.URL).autocorrectionDisabled()
-                TextField("Username", text: $model.username).autocorrectionDisabled()
-                SecureField("Password", text: $model.password)
+                Section("FilesNest server") {
+                    TextField("Server URL", text: $model.serverURL)
+                        .textContentType(.URL).autocorrectionDisabled()
+                    TextField("Username", text: $model.username).autocorrectionDisabled()
+                    SecureField("Password", text: $model.password)
+                }
             }
 
             HStack(spacing: 10) {
@@ -43,7 +47,7 @@ struct SettingsView: View {
             }
             HStack {
                 Spacer()
-                Button("Save") { if model.save() { onDone() } }
+                Button("Save & Connect") { if model.save() { onDone() } }
                     .buttonStyle(.borderedProminent).disabled(!model.hasCredentials)
             }
         }
@@ -54,9 +58,26 @@ struct SettingsView: View {
     @ViewBuilder private var testPill: some View {
         switch model.testResult {
         case .ok: Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-        case .unauthorized: Label("401 Unauthorized", systemImage: "xmark.circle.fill").foregroundStyle(.red)
-        case .unreachable(let m): Label(m, systemImage: "xmark.circle.fill").foregroundStyle(.red).lineLimit(1)
+        case .unauthorized:
+            connectionFailure("The server rejected these credentials.",
+                              detail: "Check the username and password, then try again.")
+        case .unreachable(let message):
+            connectionFailure("Couldn’t reach the server.",
+                              detail: "Check the address, network connection, and that the server is online. \(message)")
         case nil: EmptyView()
         }
+    }
+
+    private func connectionFailure(_ title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 4) {
+            Image(systemName: "xmark.circle.fill")
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                Text(detail).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.red)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

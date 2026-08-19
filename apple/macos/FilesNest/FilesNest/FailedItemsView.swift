@@ -7,6 +7,7 @@ struct FailedItemsView: View {
     let items: [FailedItem]
     let thumbnails: ThumbnailLoader
     var onDone: () -> Void
+    var onRetry: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -15,11 +16,14 @@ struct FailedItemsView: View {
                     .buttonStyle(.link)
                 Spacer()
             }
-            Text("Failed items").font(.headline)
+            Text("Items that need attention").font(.title3.weight(.semibold))
 
             if items.isEmpty {
-                Text("No failures").font(.caption).foregroundStyle(.secondary)
+                ContentUnavailableView("No failed items", systemImage: "checkmark.circle",
+                                        description: Text("Your last backup completed without failures."))
             } else {
+                Text("FilesNest will retry these items the next time it syncs.")
+                    .font(.caption).foregroundStyle(.secondary)
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {   // only visible rows load thumbnails
                         ForEach(items, id: \.key.encoded) { item in
@@ -33,7 +37,12 @@ struct FailedItemsView: View {
                             }
                         }
                     }
-                }.frame(maxHeight: 220)
+                }.frame(maxHeight: 190)
+                HStack {
+                    Spacer()
+                    Button("Try Again") { onRetry() }
+                        .buttonStyle(.borderedProminent)
+                }
             }
         }
         .padding(16).frame(width: 320)

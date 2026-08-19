@@ -10,17 +10,26 @@ struct PanelView: View {
 
     var body: some View {
         ZStack {
+            // Keep the dashboard alive while a detail screen is visible. In particular, a
+            // PhotoKit count can continue reporting progress without the dashboard being
+            // reconstructed when the user goes to Settings and back.
+            dashboard
+                .opacity(showingSettings || showingFailed ? 0 : 1)
+                .allowsHitTesting(!showingSettings && !showingFailed)
+                .accessibilityHidden(showingSettings || showingFailed)
+
             if showingSettings {
                 SettingsView(model: settings, onDone: { withAnimation(slide) { showingSettings = false } })
                     .transition(.move(edge: .trailing))
             } else if showingFailed {
                 FailedItemsView(items: model.summary.failed,
                                 thumbnails: thumbnails,
-                                onDone: { withAnimation(slide) { showingFailed = false } })
+                                onDone: { withAnimation(slide) { showingFailed = false } },
+                                onRetry: {
+                                    model.syncNow()
+                                    withAnimation(slide) { showingFailed = false }
+                                })
                     .transition(.move(edge: .trailing))
-            } else {
-                dashboard
-                    .transition(.move(edge: .leading))
             }
         }
         .frame(width: 320)
@@ -33,6 +42,7 @@ struct PanelView: View {
 
     private var dashboard: some View {
         VStack(spacing: 0) {
+            panelHeader
             hero
             if case let .syncing(p) = model.status, p.total > 0 { currentItem(p) }
             tiles
@@ -41,6 +51,21 @@ struct PanelView: View {
             footer
         }
         .frame(width: 320)
+    }
+
+    private var panelHeader: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "externaldrive.badge.checkmark")
+                .foregroundStyle(.tint)
+            Text("FilesNest")
+                .font(.headline)
+            Spacer()
+            Text(statusLabel)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(statusColor)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
     }
 
     // MARK: hero ring + status text
@@ -54,13 +79,17 @@ struct PanelView: View {
                     Circle().trim(from: 0, to: ringFraction)
                         .stroke(ringColor, style: .init(lineWidth: 6, lineCap: .round))
                         .rotationEffect(.degrees(-90)).frame(width: 74, height: 74)
-                    Text(glyph).font(.system(size: 24))
+                    Image(systemName: stateIcon)
+                        .font(.system(size: 23, weight: .semibold))
+                        .foregroundStyle(ringColor)
+                        .accessibilityHidden(true)
                 }
             }
-            Text(title).font(.headline)
-            Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            Text(title).font(.title3.weight(.semibold))
+            Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                .multilineTextAlignment(.center)
         }
-        .padding(.top, 18).padding(.bottom, 10).frame(maxWidth: .infinity)
+        .padding(.top, 16).padding(.bottom, 14).frame(maxWidth: .infinity)
     }
 
     private func currentItem(_ p: SyncProgress) -> some View {
@@ -73,7 +102,7 @@ struct PanelView: View {
                 ProgressView(value: p.fraction).controlSize(.mini)
             }
         }
-        .padding(8).background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+        .padding(9).background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
         .padding(.horizontal, 12).padding(.bottom, 8)
     }
 
@@ -126,20 +155,35 @@ struct PanelView: View {
     }
 
     private func tile(_ v: String, _ k: String, _ color: Color) -> some View {
-        VStack(spacing: 1) {
-            Text(v).font(.title3).bold().foregroundStyle(color)
+        VStack(spacing: 2) {
+            Text(v).font(.title3.weight(.semibold)).monospacedDigit().foregroundStyle(color)
             Text(k).font(.caption2).foregroundStyle(.secondary)
-        }.frame(maxWidth: .infinity).padding(.vertical, 9)
+        }.frame(maxWidth: .infinity).padding(.vertical, 10)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 9))
     }
 
     private var actions: some View {
-        HStack(spacing: 8) {
-            Button(isPaused ? "Resume" : "Pause") { isPaused ? model.resume() : model.pause() }
-                .disabled(isSignedOut || isCounting)   // a count isn't pausable work
-            Button("Sync Now") { model.syncNow() }.buttonStyle(.borderedProminent)
-                .disabled(isSignedOut)
-        }.padding(.horizontal, 12).padding(.bottom, 4)
+        VStack(spacing: 0) {
+            if isSignedOut {
+                Button("Set Up FilesNest") { showingSettings = true }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            } else if isError {
+                HStack(spacing: 8) {
+                    Button("Retry") { model.syncNow() }
+                        .buttonStyle(.borderedProminent)
+                    Button("Settings") { showingSettings = true }
+                }
+            } else {
+                HStack(spacing: 8) {
+                    Button(isPaused ? "Resume" : "Pause") { isPaused ? model.resume() : model.pause() }
+                        .disabled(isCounting)
+                    Button("Sync Now") { model.syncNow() }.buttonStyle(.borderedProminent)
+                }
+            }
+        }
+        .padding(.horizontal, 12).padding(.bottom, 8)
     }
 
     private var footer: some View {
@@ -155,6 +199,7 @@ struct PanelView: View {
     // MARK: derived
     private var isPaused: Bool { if case .paused = model.status { return true }; return false }
     private var isSignedOut: Bool { if case .signedOut = model.status { return true }; return false }
+    private var isError: Bool { if case .error = model.status { return true }; return false }
     private var pending: Int {
         switch model.status {
         case .syncing(let p): return max(0, p.total - p.completed)
@@ -190,28 +235,41 @@ struct PanelView: View {
         default: return .green
         }
     }
-    private var glyph: String {
+    private var stateIcon: String {
         switch model.status {
-        case .syncing, .counting: return ""
-        case .paused: return "⏸"
-        case .error: return "✕"
-        case .signedOut: return "→"
-        case .watching: return "✓"
+        case .syncing, .counting: return "arrow.triangle.2.circlepath"
+        case .paused: return "pause.fill"
+        case .error: return "exclamationmark"
+        case .signedOut: return "server.rack"
+        case .watching: return "checkmark"
         }
     }
+
+    private var statusLabel: String {
+        switch model.status {
+        case .signedOut: return "Needs setup"
+        case .counting: return "Checking"
+        case .watching: return "Protected"
+        case .syncing: return "Backing up"
+        case .paused: return "Paused"
+        case .error: return "Attention needed"
+        }
+    }
+
+    private var statusColor: Color { ringColor }
     private var title: String {
         switch model.status {
-        case .signedOut: return "Sign in in Settings"
+        case .signedOut: return "Your backup needs a server"
         case .counting: return "Counting…"
         case .watching: return "Up to date"
         case .syncing: return "Syncing…"
         case .paused: return "Paused"
-        case .error: return "Can't reach server"
+        case .error: return "Backup needs attention"
         }
     }
     private var subtitle: String {
         switch model.status {
-        case .signedOut: return "Add your server and credentials"
+        case .signedOut: return "Connect your own FilesNest server to begin"
         case .counting(let done, let total):
             return total > 0 ? "\(done.formatted()) of \(total.formatted())" : "Scanning library…"
         case .watching(let last): return last.map { "Last sync \($0.formatted(.relative(presentation: .named)))" } ?? "Watching for new items"
@@ -219,7 +277,8 @@ struct PanelView: View {
             if p.total == 0 { return "Scanning library…" }
             return "\(p.completed) of \(p.total)"
         case .paused(let n): return "\(n) items waiting"
-        case .error(let m): return m
+        case .error:
+            return "Check that your server is online and the address is correct, then retry."
         }
     }
 }
