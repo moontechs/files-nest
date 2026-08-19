@@ -128,9 +128,9 @@ A `ConcurrencyLimiter` (buffered-channel semaphore) wraps only the `PATCH /uploa
 
 ### Task 8: Update documentation
 
-- [ ] add `MAX_CONCURRENT_UPLOADS` to the env var table in `server/README.md` (~line 118-121, alongside `BACKUP_USER`/`BACKUP_PASS`/`STORAGE_PATH`/`PORT`), and document the `GET /config` endpoint; note that production and e2e Docker Compose files are deliberately left without an explicit `MAX_CONCURRENT_UPLOADS` entry so both pick up the default of 4
-- [ ] update `CLAUDE.md` if new patterns discovered worth recording
-- [ ] move this plan to `docs/plans/completed/`
+- [x] add `MAX_CONCURRENT_UPLOADS` to the env var table in `server/README.md` (~line 118-121, alongside `BACKUP_USER`/`BACKUP_PASS`/`STORAGE_PATH`/`PORT`), and document the `GET /config` endpoint; note that production and e2e Docker Compose files are deliberately left without an explicit `MAX_CONCURRENT_UPLOADS` entry so both pick up the default of 4
+- [x] update `CLAUDE.md` if new patterns discovered worth recording — no `CLAUDE.md` exists anywhere in the repo (confirmed via `find . -iname CLAUDE.md`); the plan's intent to record new patterns is instead captured in `server/README.md`'s new "Concurrency Limit" section, so there was no file to update
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 
