@@ -50,14 +50,14 @@ A `ConcurrencyLimiter` (buffered-channel semaphore) wraps only the `PATCH /uploa
 - Create: `server/internal/api/limiter.go`
 - Create: `server/internal/api/limiter_test.go`
 
-- [ ] create `ConcurrencyLimiter` struct wrapping `slots chan struct{}`
-- [ ] implement `NewConcurrencyLimiter(max int) *ConcurrencyLimiter`
-- [ ] implement `Cap() int` returning `cap(l.slots)`
-- [ ] implement `Middleware(next http.Handler) http.Handler`: non-blocking `select` acquire; on success `defer release()` then call `next.ServeHTTP`; on failure log the rejection (include the configured cap) then write `503` + `Retry-After: 1` + `Content-Type: application/json` + JSON error body, do not call `next`
-- [ ] write test: single request through an otherwise-idle limiter succeeds (calls `next`)
-- [ ] write test: with capacity N, N concurrent requests held open (via goroutines + a channel to control release) all reach `next`; the N+1th concurrent request gets `503` with `Retry-After` header set
-- [ ] write test: after a held request releases its slot, a subsequent request succeeds
-- [ ] run tests - must pass before task 2
+- [x] create `ConcurrencyLimiter` struct wrapping `slots chan struct{}`
+- [x] implement `NewConcurrencyLimiter(max int) *ConcurrencyLimiter`
+- [x] implement `Cap() int` returning `cap(l.slots)`
+- [x] implement `Middleware(next http.Handler) http.Handler`: non-blocking `select` acquire; on success `defer release()` then call `next.ServeHTTP`; on failure log the rejection (include the configured cap) then write `503` + `Retry-After: 1` + `Content-Type: application/json` + JSON error body, do not call `next`
+- [x] write test: single request through an otherwise-idle limiter succeeds (calls `next`)
+- [x] write test: with capacity N, N concurrent requests held open (via goroutines + a channel to control release) all reach `next`; the N+1th concurrent request gets `503` with `Retry-After` header set
+- [x] write test: after a held request releases its slot, a subsequent request succeeds
+- [x] run tests - must pass before task 2
 
 ### Task 2: Wire `MAX_CONCURRENT_UPLOADS` env var and limiter into `main.go` / `router.go`
 
