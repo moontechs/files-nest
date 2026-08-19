@@ -34,6 +34,8 @@ A `ConcurrencyLimiter` (buffered-channel semaphore) wraps only the `PATCH /uploa
 - `GET /config` response: `{"maxConcurrentUploads": <int>}`, sourced from `limiter.Cap()` (`cap(l.slots)`) so there's one source of truth instead of threading the raw int separately into the handler.
 - `NewRouter` gains a third parameter (`limiter *ConcurrencyLimiter`) — a breaking signature change, intentional.
 - Middleware order on the gated route: `auth(limiter.Middleware(handler))` — auth runs first so unauthenticated requests don't consume a concurrency slot.
+- **Known limitation, accepted as-is**: a slot is held for as long as `next.ServeHTTP` runs, and `main.go` deliberately has no `ReadTimeout`/`WriteTimeout` on the `http.Server` (see the comment above `ReadHeaderTimeout` in `main.go` — a fixed body timeout would abort legitimate large/slow uploads). This means a slow or stalled client can occupy a slot for the life of its connection, reducing effective capacity below the configured cap. This is a pre-existing tradeoff of the no-body-timeout decision, not something this plan introduces or fixes; not in scope here.
+- On rejection, log the event server-side (e.g. `log.Printf("rejected upload: over concurrency limit (cap=%d)", limiter.Cap())`) so an operator can distinguish "cap too low for real traffic" from other error sources without relying on client-reported errors.
 
 ## What Goes Where
 
@@ -51,7 +53,7 @@ A `ConcurrencyLimiter` (buffered-channel semaphore) wraps only the `PATCH /uploa
 - [ ] create `ConcurrencyLimiter` struct wrapping `slots chan struct{}`
 - [ ] implement `NewConcurrencyLimiter(max int) *ConcurrencyLimiter`
 - [ ] implement `Cap() int` returning `cap(l.slots)`
-- [ ] implement `Middleware(next http.Handler) http.Handler`: non-blocking `select` acquire; on success `defer release()` then call `next.ServeHTTP`; on failure write `503` + `Retry-After: 1` + `Content-Type: application/json` + JSON error body, do not call `next`
+- [ ] implement `Middleware(next http.Handler) http.Handler`: non-blocking `select` acquire; on success `defer release()` then call `next.ServeHTTP`; on failure log the rejection (include the configured cap) then write `503` + `Retry-After: 1` + `Content-Type: application/json` + JSON error body, do not call `next`
 - [ ] write test: single request through an otherwise-idle limiter succeeds (calls `next`)
 - [ ] write test: with capacity N, N concurrent requests held open (via goroutines + a channel to control release) all reach `next`; the N+1th concurrent request gets `503` with `Retry-After` header set
 - [ ] write test: after a held request releases its slot, a subsequent request succeeds
@@ -64,7 +66,7 @@ A `ConcurrencyLimiter` (buffered-channel semaphore) wraps only the `PATCH /uploa
 - Modify: `server/internal/api/router.go`
 - Modify: `server/internal/api/router_test.go`
 
-- [ ] in `main.go`, read `MAX_CONCURRENT_UPLOADS` via `getEnv("MAX_CONCURRENT_UPLOADS", "4")`, parse with `strconv.Atoi`, fall back to `4` on parse error (log a warning), construct `limiter := api.NewConcurrencyLimiter(max)`
+- [ ] in `main.go`, read `MAX_CONCURRENT_UPLOADS` via `getEnv("MAX_CONCURRENT_UPLOADS", "4")`, parse with `strconv.Atoi`, fall back to `4` (log a warning) on parse error *or* on a parsed value `<= 0` — a zero/negative cap would make `NewConcurrencyLimiter`'s channel zero/invalid capacity and reject every upload with no distinguishing signal — construct `limiter := api.NewConcurrencyLimiter(max)`
 - [ ] change `NewRouter` signature to `func NewRouter(handler *Handler, authCfg AuthConfig, limiter *ConcurrencyLimiter) http.Handler`; pass `limiter` from `main.go`
 - [ ] wrap only the `PATCH /uploads/{id}/data` route: `auth(limiter.Middleware(http.HandlerFunc(handler.HandlePatchUploadData)))`
 - [ ] update `newRouterForTest` (`router_test.go:31`) to construct and pass a large-capacity limiter (e.g. `api.NewConcurrencyLimiter(1000)`) so existing router/handler tests aren't incidentally rate-limited
@@ -92,7 +94,7 @@ A `ConcurrencyLimiter` (buffered-channel semaphore) wraps only the `PATCH /uploa
 - [ ] review surviving mutants in `limiter.go` (the new file) and any mutated lines touched in `router.go`/`main.go` by this change
 - [ ] for each surviving mutant that represents a real behavioral gap (e.g. an off-by-one on the semaphore capacity, an inverted `select`/`default` branch, a swapped status code or missing `Retry-After` header), add or adapt a unit test in `limiter_test.go`/`router_test.go` to kill it
 - [ ] re-run `make mutation-test` to confirm the previously-surviving mutants are now killed
-- [ ] run full unit test suite - must pass before task 6
+- [ ] run full unit test suite - must pass before task 5
 
 ### Task 5: Audit existing e2e tests for false-positive `503`s under the new default cap
 
@@ -110,8 +112,9 @@ A `ConcurrencyLimiter` (buffered-channel semaphore) wraps only the `PATCH /uploa
 - Create: `server/e2e/concurrency_test.go`
 
 - [ ] write e2e test: 1 concurrent `PATCH .../data` upload succeeds (baseline)
-- [ ] write e2e test: exactly 4 concurrent uploads (the default cap), fired via real goroutines against 4 distinct freshly-created upload IDs (not sequential calls, and not the same ID — distinct IDs isolate the concurrency limiter from the unrelated per-upload-ID `UploadLocker`), all succeed
-- [ ] write e2e test: more than 4 concurrent uploads (5-6 at once) fired via real goroutines against distinct upload IDs — requests beyond the cap receive `503` with a `Retry-After` header, the rest succeed
+- [ ] give the concurrency e2e tests a way to force real overlap: goroutines launched near-simultaneously do not guarantee the server sees them concurrently over real HTTP (unlike the in-process Task 1 tests, which hold requests open via a channel). Use a slow/streamed request body (e.g. an `io.Reader` that trickles bytes with a small delay, or a large-enough payload with a throttled writer) so each PATCH stays in-flight long enough for the others to arrive and be admitted/rejected before any of them complete. Treat this as a real design step, not a one-line detail — get it right before trusting the pass/fail of the tests below.
+- [ ] write e2e test: exactly 4 concurrent uploads (the default cap), fired via real goroutines against 4 distinct freshly-created upload IDs (not sequential calls, and not the same ID — distinct IDs isolate the concurrency limiter from the unrelated per-upload-ID `UploadLocker`), using the overlap mechanism above, all succeed
+- [ ] write e2e test: more than 4 concurrent uploads (5-6 at once) fired via real goroutines against distinct upload IDs, using the overlap mechanism above — requests beyond the cap receive `503` with a `Retry-After` header, the rest succeed
 - [ ] write e2e test: `GET /config` returns `{"maxConcurrentUploads": 4}` against the e2e stack's default configuration
 - [ ] run e2e suite - must pass before task 7
 
@@ -121,7 +124,7 @@ A `ConcurrencyLimiter` (buffered-channel semaphore) wraps only the `PATCH /uploa
 - [ ] verify edge cases are handled (exactly-at-cap succeeds, one-over-cap rejected, slot release allows subsequent request through)
 - [ ] run full test suite: `cd server && go test ./...`
 - [ ] run e2e tests: `cd server && go test -tags=e2e ./e2e/` (against the e2e Docker Compose stack per `docker-compose.e2e.yml`)
-- [ ] re-run `cd server && make mutation-test` one final time to confirm no new surviving mutants were introduced by Tasks 5-6
+- [ ] re-run `cd server && make mutation-test` one final time to confirm the fixes from Task 4 still hold (note: Tasks 5-6 only touch `server/e2e/*_test.go`, which is outside `./internal/...`, so this run isn't expected to surface anything new — it's a final confirmation of Task 4's state, not a check on Tasks 5-6)
 
 ### Task 8: Update documentation
 
