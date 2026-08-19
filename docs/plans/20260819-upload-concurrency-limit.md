@@ -90,11 +90,11 @@ A `ConcurrencyLimiter` (buffered-channel semaphore) wraps only the `PATCH /uploa
 - Modify: `server/internal/api/limiter_test.go`
 - Modify: `server/internal/api/router_test.go`
 
-- [ ] run `cd server && make mutation-test` (gremlins, `./internal/...`) — same tool/target used previously for the codebase (issue #22)
-- [ ] review surviving mutants in `limiter.go` (the new file) and any mutated lines touched in `router.go`/`main.go` by this change
-- [ ] for each surviving mutant that represents a real behavioral gap (e.g. an off-by-one on the semaphore capacity, an inverted `select`/`default` branch, a swapped status code or missing `Retry-After` header), add or adapt a unit test in `limiter_test.go`/`router_test.go` to kill it
-- [ ] re-run `make mutation-test` to confirm the previously-surviving mutants are now killed
-- [ ] run full unit test suite - must pass before task 5
+- [x] run `cd server && make mutation-test` (gremlins, `./internal/...`) — same tool/target used previously for the codebase (issue #22) — note: gremlins 0.6.0's default timeout all-TIMED-OUT in this env (Go 1.27 rebuilds each mutation, exceeding the default coefficient); ran `gremlins unleash ./internal/... --timeout-coefficient 50` to get meaningful kill/live results
+- [x] review surviving mutants in `limiter.go` (the new file) and any mutated lines touched in `router.go`/`main.go` by this change — result: `limiter.go` generates zero mutants (gremlins 0.6.0 does not mutate `select`/channel ops); the only survived mutant in a changed file is `router.go:75:29` (pre-existing `recoveryMiddleware` condition, NOT a line this plan touched); the `/config` closure and PATCH-wrap lines are all KILLED
+- [x] for each surviving mutant that represents a real behavioral gap (e.g. an off-by-one on the semaphore capacity, an inverted `select`/`default` branch, a swapped status code or missing `Retry-After` header), add or adapt a unit test in `limiter_test.go`/`router_test.go` to kill it — no new-code survivor exists, and the exact gaps listed are already guarded by existing `limiter_test.go` tests (`TestConcurrencyLimiter_CapacityEnforced`, `TestConcurrencyLimiter_SlotReleased`, `TestConcurrencyLimiter_SingleRequestSucceeds`), so no new tests needed
+- [x] re-run `make mutation-test` to confirm the previously-surviving mutants are now killed — re-run (`gremlins unleash ./internal/api --timeout-coefficient 50`) confirms Killed: 108, Lived: 26 (all pre-existing, untouched code), 0 new-code survivors
+- [x] run full unit test suite - must pass before task 5 — `go test ./...` passes (no e2e tag)
 
 ### Task 5: Audit existing e2e tests for false-positive `503`s under the new default cap
 
