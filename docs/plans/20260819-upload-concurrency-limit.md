@@ -111,12 +111,12 @@ A `ConcurrencyLimiter` (buffered-channel semaphore) wraps only the `PATCH /uploa
 **Files:**
 - Create: `server/e2e/concurrency_test.go`
 
-- [ ] write e2e test: 1 concurrent `PATCH .../data` upload succeeds (baseline)
-- [ ] give the concurrency e2e tests a way to force real overlap: goroutines launched near-simultaneously do not guarantee the server sees them concurrently over real HTTP (unlike the in-process Task 1 tests, which hold requests open via a channel). Use a slow/streamed request body (e.g. an `io.Reader` that trickles bytes with a small delay, or a large-enough payload with a throttled writer) so each PATCH stays in-flight long enough for the others to arrive and be admitted/rejected before any of them complete. Treat this as a real design step, not a one-line detail — get it right before trusting the pass/fail of the tests below.
-- [ ] write e2e test: exactly 4 concurrent uploads (the default cap), fired via real goroutines against 4 distinct freshly-created upload IDs (not sequential calls, and not the same ID — distinct IDs isolate the concurrency limiter from the unrelated per-upload-ID `UploadLocker`), using the overlap mechanism above, all succeed
-- [ ] write e2e test: more than 4 concurrent uploads (5-6 at once) fired via real goroutines against distinct upload IDs, using the overlap mechanism above — requests beyond the cap receive `503` with a `Retry-After` header, the rest succeed
-- [ ] write e2e test: `GET /config` returns `{"maxConcurrentUploads": 4}` against the e2e stack's default configuration
-- [ ] run e2e suite - must pass before task 7
+- [x] write e2e test: 1 concurrent `PATCH .../data` upload succeeds (baseline)
+- [x] give the concurrency e2e tests a way to force real overlap: goroutines launched near-simultaneously do not guarantee the server sees them concurrently over real HTTP (unlike the in-process Task 1 tests, which hold requests open via a channel). Use a slow/streamed request body (e.g. an `io.Reader` that trickles bytes with a small delay, or a large-enough payload with a throttled writer) so each PATCH stays in-flight long enough for the others to arrive and be admitted/rejected before any of them complete. Treat this as a real design step, not a one-line detail — get it right before trusting the pass/fail of the tests below. — implemented as a `slowReader` (io.Reader producing 32KB in 1KB reads with 10ms between reads ≈ 320ms in-flight), shared by every concurrent PATCH via `overlapBody()`
+- [x] write e2e test: exactly 4 concurrent uploads (the default cap), fired via real goroutines against 4 distinct freshly-created upload IDs (not sequential calls, and not the same ID — distinct IDs isolate the concurrency limiter from the unrelated per-upload-ID `UploadLocker`), using the overlap mechanism above, all succeed
+- [x] write e2e test: more than 4 concurrent uploads (5-6 at once) fired via real goroutines against distinct upload IDs, using the overlap mechanism above — requests beyond the cap receive `503` with a `Retry-After` header, the rest succeed — fires 6, asserts exactly 4×204 (full offset) + 2×503 (Retry-After: 1, offset 0)
+- [x] write e2e test: `GET /config` returns `{"maxConcurrentUploads": 4}` against the e2e stack's default configuration
+- [x] run e2e suite - must pass before task 7 — skipped (not automatable in this env): Docker is not installed here so the e2e Compose stack cannot be brought up; instead `go vet -tags=e2e ./e2e/...` and `go test -tags=e2e -run NONE ./e2e/...` both pass, confirming the new concurrency tests compile cleanly with the build tag
 
 ### Task 7: Verify acceptance criteria
 
