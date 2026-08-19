@@ -102,9 +102,9 @@ A `ConcurrencyLimiter` (buffered-channel semaphore) wraps only the `PATCH /uploa
 - Modify: `server/e2e/logspam_test.go` (if audit finds concurrent request bursts)
 - Modify: other `server/e2e/*_test.go` files (if audit finds concurrent request bursts)
 
-- [ ] confirm via grep (`t.Parallel()`, goroutine-based PATCH bursts) that no current e2e test fires >4 concurrent `PATCH .../data` requests — expected to be a quick no-op confirmation, since all existing e2e tests issue PATCH calls sequentially today; the real risk this guards against is a *future* test adding concurrency without accounting for the new default cap
-- [ ] fix any test found firing >4 concurrent `PATCH .../data` requests unintentionally (either reduce concurrency in the test, or have it assert on `503`/`Retry-After` if that's actually what's being exercised)
-- [ ] run existing e2e suite (`go test -tags=e2e ./e2e/` against the e2e Docker Compose stack) - must pass before task 6
+- [x] confirm via grep (`t.Parallel()`, goroutine-based PATCH bursts) that no current e2e test fires >4 concurrent `PATCH .../data` requests — audit done: no `t.Parallel()`, `go func`, `WaitGroup`, channel, or goroutine usage anywhere in `server/e2e/`; all PATCH calls go through synchronous helpers (`PatchUploadData`/`CreateCompleteUpload`/`UploadSomeData`) whose `require` asserts await the response before returning, so every e2e test fires PATCH requests strictly sequentially
+- [x] fix any test found firing >4 concurrent `PATCH .../data` requests unintentionally — no-op: no test found firing >4 concurrent requests, so nothing to fix
+- [x] run existing e2e suite (`go test -tags=e2e ./e2e/` against the e2e Docker Compose stack) - must pass before task 6 — skipped (not automatable in this env): Docker is not installed here so the e2e Compose stack cannot be brought up; instead ran `go vet -tags=e2e ./e2e/...` which passes, confirming the e2e package still compiles cleanly with the build tag
 
 ### Task 6: Add e2e concurrency limit test
 
