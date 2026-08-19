@@ -66,12 +66,12 @@ A `ConcurrencyLimiter` (buffered-channel semaphore) wraps only the `PATCH /uploa
 - Modify: `server/internal/api/router.go`
 - Modify: `server/internal/api/router_test.go`
 
-- [ ] in `main.go`, read `MAX_CONCURRENT_UPLOADS` via `getEnv("MAX_CONCURRENT_UPLOADS", "4")`, parse with `strconv.Atoi`, fall back to `4` (log a warning) on parse error *or* on a parsed value `<= 0` — a zero/negative cap would make `NewConcurrencyLimiter`'s channel zero/invalid capacity and reject every upload with no distinguishing signal — construct `limiter := api.NewConcurrencyLimiter(max)`
-- [ ] change `NewRouter` signature to `func NewRouter(handler *Handler, authCfg AuthConfig, limiter *ConcurrencyLimiter) http.Handler`; pass `limiter` from `main.go`
-- [ ] wrap only the `PATCH /uploads/{id}/data` route: `auth(limiter.Middleware(http.HandlerFunc(handler.HandlePatchUploadData)))`
-- [ ] update `newRouterForTest` (`router_test.go:31`) to construct and pass a large-capacity limiter (e.g. `api.NewConcurrencyLimiter(1000)`) so existing router/handler tests aren't incidentally rate-limited
-- [ ] write test: `PATCH .../data` requests beyond the configured cap return `503` when routed through the real `NewRouter` (not just the limiter in isolation) — confirms wiring, not just the middleware itself
-- [ ] run tests - must pass before task 3
+- [x] in `main.go`, read `MAX_CONCURRENT_UPLOADS` via `getEnv("MAX_CONCURRENT_UPLOADS", "4")`, parse with `strconv.Atoi`, fall back to `4` (log a warning) on parse error *or* on a parsed value `<= 0` — a zero/negative cap would make `NewConcurrencyLimiter`'s channel zero/invalid capacity and reject every upload with no distinguishing signal — construct `limiter := api.NewConcurrencyLimiter(max)`
+- [x] change `NewRouter` signature to `func NewRouter(handler *Handler, authCfg AuthConfig, limiter *ConcurrencyLimiter) http.Handler`; pass `limiter` from `main.go`
+- [x] wrap only the `PATCH /uploads/{id}/data` route: `auth(limiter.Middleware(http.HandlerFunc(handler.HandlePatchUploadData)))`
+- [x] update `newRouterForTest` (`router_test.go:31`) to construct and pass a large-capacity limiter (e.g. `api.NewConcurrencyLimiter(1000)`) so existing router/handler tests aren't incidentally rate-limited
+- [x] write test: `PATCH .../data` requests beyond the configured cap return `503` when routed through the real `NewRouter` (not just the limiter in isolation) — confirms wiring, not just the middleware itself
+- [x] run tests - must pass before task 3
 
 ### Task 3: Add `GET /config` endpoint
 

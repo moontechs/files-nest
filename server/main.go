@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -42,6 +43,20 @@ func run() error {
 
 	storagePath := getEnv("STORAGE_PATH", "./data")
 	port := getEnv("PORT", "8080")
+
+	// Concurrency limit for in-flight PATCH /uploads/{id}/data requests.
+	// A missing/invalid/zero-or-negative configured value falls back to the
+	// default of 4 with a logged warning: NewConcurrencyLimiter uses the value
+	// as a buffered-channel capacity, so 0 would make every upload rejected
+	// with no distinguishing signal (see ADR-0003 for the reject-over-limit
+	// decision).
+	maxConcurrentUploads, err := strconv.Atoi(getEnv("MAX_CONCURRENT_UPLOADS", "4"))
+	if err != nil || maxConcurrentUploads <= 0 {
+		log.Printf("WARNING: invalid MAX_CONCURRENT_UPLOADS=%q (must be a positive integer), "+
+			"falling back to default of 4", getEnv("MAX_CONCURRENT_UPLOADS", "4"))
+		maxConcurrentUploads = 4
+	}
+	limiter := api.NewConcurrencyLimiter(maxConcurrentUploads)
 
 	// Open BadgerDB
 	dbPath := filepath.Join(storagePath, "db")
@@ -100,7 +115,7 @@ func run() error {
 			errPartialBackupCredentials, getEnv("BACKUP_USER", ""), getEnv("BACKUP_PASS", ""))
 	}
 
-	mux := api.NewRouter(handler, authCfg)
+	mux := api.NewRouter(handler, authCfg, limiter)
 
 	// Timeouts: this is an upload server that streams potentially large
 	// photo/video files via PATCH /uploads/:id/data. A fixed ReadTimeout or
