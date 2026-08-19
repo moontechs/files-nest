@@ -369,16 +369,56 @@ func renameOrCopy(src, dst string) error {
 // (which can surface a deferred write error from the kernel) before
 // reporting success.
 func copyFile(src, dst string) error {
+	return copyFileWithOps(src, dst, osFileOps{})
+}
+
+type readCloser interface {
+	io.Reader
+	io.Closer
+}
+
+type syncWriteCloser interface {
+	io.Writer
+	Sync() error
+	io.Closer
+}
+
+type fileOps interface {
+	Open(string) (readCloser, error)
+	Create(string) (syncWriteCloser, error)
+	Stat(string) (os.FileInfo, error)
+	Chmod(string, os.FileMode) error
+}
+
+type osFileOps struct{}
+
+func (osFileOps) Open(name string) (readCloser, error) {
+	return os.Open(name)
+}
+
+func (osFileOps) Create(name string) (syncWriteCloser, error) {
+	return os.Create(name)
+}
+
+func (osFileOps) Stat(name string) (os.FileInfo, error) {
+	return os.Stat(name)
+}
+
+func (osFileOps) Chmod(name string, mode os.FileMode) error {
+	return os.Chmod(name, mode)
+}
+
+func copyFileWithOps(src, dst string, ops fileOps) error {
 	//nolint:gosec // src/dst are built from sanitized components (SafeID,
 	// SanitizeFilename, SafePathSegment) or server-generated tusd paths, never raw user input
-	srcFile, err := os.Open(src)
+	srcFile, err := ops.Open(src)
 	if err != nil {
 		return fmt.Errorf("open source: %w", err)
 	}
 	defer func() { _ = srcFile.Close() }()
 
 	//nolint:gosec // dst is a sanitized organized-tree path computed by PlanDestination
-	dstFile, err := os.Create(dst)
+	dstFile, err := ops.Create(dst)
 	if err != nil {
 		return fmt.Errorf("create destination: %w", err)
 	}
@@ -406,12 +446,12 @@ func copyFile(src, dst string) error {
 	}
 
 	// Preserve the file mode from the source.
-	srcInfo, err := os.Stat(src)
+	srcInfo, err := ops.Stat(src)
 	if err != nil {
 		return fmt.Errorf("stat source after copy: %w", err)
 	}
 
-	err = os.Chmod(dst, srcInfo.Mode())
+	err = ops.Chmod(dst, srcInfo.Mode())
 	if err != nil {
 		return fmt.Errorf("chmod destination: %w", err)
 	}

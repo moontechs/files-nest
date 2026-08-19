@@ -1,0 +1,6 @@
+coverpkg: ./internal/api/...,./internal/store/...,./internal/filestore/...,./internal/uploadbackend/...
+workers: 2
+test-cpu: 1
+timeout-coefficient: 10
+threshold-efficacy: 100
+threshold-mcover: 100

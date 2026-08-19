@@ -3,6 +3,7 @@
 package filestore_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,65 @@ import (
 
 	"github.com/moontechs/files-nest/server/internal/filestore"
 )
+
+func TestPlanAndMoveBeforeMoveCallback(t *testing.T) {
+	t.Run("nil error proceeds", func(t *testing.T) {
+		m := openTestMover(t)
+		src := filepath.Join(m.StoragePath(), "incoming", "callback-ok")
+		writeFile(t, src, []byte("content"))
+		called := false
+		plan, err := m.PlanAndMove(src, "2024-01-02T00:00:00Z", "", "file.txt", "id", func(got filestore.PlanDestResult) error {
+			called = got.Rel == "organized/2024/01/02/file.txt"
+			return nil
+		})
+		if err != nil || !called {
+			t.Fatalf("PlanAndMove: plan=%+v err=%v callback=%v", plan, err, called)
+		}
+		assertPathExists(t, plan.Abs)
+	})
+
+	t.Run("error prevents move", func(t *testing.T) {
+		m := openTestMover(t)
+		src := filepath.Join(m.StoragePath(), "incoming", "callback-error")
+		writeFile(t, src, []byte("content"))
+		want := errors.New("persist intent")
+		plan, err := m.PlanAndMove(src, "2024-01-02T00:00:00Z", "", "file.txt", "id", func(filestore.PlanDestResult) error { return want })
+		if !errors.Is(err, want) || plan.Abs == "" {
+			t.Fatalf("PlanAndMove: plan=%+v err=%v", plan, err)
+		}
+		assertPathExists(t, src)
+		assertPathNotExists(t, plan.Abs)
+	})
+}
+
+func TestPlanAndMoveMoveError(t *testing.T) {
+	m := openTestMover(t)
+	_, err := m.PlanAndMove(filepath.Join(m.StoragePath(), "missing"), "2024-01-02T00:00:00Z", "", "file.txt", "id", nil)
+	if err == nil {
+		t.Fatal("PlanAndMove should return an error when the source is missing")
+	}
+}
+
+func TestMoveToPlanedBeforeMoveCallback(t *testing.T) {
+	m := openTestMover(t)
+	src := filepath.Join(m.StoragePath(), "incoming", "retry")
+	writeFile(t, src, []byte("content"))
+	plan := filestore.PlanDestResult{Rel: "organized/2024/01/02/retry.txt", Abs: filepath.Join(m.StoragePath(), "organized/2024/01/02/retry.txt")}
+
+	called := false
+	if err := m.MoveToPlaned(src, plan, func(got filestore.PlanDestResult) error { called = got == plan; return nil }); err != nil || !called {
+		t.Fatalf("MoveToPlaned success: err=%v callback=%v", err, called)
+	}
+
+	src = filepath.Join(m.StoragePath(), "incoming", "retry-error")
+	writeFile(t, src, []byte("content"))
+	want := errors.New("refresh intent")
+	err := m.MoveToPlaned(src, plan, func(filestore.PlanDestResult) error { return want })
+	if !errors.Is(err, want) {
+		t.Fatalf("MoveToPlaned error: got %v, want %v", err, want)
+	}
+	assertPathExists(t, src)
+}
 
 const (
 	relMar2024IMG1234 = "organized/2024/03/15/IMG_1234.jpg"

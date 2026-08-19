@@ -879,15 +879,12 @@ func nextPageCursor(iter *badger.Iterator, prefix []byte, dateStr, id string) st
 }
 
 // parseCreationTime parses a stored creation_date into a time.Time using the
-// formats the server accepts (RFC3339, RFC3339Nano, then YYYY-MM-DD). The
+// formats the server accepts (RFC3339, then YYYY-MM-DD). time.RFC3339 also
+// accepts fractional seconds, so a separate RFC3339Nano parse would be
+// redundant. The
 // second return value reports whether parsing succeeded.
 func parseCreationTime(creationDate string) (time.Time, bool) {
 	parsed, err := time.Parse(time.RFC3339, creationDate)
-	if err == nil {
-		return parsed, true
-	}
-
-	parsed, err = time.Parse(time.RFC3339Nano, creationDate)
 	if err == nil {
 		return parsed, true
 	}

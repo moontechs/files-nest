@@ -2293,6 +2293,56 @@ func TestHandlePatchUploadStatus_MoveFailurePreservesUploading(t *testing.T) {
 	}
 }
 
+func TestHandlePatchUploadStatus_MoveToExistingPlanFailure(t *testing.T) {
+	h, st, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-STATUS-EXISTING-PLAN-FAIL/L0/000", "IMG_0002.jpg", creationDate)
+
+	data := []byte("content for existing plan move failure test")
+	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
+		strconv.Itoa(len(data)), strings.NewReader(string(data)))
+	if patchRec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
+	}
+
+	blockedDir := filepath.Join(h.StoragePath(), "blocked")
+	if err := os.WriteFile(blockedDir, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("WriteFile blocked destination: %v", err)
+	}
+	if err := st.SaveCompletionIntent(&store.CompletionIntent{
+		ID:        created.ID,
+		BackendID: created.BackendID,
+		Src:       filepath.Join(h.StoragePath(), "incoming", created.BackendID),
+		Dst:       filepath.Join(blockedDir, "IMG_0002.jpg"),
+		DstRel:    "blocked/IMG_0002.jpg",
+		CreatedAt: creationDate,
+	}); err != nil {
+		t.Fatalf("SaveCompletionIntent: %v", err)
+	}
+
+	rec := statusPatchRequest(h.HandlePatchUploadStatus, created.ID, `{"status": "complete"}`)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for existing-plan move failure, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "failed to move file") {
+		t.Fatalf("expected move failure response, got %s", rec.Body.String())
+	}
+
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.Status != store.StatusUploading {
+		t.Errorf("status after failed retry = %q, want %q", upload.Status, store.StatusUploading)
+	}
+	intent, err := st.GetCompletionIntent(created.ID)
+	if err != nil {
+		t.Fatalf("GetCompletionIntent: %v", err)
+	}
+	if intent == nil || intent.Dst != filepath.Join(blockedDir, "IMG_0002.jpg") {
+		t.Errorf("completion intent after failed retry = %+v", intent)
+	}
+}
+
 func TestHandlePatchUploadStatus_FileContentPreserved(t *testing.T) {
 	h, st, bh := setupHandler(t)
 	created := createTestUpload(t, h, "PATCH-STATUS-CONTENT/L0/000", "IMG_0001.jpg", creationDate)

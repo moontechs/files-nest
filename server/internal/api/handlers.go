@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -42,12 +43,43 @@ var (
 // the BadgerDB store, the embedded tusd upload backend, per-upload locks,
 // and the storage path root for organizing completed files.
 type Handler struct {
-	store       *store.Store
-	backend     *uploadbackend.TUSHandler
+	store       uploadStore
+	backend     uploadBackend
 	locks       *UploadLocker
 	storagePath string
 	mover       *filestore.Mover
 }
+
+// uploadStore is the portion of the persistence layer used by Handler.
+// Keeping the contract at its consumer allows handler tests to exercise
+// otherwise unreachable cleanup-error paths without a live Badger failure.
+type uploadStore interface {
+	DeleteCompletionIntent(string) error
+	GetCompletionIntent(string) (*store.CompletionIntent, error)
+	GetUpload(string) (*store.Upload, error)
+	ListByDateRange(time.Time, time.Time, store.Status, int, string) ([]*store.Upload, string, error)
+	PutUploadIfAbsent(*store.Upload) (*store.Upload, bool, error)
+	ReRegister(string, string) (*store.Upload, error)
+	SaveCompletionIntent(*store.CompletionIntent) error
+	UpdateComplete(string, string) (*store.Upload, error)
+	UpdateStatus(string, store.Status) (*store.Upload, error)
+}
+
+// uploadBackend is the portion of the tusd backend used by Handler.
+type uploadBackend interface {
+	CreateUpload(context.Context, string) (string, error)
+	FilePath(context.Context, string) (string, error)
+	ForwardPatch(context.Context, string, io.Reader, int64, string) (int64, error)
+	GetInfo(context.Context, string) (*uploadbackend.UploadInfo, error)
+	GetOffset(context.Context, string) (int64, error)
+	IsComplete(context.Context, string) (bool, error)
+	TerminateOrCleanup(context.Context, string) error
+}
+
+var (
+	_ uploadStore   = (*store.Store)(nil)
+	_ uploadBackend = (*uploadbackend.TUSHandler)(nil)
+)
 
 // NewHandler creates a Handler wired to the given store, backend, and
 // storage path. The UploadLocker is initialized as a zero value (ready
