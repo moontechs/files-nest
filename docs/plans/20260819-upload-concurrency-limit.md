@@ -120,11 +120,11 @@ A `ConcurrencyLimiter` (buffered-channel semaphore) wraps only the `PATCH /uploa
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview are implemented
-- [ ] verify edge cases are handled (exactly-at-cap succeeds, one-over-cap rejected, slot release allows subsequent request through)
-- [ ] run full test suite: `cd server && go test ./...`
-- [ ] run e2e tests: `cd server && go test -tags=e2e ./e2e/` (against the e2e Docker Compose stack per `docker-compose.e2e.yml`)
-- [ ] re-run `cd server && make mutation-test` one final time to confirm the fixes from Task 4 still hold (note: Tasks 5-6 only touch `server/e2e/*_test.go`, which is outside `./internal/...`, so this run isn't expected to surface anything new — it's a final confirmation of Task 4's state, not a check on Tasks 5-6)
+- [x] verify all requirements from Overview are implemented — `ConcurrencyLimiter` gates only `PATCH /uploads/{id}/data` (503+Retry-After, no queuing per ADR-0003), `MAX_CONCURRENT_UPLOADS` env var (default 4) wired in `main.go`, and `GET /config` exposes `maxConcurrentUploads` from `limiter.Cap()`; `Mover.moveMu` and synchronous finalize left unchanged per ADR-0004
+- [x] verify edge cases are handled (exactly-at-cap succeeds, one-over-cap rejected, slot release allows subsequent request through) — covered by `TestConcurrencyLimiter_SingleRequestSucceeds`, `TestConcurrencyLimiter_CapacityEnforced`, `TestConcurrencyLimiter_SlotReleased`, plus router-level `TestRouter_ConcurrencyLimitAppliedToPatchData`
+- [x] run full test suite: `cd server && go test ./...` — passes (api, filestore, store, uploadbackend all ok)
+- [x] run e2e tests: `cd server && go test -tags=e2e ./e2e/` (against the e2e Docker Compose stack per `docker-compose.e2e.yml`) — skipped (not automatable in this env): Docker is not installed here so the Compose stack cannot be brought up; confirmed compilation/type-check via `go vet -tags=e2e ./e2e/...` (clean)
+- [x] re-run `cd server && make mutation-test` one final time to confirm the fixes from Task 4 still hold (note: Tasks 5-6 only touch `server/e2e/*_test.go`, which is outside `./internal/...`, so this run isn't expected to surface anything new — it's a final confirmation of Task 4's state, not a check on Tasks 5-6) — re-run (`gremlins unleash ./internal/api --timeout-coefficient 50`) confirms Killed: 108, Lived: 26 (all pre-existing locks.go/recovery.go/router.go:75 code, untouched by this plan), 0 new-code survivors; limiter.go still generates zero mutants (gremlins doesn't mutate `select`/channel ops)
 
 ### Task 8: Update documentation
 
