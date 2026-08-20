@@ -25,6 +25,7 @@ public struct ServerClient: Sendable {
     }
     func uploadsURL() -> URL { baseURL.appendingPathComponent("uploads") }
     func uploadURL(id: String) -> URL { baseURL.appendingPathComponent("uploads").appendingPathComponent(id) }
+    func configURL() -> URL { baseURL.appendingPathComponent("config") }
 
     // MARK: Request building + sending
 
@@ -108,6 +109,14 @@ public struct ServerClient: Sendable {
         let req = try await authorizedRequest(uploadURL(id: id), method: "GET")
         let (data, _) = try await send(req)
         return try decode(UploadRecord.self, from: data)
+    }
+
+    /// GET /config — server-advertised limits (e.g. the concurrency cap).
+    /// Throws `.notFound` on a server that predates the endpoint.
+    public func config() async throws -> ServerConfig {
+        let req = try await authorizedRequest(configURL(), method: "GET")
+        let (data, _) = try await send(req)
+        return try decode(ServerConfig.self, from: data)
     }
 
     // MARK: TUS data endpoints
