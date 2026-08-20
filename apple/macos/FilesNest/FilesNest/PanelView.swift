@@ -181,7 +181,9 @@ struct PanelView: View {
                 HStack(spacing: 8) {
                     Button(isPaused ? "Resume" : "Pause") { isPaused ? model.resume() : model.pause() }
                         .disabled(isCounting)
-                    Button("Sync Now") { model.syncNow() }.buttonStyle(.borderedProminent)
+                    Button("Sync Now") { model.syncNow() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isCounting)   // don't let Sync Now supersede an in-flight count
                 }
             }
         }
