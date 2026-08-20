@@ -14,6 +14,7 @@ struct SyncCoordinatorTests {
 
     func makeCoordinator(server: FakeServer, library: [AssetResource],
                          state: InMemorySyncStateStore = InMemorySyncStateStore(),
+                         concurrency: Int? = 1,
                          now: Date = Date(timeIntervalSince1970: 1_700_000_000)) -> SyncCoordinator {
         let client = server.client()
         return SyncCoordinator(
@@ -21,7 +22,58 @@ struct SyncCoordinatorTests {
             library: FakeAssetLibrary(items: library, error: nil),
             uploader: AssetUploader(client: client, source: FakeAssetDataSource(totalBytes: 250, blobSize: 100)),
             state: state,
+            configuredConcurrency: concurrency,
             now: { now })
+    }
+
+    @Test func boundedConcurrencyNeverExceedsCapAndUploadsAll() async throws {
+        let server = FakeServer(host: "sc-conc-bound.test")
+        let library = (0..<5).map { resource("A\($0)", date: "2024-06-15T10:0\($0):00Z") }
+        let gate = ArrivalGate(target: 3)   // == cap; first wave blocks until 3 arrive
+        let client = server.client()
+        let coord = SyncCoordinator(
+            client: client,
+            library: FakeAssetLibrary(items: library, error: nil),
+            uploader: AssetUploader(client: client,
+                                    source: GatedDataSource(gate: gate, totalBytes: 250, blobSize: 100)),
+            state: InMemorySyncStateStore(),
+            configuredConcurrency: 3,
+            now: { Date(timeIntervalSince1970: 1_700_000_000) })
+
+        let report = try await coord.sync(range: .all)
+
+        #expect(await gate.peak == 3)   // ran exactly cap concurrently
+        #expect(Set(report.uploaded.map(\.localIdentifier)) ==
+                Set(library.map { $0.key.localIdentifier }))
+        #expect(report.failed.isEmpty)
+    }
+
+    @Test func progressReportsInFlightAndMostRecentlyStarted() async throws {
+        let server = FakeServer(host: "sc-conc-progress.test")
+        let library = (0..<4).map { resource("B\($0)", date: "2024-06-15T10:0\($0):00Z") }
+        let gate = ArrivalGate(target: 2)
+        let recorder = ProgressRecorder()
+        let client = server.client()
+        let coord = SyncCoordinator(
+            client: client,
+            library: FakeAssetLibrary(items: library, error: nil),
+            uploader: AssetUploader(client: client,
+                                    source: GatedDataSource(gate: gate, totalBytes: 250, blobSize: 100)),
+            state: InMemorySyncStateStore(),
+            configuredConcurrency: 2,
+            now: { Date(timeIntervalSince1970: 1_700_000_000) })
+
+        _ = try await coord.sync(range: .all) { recorder.record($0) }
+
+        let progresses = recorder.items
+        // inFlight is bounded by the cap and reaches it during the run.
+        #expect(progresses.allSatisfy { $0.inFlight <= 2 })
+        #expect(progresses.contains { $0.inFlight == 2 })
+        // Every reported current item is a real library item (most-recently-started).
+        let ids = Set(library.map { $0.key.localIdentifier })
+        #expect(progresses.allSatisfy { $0.currentItemID == nil || ids.contains($0.currentItemID!) })
+        // completed never exceeds total.
+        #expect(progresses.allSatisfy { $0.completed <= $0.total })
     }
 
     @Test func newAssetIsCreatedUploadedAndReported() async throws {
@@ -270,9 +322,13 @@ extension SyncCoordinatorTests {
         _ = try await makeCoordinator(server: server, library: [a, b])
             .sync(range: .all, onProgress: { box.append($0) })
 
+        // At concurrency 1 the loop is serial: one "start" emit per upload (most-
+        // recently-started item, inFlight 1), plus a trailing emit once the last
+        // upload drains (completed == total, inFlight 0).
         #expect(box.values == [
-            SyncProgress(completed: 0, total: 2, currentItemName: "A.jpg", bytesRemaining: nil, currentItemID: "A"),
-            SyncProgress(completed: 1, total: 2, currentItemName: "B.jpg", bytesRemaining: nil, currentItemID: "B"),
+            SyncProgress(completed: 0, total: 2, currentItemName: "A.jpg", bytesRemaining: nil, currentItemID: "A", inFlight: 1),
+            SyncProgress(completed: 1, total: 2, currentItemName: "B.jpg", bytesRemaining: nil, currentItemID: "B", inFlight: 1),
+            SyncProgress(completed: 2, total: 2, currentItemName: "B.jpg", bytesRemaining: nil, currentItemID: "B", inFlight: 0),
         ])
     }
 

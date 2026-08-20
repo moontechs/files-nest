@@ -8,17 +8,22 @@ public struct SyncCoordinator: Sendable {
     private let library: any AssetLibrary
     private let uploader: AssetUploader
     private let state: any SyncStateStore
+    private let configuredConcurrency: Int?
     private let now: @Sendable () -> Date
+
+    private static let defaultConcurrency = 4
 
     public init(client: ServerClient,
                 library: any AssetLibrary,
                 uploader: AssetUploader,
                 state: any SyncStateStore,
+                configuredConcurrency: Int? = nil,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.client = client
         self.library = library
         self.uploader = uploader
         self.state = state
+        self.configuredConcurrency = configuredConcurrency
         self.now = now
     }
 
@@ -30,29 +35,65 @@ public struct SyncCoordinator: Sendable {
         let serverRecords = try await pagedServerRecords()
         let plan = SyncPlanner.plan(library: libraryResources, server: serverRecords, range: range)
 
-        var uploaded: [ResourceKey] = []
-        var deleted: [ResourceKey] = []
-        var failed: [FailedItem] = []
-
+        let cap = max(1, configuredConcurrency ?? Self.defaultConcurrency)
         let uploadTotal = plan.uploads.count
-        for item in plan.uploads {
-            try Task.checkCancellation()
-            // `completed` is successful uploads so far (not attempts), so a live "backed up"
-            // count derived from it never credits a failed item.
+
+        var uploaded: [ResourceKey] = []
+        var failed: [FailedItem] = []
+        var deleted: [ResourceKey] = []
+
+        var iterator = plan.uploads.makeIterator()
+        var inFlight = 0
+        var lastName: String? = nil
+        var lastID: String? = nil
+
+        // `completed` is successful uploads so far (not attempts), so a live "backed
+        // up" count derived from it never credits a failed item. `currentItem*` is
+        // the most-recently-started upload; `inFlight` is how many run right now.
+        func emit() {
             onProgress(SyncProgress(completed: uploaded.count,
                                     total: uploadTotal,
-                                    currentItemName: item.resource.filename,
+                                    currentItemName: lastName,
                                     bytesRemaining: nil,
-                                    currentItemID: item.resource.key.localIdentifier))
-            do {
-                try await execute(item)
-                uploaded.append(item.resource.key)
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                failed.append(FailedItem(key: item.resource.key,
-                                         filename: item.resource.filename,
-                                         reason: String(describing: error)))
+                                    currentItemID: lastID,
+                                    inFlight: inFlight))
+        }
+
+        try await withThrowingTaskGroup(of: UploadOutcome.self) { group in
+            // Adds one upload task if any remain. Runs only on this coordinator
+            // coroutine, so the counters and `onProgress` stay single-threaded even
+            // though the uploads themselves run concurrently.
+            func addNext() -> Bool {
+                guard let item = iterator.next() else { return false }
+                inFlight += 1
+                lastName = item.resource.filename
+                lastID = item.resource.key.localIdentifier
+                group.addTask {
+                    try Task.checkCancellation()
+                    do {
+                        try await execute(item)
+                        return .success(item.resource.key)
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        return .failed(FailedItem(key: item.resource.key,
+                                                  filename: item.resource.filename,
+                                                  reason: String(describing: error)))
+                    }
+                }
+                emit()   // most-recently-started item, live inFlight
+                return true
+            }
+
+            for _ in 0..<cap where addNext() {}
+
+            while let outcome = try await group.next() {
+                inFlight -= 1
+                switch outcome {
+                case .success(let key): uploaded.append(key)
+                case .failed(let item): failed.append(item)
+                }
+                if !addNext() { emit() }   // refresh completed + drained inFlight
             }
         }
 
@@ -128,4 +169,11 @@ public struct SyncCoordinator: Sendable {
             creationDate: resource.creationDate,
             bundleID: resource.bundleID))
     }
+}
+
+/// Result of one concurrent upload task. A per-item failure is a value, not a
+/// thrown error — throwing out of a task would cancel its siblings.
+private enum UploadOutcome: Sendable {
+    case success(ResourceKey)
+    case failed(FailedItem)
 }
