@@ -42,7 +42,14 @@ public struct SyncCoordinator: Sendable {
         if let injected = configuredConcurrency {
             cap = max(1, injected)
         } else {
-            let discovered = (try? await client.config().maxConcurrentUploads) ?? Self.defaultConcurrency
+            let discovered: Int
+            do {
+                discovered = try await client.config().maxConcurrentUploads
+            } catch is CancellationError {
+                throw CancellationError()   // never let a cancel look like a config miss
+            } catch {
+                discovered = Self.defaultConcurrency
+            }
             cap = max(1, discovered)
         }
         let uploadTotal = plan.uploads.count
@@ -94,7 +101,7 @@ public struct SyncCoordinator: Sendable {
                 return true
             }
 
-            for _ in 0..<cap where addNext() {}
+            for _ in 0..<cap { if !addNext() { break } }
 
             while let outcome = try await group.next() {
                 inFlight -= 1

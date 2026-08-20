@@ -76,6 +76,17 @@ struct SyncCoordinatorTests {
         #expect(progresses.allSatisfy { $0.completed <= $0.total })
     }
 
+    @Test func hugeCapWithFewUploadsDoesNotHang() async throws {
+        // Regression: the priming loop must BREAK when the plan is exhausted, not
+        // iterate the whole 0..<cap range. Pre-fix this hangs at cap == Int.max.
+        let server = FakeServer(host: "sc-conc-hugecap.test")
+        let report = try await makeCoordinator(server: server,
+                                               library: [resource("A"), resource("B")],
+                                               concurrency: .max).sync(range: .all)
+        #expect(Set(report.uploaded.map(\.localIdentifier)) == ["A", "B"])
+        #expect(report.failed.isEmpty)
+    }
+
     @Test func discoversCapFromConfigWhenNotInjected() async throws {
         let server = FakeServer(host: "sc-conc-discover.test")
         server.configMax = 2   // server advertises cap 2
