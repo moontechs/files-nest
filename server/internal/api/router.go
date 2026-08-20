@@ -18,7 +18,12 @@ import (
 // All routes except /health require authentication. The health endpoint
 // is intentionally kept outside auth so monitoring tools can check
 // liveness without credentials.
-func NewRouter(handler *Handler, authCfg AuthConfig) http.Handler {
+//
+// limiter bounds the number of concurrent PATCH /uploads/{id}/data requests
+// (the only streamed, long-running route). It is applied as middleware *inside*
+// the auth wrapper so unauthenticated requests never consume a concurrency
+// slot. Other, cheaper metadata routes are not gated.
+func NewRouter(handler *Handler, authCfg AuthConfig, limiter *ConcurrencyLimiter) http.Handler {
 	mux := http.NewServeMux()
 
 	// Unauthenticated health check endpoint.
@@ -31,6 +36,14 @@ func NewRouter(handler *Handler, authCfg AuthConfig) http.Handler {
 	// Auth middleware wrapping all API routes.
 	auth := AuthMiddleware(authCfg)
 
+	// Read-only server configuration, exposed so clients can discover the
+	// concurrency limit before issuing parallel uploads.
+	mux.Handle("GET /config", auth(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"maxConcurrentUploads":` + strconv.Itoa(limiter.Cap()) + `}`))
+	})))
+
 	// Upload management endpoints.
 	mux.Handle("POST /uploads", auth(http.HandlerFunc(handler.HandleCreateUpload)))
 	mux.Handle("GET /uploads", auth(http.HandlerFunc(handler.HandleListUploads)))
@@ -38,7 +51,7 @@ func NewRouter(handler *Handler, authCfg AuthConfig) http.Handler {
 
 	// TUS protocol data endpoints.
 	mux.Handle("HEAD /uploads/{id}/data", auth(http.HandlerFunc(handler.HandleHeadUploadData)))
-	mux.Handle("PATCH /uploads/{id}/data", auth(http.HandlerFunc(handler.HandlePatchUploadData)))
+	mux.Handle("PATCH /uploads/{id}/data", auth(limiter.Middleware(http.HandlerFunc(handler.HandlePatchUploadData))))
 
 	// Status transition and deletion.
 	mux.Handle("PATCH /uploads/{id}/status", auth(http.HandlerFunc(handler.HandlePatchUploadStatus)))

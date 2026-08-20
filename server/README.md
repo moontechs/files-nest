@@ -119,12 +119,31 @@ The server is configured exclusively through environment variables.
 | `BACKUP_PASS`   | Yes*     | `""`       | HTTP Basic Auth password.                        |
 | `STORAGE_PATH`  | No       | `./data`    | Root directory for all storage (see below).      |
 | `PORT`          | No       | `8080`      | HTTP listen port.                                |
+| `MAX_CONCURRENT_UPLOADS` | No | `4` | Max concurrent in-flight `PATCH .../data` (see below). |
 
 \* When both `BACKUP_USER` and `BACKUP_PASS` are empty, authentication is
 disabled. This is useful for local development but **must not** be used in
 production. If only one of the two is set, the server refuses to start
 (partial credentials are a misconfiguration that would otherwise accept an
 empty username or password as a valid match).
+
+### Concurrency Limit
+
+`MAX_CONCURRENT_UPLOADS` caps how many `PATCH /uploads/:id/data` requests
+can run **concurrently** on the server. This is a *concurrency* limit, not a
+rate limit: any number of uploads may be in progress sequentially, but only
+the configured number may be in-flight at a given moment. Requests over the
+cap are rejected immediately (no server-side queuing) with `503 Service
+Unavailable` and a `Retry-After: 1` header, so a client can back off and
+retry. Only the data-upload route (`PATCH .../data`) is gated — cheap
+metadata operations (create, status, list, delete) are never limited.
+
+The value must be a positive integer. On a parse error or a value `<= 0` the
+server logs a warning and falls back to the default of `4`. The production
+(`docker-compose.yml`) and e2e (`docker-compose.e2e.yml`) Compose files
+deliberately do not set this variable, so both pick up the default of `4`.
+A client can discover the live limit at runtime via `GET /config` (see
+below) rather than hard-coding it.
 
 ### Storage Layout
 
@@ -179,6 +198,28 @@ GET /health
 ```json
 {"status":"ok"}
 ```
+
+---
+
+#### `GET /config`
+
+Read-only server configuration, exposed so clients can discover the
+concurrency limit before issuing parallel uploads. Requires authentication.
+
+**Response 200:**
+```json
+{"maxConcurrentUploads": 4}
+```
+
+`maxConcurrentUploads` reflects the configured `MAX_CONCURRENT_UPLOADS`
+value (default `4`). Clients should read this once at startup and use it to
+drive how many concurrent `PATCH .../data` requests they issue.
+
+**Status codes:**
+| Code | Description |
+|------|-------------|
+| 200  | Configuration returned |
+| 401  | Missing or invalid credentials |
 
 ---
 
@@ -366,6 +407,7 @@ Tus-Resumable: 1.0.0
 | 400  | Missing or invalid headers |
 | 404  | Upload not found |
 | 409  | Offset mismatch or backend lost |
+| 503  | Over the concurrent-upload limit (`Retry-After: 1`); retry later |
 
 The `Upload-Length` header is required to finalize a deferred-length upload.
 The final chunk should include `Upload-Length` set to the total file size and
