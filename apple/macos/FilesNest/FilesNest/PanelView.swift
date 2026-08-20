@@ -97,7 +97,9 @@ struct PanelView: View {
             ThumbnailView(id: p.currentItemID, size: 34, loader: thumbnails)
             VStack(alignment: .leading, spacing: 2) {
                 Text(p.currentItemName ?? "…").font(.caption).bold().lineLimit(1)
-                Text("Uploading · \(p.completed) of \(p.total)")
+                Text(p.inFlight > 1
+                     ? "Uploading \(p.inFlight) · \(p.completed) of \(p.total)"
+                     : "Uploading · \(p.completed) of \(p.total)")
                     .font(.caption2).foregroundStyle(.secondary)
                 ProgressView(value: p.fraction).controlSize(.mini)
             }
