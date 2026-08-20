@@ -166,9 +166,11 @@ Added with a default (`inFlight: Int = 0`) so existing construction sites and th
 
 - `completed` = successful outcomes so far (monotonic; never credits a failure) —
   unchanged semantics.
-- `currentItemName` / `currentItemID` = the **most-recently-started** in-flight item,
-  emitted by the draining coroutine each time it launches a new task. The strip stays
-  lively and always shows forward motion.
+- `currentItemName` / `currentItemID` = the most-recently-started item **that is
+  still in flight**. The coordinator keeps the in-flight uploads in start order and
+  reports the last one still running, so the strip never shows an upload that has
+  already finished while an older one is still going (Codex review #4). When nothing
+  is in flight (the trailing "all done" tick), current is `nil`.
 - `inFlight` = number of child tasks currently running, emitted alongside.
 
 `PanelView.currentItem(_:)` (`PanelView.swift:95-100`) keeps its single hero
@@ -242,6 +244,19 @@ App (manual): a verification checklist under `docs/plans/` walking a real sync w
 cap 4 — the strip shows the in-flight count and a live hero thumbnail; pause during a
 concurrent burst cancels cleanly; run against a pre-#25 server (no `/config`) to
 confirm the fallback path.
+
+## 9a. Review decisions (Codex, PR #27)
+
+- **Cap has no upper bound (deliberate).** The resolved cap is `max(1, …)` only —
+  not clamped to a ceiling. The server is the user's own self-hosted instance and
+  its `MAX_CONCURRENT_UPLOADS` is intentional configuration; the client trusts it.
+  A misconfigured very-large value would let the client run that many concurrent
+  uploads (memory), which is accepted as the operator's own footgun.
+- **Priming loop must `break`** on plan exhaustion (a `for … where` only *filters*,
+  so a large cap iterated the whole range) — fixed, guarded by
+  `hugeCapWithFewUploadsDoesNotHang`.
+- **Config fetch preserves cancellation** — a `CancellationError` from `GET /config`
+  is rethrown, never swallowed into the default-cap fallback.
 
 ## 10. Rollout
 

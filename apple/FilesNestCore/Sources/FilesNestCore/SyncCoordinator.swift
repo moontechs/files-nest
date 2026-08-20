@@ -59,31 +59,30 @@ public struct SyncCoordinator: Sendable {
         var deleted: [ResourceKey] = []
 
         var iterator = plan.uploads.makeIterator()
-        var inFlight = 0
-        var lastName: String? = nil
-        var lastID: String? = nil
+        // In-flight uploads in start order. The strip reports the most-recently-
+        // started one that is STILL running (the last element) — never one that has
+        // already completed while an older upload is still in flight.
+        var inFlightItems: [(key: ResourceKey, name: String)] = []
 
         // `completed` is successful uploads so far (not attempts), so a live "backed
-        // up" count derived from it never credits a failed item. `currentItem*` is
-        // the most-recently-started upload; `inFlight` is how many run right now.
+        // up" count derived from it never credits a failed item.
         func emit() {
+            let current = inFlightItems.last
             onProgress(SyncProgress(completed: uploaded.count,
                                     total: uploadTotal,
-                                    currentItemName: lastName,
+                                    currentItemName: current?.name,
                                     bytesRemaining: nil,
-                                    currentItemID: lastID,
-                                    inFlight: inFlight))
+                                    currentItemID: current?.key.localIdentifier,
+                                    inFlight: inFlightItems.count))
         }
 
         try await withThrowingTaskGroup(of: UploadOutcome.self) { group in
             // Adds one upload task if any remain. Runs only on this coordinator
-            // coroutine, so the counters and `onProgress` stay single-threaded even
-            // though the uploads themselves run concurrently.
+            // coroutine, so the in-flight list and `onProgress` stay single-threaded
+            // even though the uploads themselves run concurrently.
             func addNext() -> Bool {
                 guard let item = iterator.next() else { return false }
-                inFlight += 1
-                lastName = item.resource.filename
-                lastID = item.resource.key.localIdentifier
+                inFlightItems.append((item.resource.key, item.resource.filename))
                 group.addTask {
                     try Task.checkCancellation()
                     do {
@@ -97,19 +96,22 @@ public struct SyncCoordinator: Sendable {
                                                   reason: String(describing: error)))
                     }
                 }
-                emit()   // most-recently-started item, live inFlight
+                emit()   // newest still-in-flight item becomes the reported current
                 return true
             }
 
             for _ in 0..<cap { if !addNext() { break } }
 
             while let outcome = try await group.next() {
-                inFlight -= 1
+                let completedKey: ResourceKey
                 switch outcome {
-                case .success(let key): uploaded.append(key)
-                case .failed(let item): failed.append(item)
+                case .success(let key): uploaded.append(key); completedKey = key
+                case .failed(let item): failed.append(item); completedKey = item.key
                 }
-                if !addNext() { emit() }   // refresh completed + drained inFlight
+                if let idx = inFlightItems.firstIndex(where: { $0.key == completedKey }) {
+                    inFlightItems.remove(at: idx)
+                }
+                if !addNext() { emit() }   // refresh completed + drained in-flight set
             }
         }
 

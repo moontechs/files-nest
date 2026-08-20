@@ -76,6 +76,37 @@ struct SyncCoordinatorTests {
         #expect(progresses.allSatisfy { $0.completed <= $0.total })
     }
 
+    @Test func currentItemStaysOnAStillRunningUpload() async throws {
+        // A (started first) blocks until progress reports completed==1; B (started
+        // second) completes first. Once B drains and nothing new starts, the strip
+        // must report A (still in flight), not the just-finished B.
+        let server = FakeServer(host: "sc-conc-current.test")
+        let a = resource("A", date: "2024-06-15T10:00:00Z")
+        let b = resource("B", date: "2024-06-15T10:01:00Z")
+        let baton = Baton()
+        let recorder = ProgressRecorder()
+        let client = server.client()
+        let coord = SyncCoordinator(
+            client: client,
+            library: FakeAssetLibrary(items: [a, b], error: nil),
+            uploader: AssetUploader(client: client,
+                                    source: OrderedDataSource(baton: baton, waitID: "A#photo",
+                                                              totalBytes: 250, blobSize: 100)),
+            state: InMemorySyncStateStore(),
+            configuredConcurrency: 2,
+            now: { Date(timeIntervalSince1970: 1_700_000_000) })
+
+        _ = try await coord.sync(range: .all) { p in
+            recorder.record(p)
+            if p.completed == 1 { baton.release() }   // one-shot; unblocks A after B drains
+        }
+
+        // After B (completed==1) drained, the reported current item is A, still in flight.
+        #expect(recorder.items.contains {
+            $0.completed == 1 && $0.currentItemID == "A" && $0.inFlight == 1
+        })
+    }
+
     @Test func hugeCapWithFewUploadsDoesNotHang() async throws {
         // Regression: the priming loop must BREAK when the plan is exhausted, not
         // iterate the whole 0..<cap range. Pre-fix this hangs at cap == Int.max.
@@ -365,13 +396,13 @@ extension SyncCoordinatorTests {
         _ = try await makeCoordinator(server: server, library: [a, b])
             .sync(range: .all, onProgress: { box.append($0) })
 
-        // At concurrency 1 the loop is serial: one "start" emit per upload (most-
-        // recently-started item, inFlight 1), plus a trailing emit once the last
-        // upload drains (completed == total, inFlight 0).
+        // At concurrency 1 the loop is serial: one "start" emit per upload (the
+        // still-in-flight item, inFlight 1), plus a trailing emit once the last
+        // upload drains — nothing is in flight then, so current is nil.
         #expect(box.values == [
             SyncProgress(completed: 0, total: 2, currentItemName: "A.jpg", bytesRemaining: nil, currentItemID: "A", inFlight: 1),
             SyncProgress(completed: 1, total: 2, currentItemName: "B.jpg", bytesRemaining: nil, currentItemID: "B", inFlight: 1),
-            SyncProgress(completed: 2, total: 2, currentItemName: "B.jpg", bytesRemaining: nil, currentItemID: "B", inFlight: 0),
+            SyncProgress(completed: 2, total: 2, currentItemName: nil, bytesRemaining: nil, currentItemID: nil, inFlight: 0),
         ])
     }
 
