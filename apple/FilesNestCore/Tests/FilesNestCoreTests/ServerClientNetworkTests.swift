@@ -13,6 +13,40 @@ struct ServerClientNetworkTests {
                      session: MockURLProtocol.makeSession())
     }
 
+    @Test func mapsServiceUnavailableWithRetryAfter() async throws {
+        let host = "sc-503.test"
+        MockURLProtocol.setHandler(forHost: host) { req in
+            MockURLProtocol.respond(status: 503,
+                                    headers: ["Retry-After": "3",
+                                              "Content-Type": "application/json"],
+                                    body: #"{"error":"too many concurrent uploads"}"#.data(using: .utf8)!,
+                                    for: req.url!)
+        }
+        defer { MockURLProtocol.removeHandler(forHost: host) }
+
+        let client = ServerClient(baseURL: URL(string: "https://\(host)")!,
+                                  credentials: FakeCredentialStore(creds: nil),
+                                  session: MockURLProtocol.makeSession())
+        await #expect(throws: ServerClientError.serviceUnavailable(retryAfter: 3)) {
+            _ = try await client.getUpload(id: "ID1")
+        }
+    }
+
+    @Test func mapsServiceUnavailableWithoutRetryAfterHeader() async throws {
+        let host = "sc-503-noheader.test"
+        MockURLProtocol.setHandler(forHost: host) { req in
+            MockURLProtocol.respond(status: 503, body: Data(), for: req.url!)
+        }
+        defer { MockURLProtocol.removeHandler(forHost: host) }
+
+        let client = ServerClient(baseURL: URL(string: "https://\(host)")!,
+                                  credentials: FakeCredentialStore(creds: nil),
+                                  session: MockURLProtocol.makeSession())
+        await #expect(throws: ServerClientError.serviceUnavailable(retryAfter: nil)) {
+            _ = try await client.getUpload(id: "ID1")
+        }
+    }
+
     @Test func createUploadPostsBodyAndDecodes() async throws {
         nonisolated(unsafe) var captured: URLRequest?
         nonisolated(unsafe) var bodyData: Data?

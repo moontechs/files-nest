@@ -16,6 +16,9 @@ public enum ServerClientError: Error, Sendable, Equatable {
     case unexpectedStatus(code: Int, message: String?)
     case decoding(String)
     case transport(String)
+    /// 503 — server is at its concurrency cap. `retryAfter` is the `Retry-After`
+    /// header in seconds (nil when absent). Recoverable: back off and retry.
+    case serviceUnavailable(retryAfter: Int?)
 
     static func errorMessage(from body: Data) -> String? {
         struct E: Decodable { let error: String }

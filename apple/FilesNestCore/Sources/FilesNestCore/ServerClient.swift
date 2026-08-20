@@ -58,6 +58,10 @@ public struct ServerClient: Sendable {
         guard let http = response as? HTTPURLResponse else {
             throw ServerClientError.transport("non-HTTP response")
         }
+        if http.statusCode == 503 {
+            let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap { Int($0) }
+            throw ServerClientError.serviceUnavailable(retryAfter: retryAfter)
+        }
         if let err = ServerClientError.map(status: http.statusCode, body: data) { throw err }
         return (data, http)
     }
