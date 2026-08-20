@@ -47,6 +47,46 @@ struct ServerClientNetworkTests {
         }
     }
 
+    @Test func patchDataRetriesAfter503ThenSucceeds() async throws {
+        let host = "sc-patch-retry.test"
+        let calls = Counter503()
+        MockURLProtocol.setHandler(forHost: host) { req in
+            if calls.next() < 2 {   // first two attempts: 503 with a 0s backoff
+                return MockURLProtocol.respond(status: 503, headers: ["Retry-After": "0"],
+                                               body: Data(), for: req.url!)
+            }
+            return MockURLProtocol.respond(status: 204, headers: ["Upload-Offset": "100"],
+                                           body: Data(), for: req.url!)
+        }
+        defer { MockURLProtocol.removeHandler(forHost: host) }
+
+        let client = ServerClient(baseURL: URL(string: "https://\(host)")!,
+                                  credentials: FakeCredentialStore(creds: nil),
+                                  session: MockURLProtocol.makeSession(),
+                                  maxPatchRetries: 5)
+        let newOffset = try await client.patchData(uploadID: "ID1", offset: 0,
+                                                   data: Data(count: 100), finalLength: nil)
+        #expect(newOffset == 100)
+        #expect(calls.count == 3)   // two 503s + one success
+    }
+
+    @Test func patchDataFailsAfterExhaustingRetries() async throws {
+        let host = "sc-patch-exhaust.test"
+        MockURLProtocol.setHandler(forHost: host) { req in
+            MockURLProtocol.respond(status: 503, headers: ["Retry-After": "0"], body: Data(), for: req.url!)
+        }
+        defer { MockURLProtocol.removeHandler(forHost: host) }
+
+        let client = ServerClient(baseURL: URL(string: "https://\(host)")!,
+                                  credentials: FakeCredentialStore(creds: nil),
+                                  session: MockURLProtocol.makeSession(),
+                                  maxPatchRetries: 2)
+        await #expect(throws: ServerClientError.serviceUnavailable(retryAfter: 0)) {
+            _ = try await client.patchData(uploadID: "ID1", offset: 0,
+                                           data: Data(count: 10), finalLength: nil)
+        }
+    }
+
     @Test func createUploadPostsBodyAndDecodes() async throws {
         nonisolated(unsafe) var captured: URLRequest?
         nonisolated(unsafe) var bodyData: Data?
@@ -250,4 +290,14 @@ extension URLRequest {
         }
         return data
     }
+}
+
+/// Thread-safe call counter for stubbing "N failures then success" across the
+/// URLSession worker thread.
+final class Counter503: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _count = 0
+    var count: Int { lock.lock(); defer { lock.unlock() }; return _count }
+    /// Returns the pre-increment value, then increments.
+    func next() -> Int { lock.lock(); defer { lock.unlock() }; let v = _count; _count += 1; return v }
 }
