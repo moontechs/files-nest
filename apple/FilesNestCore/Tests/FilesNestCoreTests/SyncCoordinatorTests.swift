@@ -76,6 +76,38 @@ struct SyncCoordinatorTests {
         #expect(progresses.allSatisfy { $0.completed <= $0.total })
     }
 
+    @Test func discoversCapFromConfigWhenNotInjected() async throws {
+        let server = FakeServer(host: "sc-conc-discover.test")
+        server.configMax = 2   // server advertises cap 2
+        let library = (0..<4).map { resource("C\($0)", date: "2024-06-15T10:0\($0):00Z") }
+        let gate = ArrivalGate(target: 2)
+        let client = server.client()
+        let coord = SyncCoordinator(
+            client: client,
+            library: FakeAssetLibrary(items: library, error: nil),
+            uploader: AssetUploader(client: client,
+                                    source: GatedDataSource(gate: gate, totalBytes: 250, blobSize: 100)),
+            state: InMemorySyncStateStore(),
+            configuredConcurrency: nil,   // force discovery
+            now: { Date(timeIntervalSince1970: 1_700_000_000) })
+
+        let report = try await coord.sync(range: .all)
+
+        #expect(await gate.peak == 2)   // used the server-advertised cap
+        #expect(report.uploaded.count == 4)
+    }
+
+    @Test func fallsBackWhenConfigMissing() async throws {
+        let server = FakeServer(host: "sc-conc-fallback.test")
+        server.configMax = nil   // GET /config → 404 (old server)
+        let report = try await makeCoordinator(server: server,
+                                               library: [resource("A"), resource("B")],
+                                               concurrency: nil).sync(range: .all)
+        // No throw; both upload. (Cap fell back to the default; exact value not asserted.)
+        #expect(Set(report.uploaded.map(\.localIdentifier)) == ["A", "B"])
+        #expect(report.failed.isEmpty)
+    }
+
     @Test func newAssetIsCreatedUploadedAndReported() async throws {
         let server = FakeServer(host: "sc-create.test")
         let report = try await makeCoordinator(server: server, library: [resource("A")]).sync(range: .all)

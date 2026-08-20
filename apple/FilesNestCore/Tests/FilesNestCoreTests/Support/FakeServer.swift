@@ -34,6 +34,8 @@ final class FakeServer: @unchecked Sendable {
     var markLostOnFirstDataOp = false
     /// Ids whose DELETE returns 500, to exercise "record the failure, keep deleting".
     var failDeleteIDs: Set<String> = []
+    /// Value returned by GET /config. nil → the route 404s (models a pre-#25 server).
+    var configMax: Int?
 
     init(host: String) { self.host = host }
 
@@ -163,6 +165,12 @@ final class FakeServer: @unchecked Sendable {
             records[id]?.status = "deleted"
             backendLostIDs.remove(id)
             return resp(204)
+
+        case ("GET", 1) where parts[0] == "config":
+            guard let m = configMax else { return resp(404) }
+            let obj: [String: Any] = ["maxConcurrentUploads": m]
+            return resp(200, ["Content-Type": "application/json"],
+                        try JSONSerialization.data(withJSONObject: obj))
 
         default:
             return resp(500)

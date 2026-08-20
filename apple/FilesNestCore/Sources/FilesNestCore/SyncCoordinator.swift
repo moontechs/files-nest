@@ -35,7 +35,16 @@ public struct SyncCoordinator: Sendable {
         let serverRecords = try await pagedServerRecords()
         let plan = SyncPlanner.plan(library: libraryResources, server: serverRecords, range: range)
 
-        let cap = max(1, configuredConcurrency ?? Self.defaultConcurrency)
+        // Injected value wins (tests, future Settings UI). Otherwise discover the
+        // cap from GET /config, falling back to the default when the endpoint is
+        // absent (old server) or unreachable — config never fails a sync.
+        let cap: Int
+        if let injected = configuredConcurrency {
+            cap = max(1, injected)
+        } else {
+            let discovered = (try? await client.config().maxConcurrentUploads) ?? Self.defaultConcurrency
+            cap = max(1, discovered)
+        }
         let uploadTotal = plan.uploads.count
 
         var uploaded: [ResourceKey] = []
