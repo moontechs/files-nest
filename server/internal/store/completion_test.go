@@ -17,12 +17,13 @@ import (
 // testIntent creates a minimal CompletionIntent for use in tests.
 func testIntent(id string) *store.CompletionIntent {
 	return &store.CompletionIntent{
-		ID:        id,
-		BackendID: "tusd-" + id,
-		Src:       "/tmp/incoming/" + id,
-		Dst:       "/tmp/organized/2024/03/15/IMG_" + id + ".jpg",
-		DstRel:    "organized/2024/03/15/IMG_" + id + ".jpg",
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		ID:           id,
+		BackendID:    "tusd-" + id,
+		Src:          "/tmp/incoming/" + id,
+		Dst:          "/tmp/organized/2024/03/15/IMG_" + id + ".jpg",
+		DstRel:       "organized/2024/03/15/IMG_" + id + ".jpg",
+		CreationDate: time.Now().UTC().Format(time.RFC3339),
+		CreatedAt:    time.Now().UTC().Format(time.RFC3339),
 	}
 }
 
@@ -35,12 +36,13 @@ func TestCompletionIntent_SaveAndGet(t *testing.T) {
 	id := "test-intent-1"
 
 	intent := &store.CompletionIntent{
-		ID:        id,
-		BackendID: "tusd-backend-123",
-		Src:       "/tmp/incoming/abc123",
-		Dst:       "/tmp/organized/2024/03/15/IMG_1234.jpg",
-		DstRel:    "organized/2024/03/15/IMG_1234.jpg",
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		ID:           id,
+		BackendID:    "tusd-backend-123",
+		Src:          "/tmp/incoming/abc123",
+		Dst:          "/tmp/organized/2024/03/15/IMG_1234.jpg",
+		DstRel:       "organized/2024/03/15/IMG_1234.jpg",
+		CreationDate: "2023-07-04T08:15:00Z",
+		CreatedAt:    time.Now().UTC().Format(time.RFC3339),
 	}
 
 	if err := s.SaveCompletionIntent(intent); err != nil {
@@ -69,6 +71,9 @@ func TestCompletionIntent_SaveAndGet(t *testing.T) {
 	if got.DstRel != intent.DstRel {
 		t.Errorf("DstRel: got %q, want %q", got.DstRel, intent.DstRel)
 	}
+	if got.CreationDate != intent.CreationDate {
+		t.Errorf("CreationDate: got %q, want %q", got.CreationDate, intent.CreationDate)
+	}
 	if got.CreatedAt != intent.CreatedAt {
 		t.Errorf("CreatedAt: got %q, want %q", got.CreatedAt, intent.CreatedAt)
 	}
@@ -89,23 +94,25 @@ func TestCompletionIntent_SaveAndGet_AllFields(t *testing.T) {
 		{
 			name: "id with slashes-like pattern",
 			intent: &store.CompletionIntent{
-				ID:        "asset-ABC123/L0/000",
-				BackendID: "tusd-asset-ABC123",
-				Src:       "/storage/incoming/tusd-asset-ABC123",
-				Dst:       "/storage/organized/2024/06/15/IMG_9876.jpg",
-				DstRel:    "organized/2024/06/15/IMG_9876.jpg",
-				CreatedAt: "2024-06-15T10:30:00Z",
+				ID:           "asset-ABC123/L0/000",
+				BackendID:    "tusd-asset-ABC123",
+				Src:          "/storage/incoming/tusd-asset-ABC123",
+				Dst:          "/storage/organized/2024/06/15/IMG_9876.jpg",
+				DstRel:       "organized/2024/06/15/IMG_9876.jpg",
+				CreationDate: "2024-06-12T01:02:03Z",
+				CreatedAt:    "2024-06-15T10:30:00Z",
 			},
 		},
 		{
 			name: "deep nested paths",
 			intent: &store.CompletionIntent{
-				ID:        "deep-path-intent",
-				BackendID: "tusd-deep-123",
-				Src:       "/a/very/deep/nested/path/incoming/file.dat",
-				Dst:       "/another/very/deep/nested/path/organized/2024/12/31/file.dat",
-				DstRel:    "organized/2024/12/31/file.dat",
-				CreatedAt: "2024-12-31T23:59:59Z",
+				ID:           "deep-path-intent",
+				BackendID:    "tusd-deep-123",
+				Src:          "/a/very/deep/nested/path/incoming/file.dat",
+				Dst:          "/another/very/deep/nested/path/organized/2024/12/31/file.dat",
+				DstRel:       "organized/2024/12/31/file.dat",
+				CreationDate: "2024-12-30T00:00:00Z",
+				CreatedAt:    "2024-12-31T23:59:59Z",
 			},
 		},
 		{
@@ -150,6 +157,9 @@ func TestCompletionIntent_SaveAndGet_AllFields(t *testing.T) {
 			}
 			if got.DstRel != tt.intent.DstRel {
 				t.Errorf("DstRel: got %q, want %q", got.DstRel, tt.intent.DstRel)
+			}
+			if got.CreationDate != tt.intent.CreationDate {
+				t.Errorf("CreationDate: got %q, want %q", got.CreationDate, tt.intent.CreationDate)
 			}
 			if got.CreatedAt != tt.intent.CreatedAt {
 				t.Errorf("CreatedAt: got %q, want %q", got.CreatedAt, tt.intent.CreatedAt)

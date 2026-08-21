@@ -197,11 +197,11 @@ confirmed with the user):
 - Modify: `server/internal/api/handlers.go`
 - Modify: `server/internal/store/completion_test.go` (create if it doesn't exist)
 
-- [ ] add `CreationDate string` field (JSON tag `creation_date`) to `store.CompletionIntent`, positioned before `CreatedAt` (server bookkeeping time) to keep client-vs-server date fields visually grouped
-- [ ] in `handlers.go` (~line 1003), populate `CreationDate: plan.DateUsed` when constructing the `store.CompletionIntent{...}` literal (`plan` is the `PlanDestResult` from Task 2, already in scope at that call site)
-- [ ] write/update test verifying `SaveCompletionIntent`/`GetCompletionIntent` round-trips `CreationDate` correctly (Badger JSON marshal/unmarshal)
-- [ ] write test verifying the completion-intent construction in the handler populates `CreationDate` from `plan.DateUsed` (existing handler test fixture, or new one if none covers this path)
-- [ ] run tests — must pass before task 4
+- [x] add `CreationDate string` field (JSON tag `creation_date`) to `store.CompletionIntent`, positioned before `CreatedAt` (server bookkeeping time) to keep client-vs-server date fields visually grouped
+- [x] in `handlers.go` (~line 1003), populate `CreationDate: plan.DateUsed` when constructing the `store.CompletionIntent{...}` literal (`plan` is the `PlanDestResult` from Task 2, already in scope at that call site)
+- [x] write/update test verifying `SaveCompletionIntent`/`GetCompletionIntent` round-trips `CreationDate` correctly (Badger JSON marshal/unmarshal)
+- [x] write test verifying the completion-intent construction in the handler populates `CreationDate` from `plan.DateUsed` (existing handler test fixture, or new one if none covers this path)
+- [x] run tests — must pass before task 4
 
 ### Task 4: `MoveFile` sets real timestamps via `Chtimes`
 

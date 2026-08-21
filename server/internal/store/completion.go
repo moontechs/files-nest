@@ -17,12 +17,13 @@ import (
 // crashes between the file move, the DB update, and the tusd cleanup, the
 // completion intent enables the server to recover on startup.
 type CompletionIntent struct {
-	ID        string `json:"id"`
-	BackendID string `json:"backend_id"`
-	Src       string `json:"src"`
-	Dst       string `json:"dst"`
-	DstRel    string `json:"dst_rel"`
-	CreatedAt string `json:"created_at"`
+	ID           string `json:"id"`
+	BackendID    string `json:"backend_id"`
+	Src          string `json:"src"`
+	Dst          string `json:"dst"`
+	DstRel       string `json:"dst_rel"`
+	CreationDate string `json:"creation_date"`
+	CreatedAt    string `json:"created_at"`
 }
 
 // ---------------------------------------------------------------------------

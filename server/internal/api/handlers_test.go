@@ -2291,6 +2291,14 @@ func TestHandlePatchUploadStatus_MoveFailurePreservesUploading(t *testing.T) {
 	if intent.DstRel == "" {
 		t.Error("expected non-empty DstRel in completion intent")
 	}
+
+	// The completion intent must persist the resolved creation date (from
+	// PlanDestResult.DateUsed) so the crash-recovery move path can reproduce
+	// the file's real timestamp. Here the creation date is a valid RFC3339
+	// string, so DateUsed is that exact string.
+	if intent.CreationDate != creationDate {
+		t.Errorf("completion intent CreationDate = %q, want %q", intent.CreationDate, creationDate)
+	}
 }
 
 func TestHandlePatchUploadStatus_MoveToExistingPlanFailure(t *testing.T) {
