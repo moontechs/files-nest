@@ -1024,7 +1024,7 @@ func (h *Handler) moveCompletedFile(
 	}
 
 	if existing != nil {
-		existingPlan := filestore.PlanDestResult{Abs: existing.Dst, Rel: existing.DstRel}
+		existingPlan := filestore.PlanDestResult{Abs: existing.Dst, Rel: existing.DstRel, DateUsed: existing.CreationDate}
 
 		moveErr := h.mover.MoveToPlaned(srcPath, existingPlan, saveIntent)
 		if moveErr != nil {

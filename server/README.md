@@ -157,7 +157,7 @@ interval; the value must be a positive duration (`time.ParseDuration`
 format, e.g. `48h`, `1h`, `30m`). On a parse error or a non-positive value
 the server logs a warning and falls back to the default of `48h`.
 
-Files are only removed once their modification time is older than 3 hours,
+Files are only removed once their inode status-change time (ctime) is older than 3 hours,
 so an in-flight upload that has written its file to `organized/` moments
 before its DB record commits as `complete` is never mistaken for an orphan.
 Cleanup is fully automatic — there is no manual trigger and no dry-run mode.
