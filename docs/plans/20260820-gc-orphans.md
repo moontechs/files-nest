@@ -279,12 +279,12 @@ bad cycle, since there's no dry-run step left to catch it beforehand).
 - Create: `server/internal/orphans/filter.go`
 - Create: `server/internal/orphans/filter_test.go`
 
-- [ ] implement `FilterMinAge(candidates []Candidate, minAge time.Duration, now time.Time) []Candidate` in `server/internal/orphans/filter.go`: pure function, no I/O — keeps a candidate when `now.Sub(c.ModTime) >= minAge`
-- [ ] write test: candidate older than `minAge` is kept
-- [ ] write test: candidate younger than `minAge` is dropped
-- [ ] write test: candidate exactly `minAge` old is kept (boundary case)
-- [ ] write test: empty input returns empty output
-- [ ] run tests - must pass before task 3
+- [x] implement `FilterMinAge(candidates []Candidate, minAge time.Duration, now time.Time) []Candidate` in `server/internal/orphans/filter.go`: pure function, no I/O — keeps a candidate when `now.Sub(c.ModTime) >= minAge`
+- [x] write test: candidate older than `minAge` is kept
+- [x] write test: candidate younger than `minAge` is dropped
+- [x] write test: candidate exactly `minAge` old is kept (boundary case)
+- [x] write test: empty input returns empty output
+- [x] run tests - must pass before task 3
 
 ### Task 3: `orphans.Apply` — delete candidates
 
