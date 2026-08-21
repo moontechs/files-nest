@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,6 +101,28 @@ func TestIsSaneCreationDate(t *testing.T) {
 				t.Errorf("isSaneCreationDate(%v, %v) = %v, want %v", tt.t, now, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestApplyCreationTimestampLogsChtimesFailure is the mutation-testing
+// guard for the best-effort Chtimes error branch in applyCreationTimestamp
+// (Task 4): a Chtimes failure on a sane date must be observable (logged),
+// not silently swallowed — otherwise a mutated `err != nil` → `err == nil`
+// would pass unnoticed. It feeds a non-existent destination so os.Chtimes
+// deterministically fails, then asserts the failure is logged while the
+// function still returns without panicking (non-fatal).
+func TestApplyCreationTimestampLogsChtimesFailure(t *testing.T) {
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+
+	// A path that cannot exist: os.Chtimes must fail, and the failure must
+	// surface as a logged line rather than a swallowed error.
+	applyCreationTimestamp(filepath.Join(t.TempDir(), "does-not-exist"), "2024-03-15T10:30:00Z")
+
+	if !strings.Contains(buf.String(), "chtimes") {
+		t.Errorf("expected Chtimes failure to be logged, got: %q", buf.String())
 	}
 }
 
