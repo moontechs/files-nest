@@ -256,6 +256,166 @@ func TestRecover_Intent_NotYetMoved(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Recover intent: moved file gets real creation_date timestamp (Task 5)
+// ---------------------------------------------------------------------------
+
+// TestRecover_Intent_NotYetMoved_SetsCreationDate proves the crash-recovery
+// move path applies the persisted CompletionIntent.CreationDate to the moved
+// file's mtime via filestore.MoveFile (which calls os.Chtimes, Task 4). A
+// file recovered after a crash must show its capture date, not the recovery
+// time.
+func TestRecover_Intent_NotYetMoved_SetsCreationDate(t *testing.T) {
+	rec, st, storageDir, _ := setupRecovery(t)
+
+	id := "test-not-yet-moved-creation-date"
+	backendID := "tusd-not-yet-moved-creation-date-001"
+	dstRel := "organized/2024/03/15/IMG_0012.jpg"
+	dst := filepath.Join(storageDir, dstRel)
+	src := filepath.Join(storageDir, "incoming", backendID)
+
+	// Create the source file (simulating a pending move). Use a capture
+	// date years in the past so the assertion can distinguish "capture
+	// date applied" from "recovery-time mtime kept".
+	captureDate := "2021-11-30T05:45:00Z"
+	writeTestFile(t, src, "source content not yet moved")
+
+	// Save a completion intent with CreationDate populated (as it would be
+	// for any intent persisted after this feature shipped).
+	intent := createIntent(id, src, dst, dstRel, backendID)
+	intent.CreationDate = captureDate
+	saveIntent(t, st, intent)
+
+	// Create an upload record.
+	upload := &store.Upload{
+		ID:              id,
+		LocalIdentifier: "NOT-YET-MOVED-CREATION-DATE-001/L0/000",
+		Status:          store.StatusUploading,
+		BackendID:       backendID,
+		Filename:        "IMG_0012.jpg",
+		CreationDate:    creationDate,
+		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
+		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
+	}
+	if _, _, err := st.PutUploadIfAbsent(upload); err != nil {
+		t.Fatalf("PutUploadIfAbsent: %v", err)
+	}
+
+	// Run recovery.
+	if err := rec.Recover(); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+
+	// Verify the file was moved to the destination with correct content.
+	if !fileExists(dst) {
+		t.Fatal("destination file should exist after recovery")
+	}
+	if got := fileContent(t, dst); got != "source content not yet moved" {
+		t.Fatalf("destination content: got %q, want %q", got, "source content not yet moved")
+	}
+
+	// Verify the moved file's mtime reflects CreationDate, not recovery
+	// time. Compare truncated to the second for filesystem resolution.
+	want, err := time.Parse(time.RFC3339, captureDate)
+	if err != nil {
+		t.Fatalf("bad captureDate %q: %v", captureDate, err)
+	}
+	info, err := os.Stat(dst)
+	if err != nil {
+		t.Fatalf("Stat %s: %v", dst, err)
+	}
+	if !info.ModTime().Truncate(time.Second).Equal(want) {
+		t.Errorf("mtime of recovered file: got %v, want %v (capture date)", info.ModTime(), want)
+	}
+
+	// Verify the record was completed and the intent cleaned up.
+	got, err := st.GetUpload(id)
+	if err != nil {
+		t.Fatalf("GetUpload after recovery: %v", err)
+	}
+	if got.Status != store.StatusComplete {
+		t.Errorf("expected status complete, got %q", got.Status)
+	}
+	if _, err := st.GetCompletionIntent(id); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("GetCompletionIntent after recovery: %v", err)
+	}
+}
+
+// TestRecover_Intent_NotYetMoved_EmptyCreationDate simulates an intent
+// persisted before this feature shipped (upgrade-in-place): CreationDate is
+// empty, so filestore.MoveFile skips Chtimes and the recovered file keeps a
+// recovery-time mtime. The recovery must still succeed — graceful
+// degradation, not a crash.
+func TestRecover_Intent_NotYetMoved_EmptyCreationDate(t *testing.T) {
+	rec, st, storageDir, _ := setupRecovery(t)
+
+	id := "test-not-yet-moved-empty-creation-date"
+	backendID := "tusd-not-yet-moved-empty-creation-date-001"
+	dstRel := "organized/2024/03/15/IMG_0013.jpg"
+	dst := filepath.Join(storageDir, dstRel)
+	src := filepath.Join(storageDir, "incoming", backendID)
+
+	// Create the source file (simulating a pending move).
+	writeTestFile(t, src, "source content not yet moved")
+
+	// Save a completion intent with CreationDate left empty (pre-feature
+	// intent recovered after an upgrade).
+	intent := createIntent(id, src, dst, dstRel, backendID)
+	if intent.CreationDate != "" {
+		t.Fatalf("test setup: expected empty CreationDate, got %q", intent.CreationDate)
+	}
+	saveIntent(t, st, intent)
+
+	// Create an upload record.
+	upload := &store.Upload{
+		ID:              id,
+		LocalIdentifier: "EMPTY-CREATION-DATE-001/L0/000",
+		Status:          store.StatusUploading,
+		BackendID:       backendID,
+		Filename:        "IMG_0013.jpg",
+		CreationDate:    creationDate,
+		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
+		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
+	}
+	if _, _, err := st.PutUploadIfAbsent(upload); err != nil {
+		t.Fatalf("PutUploadIfAbsent: %v", err)
+	}
+
+	// Run recovery — must succeed without a CreationDate.
+	if err := rec.Recover(); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+
+	// Verify the file was moved with correct content.
+	if !fileExists(dst) {
+		t.Fatal("destination file should exist after recovery")
+	}
+	if got := fileContent(t, dst); got != "source content not yet moved" {
+		t.Fatalf("destination content: got %q, want %q", got, "source content not yet moved")
+	}
+
+	// Verify the moved file keeps a recovery-time mtime (Chtimes skipped).
+	info, err := os.Stat(dst)
+	if err != nil {
+		t.Fatalf("Stat %s: %v", dst, err)
+	}
+	if since := time.Since(info.ModTime()); since > 5*time.Second {
+		t.Errorf("mtime of recovered file: %v is %v in the past; expected recovery-time mtime", info.ModTime(), since)
+	}
+
+	// Verify the record was completed and the intent cleaned up.
+	got, err := st.GetUpload(id)
+	if err != nil {
+		t.Fatalf("GetUpload after recovery: %v", err)
+	}
+	if got.Status != store.StatusComplete {
+		t.Errorf("expected status complete, got %q", got.Status)
+	}
+	if _, err := st.GetCompletionIntent(id); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("GetCompletionIntent after recovery: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Recover intent: both src and dst exist (recoverable edge case)
 // ---------------------------------------------------------------------------
 

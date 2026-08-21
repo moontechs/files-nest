@@ -230,10 +230,10 @@ confirmed with the user):
 - Modify: `server/internal/api/recovery.go`
 - Modify: `server/internal/api/recovery_test.go`
 
-- [ ] confirm `moveIntentSource` (line ~233-247) passes `intent.CreationDate` to `filestore.MoveFile` (should already compile from Task 4; this task is the dedicated test coverage for the recovery path specifically)
-- [ ] write test: construct a `CompletionIntent` with `CreationDate` set, run recovery's move path, assert the resulting file's `mtime` reflects `CreationDate`, not recovery-time
-- [ ] write test: construct a `CompletionIntent` with empty `CreationDate` (e.g. an intent persisted before this feature shipped, simulating upgrade-in-place) — recovery move still succeeds, file gets recovery-time `mtime` (graceful degradation, not a crash)
-- [ ] run tests — must pass before task 6
+- [x] confirm `moveIntentSource` (line ~233-247) passes `intent.CreationDate` to `filestore.MoveFile` (should already compile from Task 4; this task is the dedicated test coverage for the recovery path specifically)
+- [x] write test: construct a `CompletionIntent` with `CreationDate` set, run recovery's move path, assert the resulting file's `mtime` reflects `CreationDate`, not recovery-time
+- [x] write test: construct a `CompletionIntent` with empty `CreationDate` (e.g. an intent persisted before this feature shipped, simulating upgrade-in-place) — recovery move still succeeds, file gets recovery-time `mtime` (graceful degradation, not a crash)
+- [x] run tests — must pass before task 6
 
 ### Task 6: Platform-specific `ctime` helper in `orphans`
 
