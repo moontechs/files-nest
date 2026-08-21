@@ -311,15 +311,15 @@ bad cycle, since there's no dry-run step left to catch it beforehand).
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] verify orphan detection covers both drift directions (no record at all; `deleted`-status record with surviving file) per Overview
-- [ ] verify `incoming/` is never scanned (no reference to it anywhere in `server/internal/orphans`)
-- [ ] verify empty directories are left behind after cleanup (no directory-removal code present)
-- [ ] verify `runGCOrphans` is started after `recoverer.Recover()` returns, not alongside `runBadgerGC` (read `server/main.go`, confirm call ordering matches Task 4)
-- [ ] verify the circuit breaker: with a small `t.TempDir()`-based `KnownComplete` count, confirm `len(candidates) > max(50, KnownComplete/5)` causes `Apply` to be skipped and a log line to be emitted instead of deletion (covered by a `FilterMinAge`/breaker-logic unit test, or noted here if the breaker's arithmetic is simple enough to verify by inspection)
-- [ ] verify the server starts, runs one orphan-scan cycle immediately after recovery completes (not concurrently with it), logs any orphans found/removed in that cycle, and subsequent cycles fire on `GC_ORPHANS_INTERVAL` — manual check in Post-Completion (needs a running server + a real orphan file)
-- [ ] run full test suite: `cd server && go test ./...`
-- [ ] run e2e suite if present and fast enough: `cd server && go test ./e2e/...` (or project's documented e2e command)
-- [ ] run `go test -cover ./internal/orphans/...` and confirm no exported function lacks a test exercising it (inspect by name, not by a numeric coverage threshold)
+- [x] verify orphan detection covers both drift directions (no record at all; `deleted`-status record with surviving file) per Overview — confirmed via `TestScan_NoRecordFileFlaggedWithModTime` and `TestScan_DeletedRecordFileFlagged`
+- [x] verify `incoming/` is never scanned (no reference to it anywhere in `server/internal/orphans`) — confirmed via `grep -rn "incoming" server/internal/orphans/` (no matches)
+- [x] verify empty directories are left behind after cleanup (no directory-removal code present) — confirmed: only per-file `os.Remove` in `apply.go`; `WalkDir` callback returns for directories and never removes them
+- [x] verify `runGCOrphans` is started after `recoverer.Recover()` returns, not alongside `runBadgerGC` (read `server/main.go`, confirm call ordering matches Task 4) — confirmed: `go runGCOrphans(...)` appears after the `recoverer.Recover()` call; `runBadgerGC` starts earlier at the store-open point
+- [x] verify the circuit breaker: with a small `t.TempDir()`-based `KnownComplete` count, confirm `len(candidates) > max(50, KnownComplete/5)` causes `Apply` to be skipped and a log line to be emitted instead of deletion (covered by a `FilterMinAge`/breaker-logic unit test, or noted here if the breaker's arithmetic is simple enough to verify by inspection) — verified by inspection: `if breaker := max(50, KnownComplete/5); len(candidates) > breaker` in `gcOrphansCycle` matches the spec exactly (floor of 50, 20% of known-complete), so the arithmetic is simple enough to confirm by reading
+- [x] verify the server starts, runs one orphan-scan cycle immediately after recovery completes (not concurrently with it), logs any orphans found/removed in that cycle, and subsequent cycles fire on `GC_ORPHANS_INTERVAL` — manual check in Post-Completion (needs a running server + a real orphan file) — skipped (not automatable; requires a running server + hand-placed orphan file, left for Post-Completion manual verification)
+- [x] run full test suite: `cd server && go test ./...` — passed (fresh `-count=1` run: api, filestore, orphans, store, uploadbackend all ok), plus `go build ./...` ok
+- [x] run e2e suite if present and fast enough: `cd server && go test ./e2e/...` (or project's documented e2e command) — e2e is build-tagged, run as `go test -tags e2e ./e2e/...`, passed (in-process, fast)
+- [x] run `go test -cover ./internal/orphans/...` and confirm no exported function lacks a test exercising it (inspect by name, not by a numeric coverage threshold) — coverage 92.9%; all three exported funcs (`Scan`, `FilterMinAge`, `Apply`) are each exercised by tests (inspects by name, not threshold)
 
 ### Task 6: Update documentation
 
