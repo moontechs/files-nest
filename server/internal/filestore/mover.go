@@ -99,6 +99,12 @@ type PlanDestResult struct {
 	Abs string
 	// Rel is the relative destination path for storage in DB records.
 	Rel string
+	// DateUsed is the date string that was actually used to build the
+	// organized path: creationDate when parseable, else createdAt as a
+	// fallback, else the raw (possibly unparseable) input string. Callers
+	// use it to apply the same resolved date to the moved file's
+	// timestamps instead of re-deriving fallback logic.
+	DateUsed string
 }
 
 // RemoveOrganizedFile removes the organized file at the given relative path
@@ -190,7 +196,7 @@ func (m *Mover) PlanDestination(creationDate, createdAt, filename, backendID str
 		rel = filepath.Join(filepath.Dir(rel), filepath.Base(abs))
 	}
 
-	return PlanDestResult{Abs: abs, Rel: rel}
+	return PlanDestResult{Abs: abs, Rel: rel, DateUsed: dateToUse}
 }
 
 // MoveResult holds the result of a file move operation.

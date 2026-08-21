@@ -1715,6 +1715,65 @@ func TestPlanDestination_EmptyFilename(t *testing.T) {
 	}
 }
 
+func TestPlanDestination_DateUsed(t *testing.T) {
+	m := openTestMover(t)
+
+	tests := []struct {
+		desc         string
+		creationDate string
+		createdAt    string
+		wantDateUsed string
+	}{
+		{
+			desc:         "valid creationDate is used verbatim",
+			creationDate: "2024-03-15T10:30:00Z",
+			wantDateUsed: "2024-03-15T10:30:00Z",
+		},
+		{
+			desc:         "valid date-only creationDate is used verbatim",
+			creationDate: "2024-06-20",
+			wantDateUsed: "2024-06-20",
+		},
+		{
+			desc:         "creationDate preferred over createdAt when both valid",
+			creationDate: "2024-01-15T10:00:00Z",
+			createdAt:    "2024-06-20T12:00:00Z",
+			wantDateUsed: "2024-01-15T10:00:00Z",
+		},
+		{
+			desc:         "falls back to createdAt when creationDate empty",
+			createdAt:    "2024-07-04T12:00:00Z",
+			wantDateUsed: "2024-07-04T12:00:00Z",
+		},
+		{
+			desc:         "falls back to createdAt when creationDate unparseable",
+			creationDate: "not-a-date",
+			createdAt:    "2024-07-04",
+			wantDateUsed: "2024-07-04",
+		},
+		{
+			desc:         "raw unparseable creationDate kept when createdAt also unparseable",
+			creationDate: "garbage-date",
+			createdAt:    "also-garbage",
+			wantDateUsed: "garbage-date",
+		},
+		{
+			desc:         "raw unparseable createdAt kept when creationDate empty",
+			createdAt:    "also-garbage",
+			wantDateUsed: "also-garbage",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			plan := m.PlanDestination(tt.creationDate, tt.createdAt, "file.txt", "tusd-dateused")
+			if plan.DateUsed != tt.wantDateUsed {
+				t.Errorf("DateUsed: got %q, want %q", plan.DateUsed, tt.wantDateUsed)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Verify PlanDestination correctly uses OrganizedPath logic internally
 // ---------------------------------------------------------------------------

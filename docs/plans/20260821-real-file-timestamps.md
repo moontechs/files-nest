@@ -183,12 +183,12 @@ confirmed with the user):
 - Modify: `server/internal/filestore/mover.go`
 - Modify: `server/internal/filestore/mover_test.go`
 
-- [ ] add `DateUsed string` field to `PlanDestResult` struct
-- [ ] in `PlanDestination` (~line 170), assign `DateUsed: dateToUse` (the already-computed fallback value) when constructing the returned `PlanDestResult`
-- [ ] write test asserting `PlanDestination(...)` returns `DateUsed` equal to `creationDate` when valid
-- [ ] write test asserting `DateUsed` falls back to `createdAt` when `creationDate` is empty/unparseable (mirrors existing `TestOrganizedPath_UnparseableDateFallsBack` fixture data)
-- [ ] write test asserting `DateUsed` is the raw (possibly unparseable) string when neither `creationDate` nor `createdAt` parse — matches current fallback-to-raw-string behavior
-- [ ] run tests — must pass before task 3
+- [x] add `DateUsed string` field to `PlanDestResult` struct
+- [x] in `PlanDestination` (~line 170), assign `DateUsed: dateToUse` (the already-computed fallback value) when constructing the returned `PlanDestResult`
+- [x] write test asserting `PlanDestination(...)` returns `DateUsed` equal to `creationDate` when valid
+- [x] write test asserting `DateUsed` falls back to `createdAt` when `creationDate` is empty/unparseable (mirrors existing `TestOrganizedPath_UnparseableDateFallsBack` fixture data)
+- [x] write test asserting `DateUsed` is the raw (possibly unparseable) string when neither `creationDate` nor `createdAt` parse — matches current fallback-to-raw-string behavior
+- [x] run tests — must pass before task 3
 
 ### Task 3: Add `CompletionIntent.CreationDate`
 
