@@ -274,10 +274,10 @@ confirmed with the user):
 - Modify: `server/internal/orphans/filter_test.go`
 
 - [x] update `FilterMinAge` body: `now.Sub(c.CTime) >= minAge` (was `c.ModTime`) — **completed in Task 7** as a compile-required change (field rename is compile-breaking); see ⚠️ note under Task 7
-- [ ] rewrite the doc comment to explain the guard now keys off `ctime` specifically because `mtime`/`atime` are client-controlled since `filestore.MoveFile` started calling `Chtimes` (Task 4) — reference `docs/adr/0006-ctime-based-orphan-age-guard.md`
+- [x] rewrite the doc comment to explain the guard now keys off `ctime` specifically because `mtime`/`atime` are client-controlled since `filestore.MoveFile` started calling `Chtimes` (Task 4) — reference `docs/adr/0006-ctime-based-orphan-age-guard.md`
 - [x] mechanically update all `Candidate{Path: ..., ModTime: ...}` literals in `filter_test.go` to `CTime: ...` (purely synthetic values, no real files involved, so no other change needed) — **completed in Task 7** for the same compile reason
-- [ ] add new test case demonstrating the fix's purpose: a candidate with `CTime` set to "just now" (fresh write) but conceptually representing a file whose `mtime` would be years old under the old scheme — assert it is correctly *dropped* by `FilterMinAge` (too young by ctime); pair this with Task 6's "Chtimes doesn't move ctime backward" test in the doc comment — together the two tests are the plan's proof that the guard survives client-controlled `mtime`, not just an assertion in the ADR
-- [ ] run full `orphans` package test suite — must pass before task 9
+- [x] add new test case demonstrating the fix's purpose: a candidate with `CTime` set to "just now" (fresh write) but conceptually representing a file whose `mtime` would be years old under the old scheme — assert it is correctly *dropped* by `FilterMinAge` (too young by ctime); pair this with Task 6's "Chtimes doesn't move ctime backward" test in the doc comment — together the two tests are the plan's proof that the guard survives client-controlled `mtime`, not just an assertion in the ADR
+- [x] run full `orphans` package test suite — must pass before task 9
 
 ### Task 9: Verify acceptance criteria
 
