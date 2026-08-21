@@ -4,6 +4,15 @@
 // (complete-status) upload record referencing it. Policy (age guards,
 // intervals, circuit breakers) lives in the caller (server/main.go), not
 // here — this package stays a library with no baked-in policy.
+//
+// The only platform-specific code is the ctime() helper (ctime_linux.go /
+// ctime_darwin.go), a thin stat-field reader used by Scan to source a
+// candidate's age for the guard. It is plumbing, not policy — the age
+// guard itself remains caller-supplied via FilterMinAge's minAge
+// parameter — so the "fully-parameterized, no baked-in policy" framing
+// above is unchanged. The server has no Windows target, so these two
+// build-tag files cover the full deployment/dev matrix (see
+// docs/adr/0006).
 package orphans
 
 import (

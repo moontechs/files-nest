@@ -319,10 +319,10 @@ Per `docs/adr/0002-go-gremlins-mutation-testing.md`'s established convention: pa
 
 ### Task 11: Update documentation
 
-- [ ] confirm `docs/adr/0006-ctime-based-orphan-age-guard.md` accurately reflects the shipped implementation (field names, file names) — amend if anything drifted during implementation
-- [ ] update `CONTEXT.md` only if implementation surfaced a new domain term worth capturing (none anticipated — this is a mechanism change, not a new domain concept per the domain-modeling session)
-- [ ] update package doc comments in `orphans/scan.go` (currently states the package is "pure... no I/O" for the guard policy — confirm this framing still holds, or adjust if `ctime` platform files change that characterization)
-- [ ] move this plan to `docs/plans/completed/`
+- [x] confirm `docs/adr/0006-ctime-based-orphan-age-guard.md` accurately reflects the shipped implementation (field names, file names) — read the ADR against the actual code: `Candidate.ModTime` → `Candidate.CTime` (scan.go), `ctime_linux.go`/`ctime_darwin.go` exist with the documented `Ctim`/`Ctimespec` field reads, `FilterMinAge` signature + 3h `minAge` default unchanged, `Chtimes` best-effort in `MoveFile`. No drift found, no amendment needed.
+- [x] update `CONTEXT.md` only if implementation surfaced a new domain term worth capturing — reviewed CONTEXT.md's Language section (Concurrent Upload / Organized path / Orphan file / Completion intent): the change is a mechanism (ctime sourced from a stat field, a `CreationDate` attribute on the existing Completion intent), not a new domain concept. No new term warranted, no edit made.
+- [x] update package doc comments in `orphans/scan.go` (currently states the package is "pure, fully-parameterized... no baked-in policy") — confirmed the framing still holds: `ctime` is stat plumbing, not policy (`minAge` is still caller-supplied). Added a paragraph to the package doc noting the two build-tag files (`ctime_linux.go`/`ctime_darwin.go`) and that they are plumbing, not policy, so the "fully-parameterized, no baked-in policy" characterization is unchanged.
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 
