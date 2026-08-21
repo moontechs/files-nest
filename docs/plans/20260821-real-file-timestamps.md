@@ -242,12 +242,12 @@ confirmed with the user):
 - Create: `server/internal/orphans/ctime_darwin.go`
 - Create: `server/internal/orphans/ctime_test.go`
 
-- [ ] create `ctime_linux.go` with `//go:build linux`, package `orphans`, `func ctime(info fs.FileInfo) (time.Time, error)` reading `info.Sys().(*syscall.Stat_t)` and returning `time.Unix(st.Ctim.Sec, st.Ctim.Nsec)`; return a descriptive error on failed type assertion
-- [ ] create `ctime_darwin.go` with `//go:build darwin`, identical shape but `st.Ctimespec.Sec`/`st.Ctimespec.Nsec`
-- [ ] write test: create a real temp file, stat it, call `ctime(info)`, assert the returned time is within a few seconds of `time.Now()` and `err == nil`
-- [ ] write test (**this is the regression proof for the whole plan, not just a `ctime` unit test**): touch the file's `mtime` via `os.Chtimes` to a date far in the past, call `ctime(info)` again on a fresh stat, assert the returned `ctime` is still recent — this is the concrete demonstration that `Chtimes` cannot move `ctime` backward, i.e. that the guard this plan builds (Task 8) actually holds against the exact attack (client-controlled `mtime`) it's designed to defend against
-- [ ] run `go build ./...` and `go test ./server/internal/orphans/...` on the current dev platform (confirms the build-tag file for the host OS compiles; CI should already cover both if it runs on Linux — verify in Task 9's acceptance pass)
-- [ ] run tests — must pass before task 7
+- [x] create `ctime_linux.go` with `//go:build linux`, package `orphans`, `func ctime(info fs.FileInfo) (time.Time, error)` reading `info.Sys().(*syscall.Stat_t)` and returning `time.Unix(st.Ctim.Sec, st.Ctim.Nsec)`; return a descriptive error on failed type assertion
+- [x] create `ctime_darwin.go` with `//go:build darwin`, identical shape but `st.Ctimespec.Sec`/`st.Ctimespec.Nsec`
+- [x] write test: create a real temp file, stat it, call `ctime(info)`, assert the returned time is within a few seconds of `time.Now()` and `err == nil`
+- [x] write test (**this is the regression proof for the whole plan, not just a `ctime` unit test**): touch the file's `mtime` via `os.Chtimes` to a date far in the past, call `ctime(info)` again on a fresh stat, assert the returned `ctime` is still recent — this is the concrete demonstration that `Chtimes` cannot move `ctime` backward, i.e. that the guard this plan builds (Task 8) actually holds against the exact attack (client-controlled `mtime`) it's designed to defend against
+- [x] run `go build ./...` and `go test ./server/internal/orphans/...` on the current dev platform (confirms the build-tag file for the host OS compiles; CI should already cover both if it runs on Linux — verify in Task 9's acceptance pass)
+- [x] run tests — must pass before task 7
 
 ### Task 7: `Candidate.ModTime` → `Candidate.CTime`
 
