@@ -165,15 +165,17 @@ confirmed with the user):
 
 **Files:**
 - Modify: `server/internal/filestore/mover.go`
-- Modify: `server/internal/filestore/mover_test.go`
+- Modify: `server/internal/filestore/mover_internal_test.go` (unexported helper, so tests live in the `filestore` package, not the external `filestore_test` `mover_test.go`)
 
-- [ ] add `func parseCreationDate(s string) (time.Time, bool)` to `mover.go`, trying `time.Parse(time.RFC3339, s)` then `time.Parse("2006-01-02", s)`
-- [ ] rewrite `OrganizedPath` (lines ~71-100) to call `parseCreationDate` instead of its own inline `time.Parse` calls, preserving existing fallback-to-`SafePathSegment` behavior on failure
-- [ ] rewrite `datePathSegments` (~line 466) to call `parseCreationDate`
-- [ ] rewrite `isParseableDate` (~line 487) to call `parseCreationDate` and return the `ok` bool
-- [ ] write table-driven tests for `parseCreationDate`: valid RFC3339, valid `YYYY-MM-DD`, RFC3339Nano, empty string, garbage string, whitespace-only string
-- [ ] run existing `mover_test.go` suite (`TestOrganizedPath_*`, `TestMoveFile_*`) — must still pass unchanged, confirming the refactor preserves behavior
-- [ ] run tests — must pass before task 2
+- [x] add `func parseCreationDate(s string) (time.Time, bool)` to `mover.go`, trying `time.Parse(time.RFC3339, s)` then `time.Parse("2006-01-02", s)`
+- [x] rewrite `OrganizedPath` (lines ~71-100) to call `parseCreationDate` instead of its own inline `time.Parse` calls, preserving existing fallback-to-`SafePathSegment` behavior on failure
+- [x] rewrite `datePathSegments` (~line 466) to call `parseCreationDate`
+- [x] rewrite `isParseableDate` (~line 487) to call `parseCreationDate` and return the `ok` bool
+- [x] write table-driven tests for `parseCreationDate`: valid RFC3339, valid `YYYY-MM-DD`, RFC3339Nano, empty string, garbage string, whitespace-only string (plus RFC3339 offset and non-parsing RFC3339-no-seconds cases)
+- [x] run existing `mover_test.go` suite (`TestOrganizedPath_*`, `TestMoveFile_*`) — must still pass unchanged, confirming the refactor preserves behavior
+- [x] run tests — must pass before task 2
+
+⚠️ baseline fix applied this iteration, not part of Task 1's scope but required for `go test ./...` to compile: `server/internal/orphans/filter_test.go` declared `package orphans_test` but referenced `Candidate`/`FilterMinAge` unqualified with no `orphans` import, so the whole orphans test package failed to build from the start. Added the import and qualified the two identifiers (Task 7/8 will rewrite the field names in this file).
 
 ### Task 2: Add `PlanDestResult.DateUsed`
 

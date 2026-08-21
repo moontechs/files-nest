@@ -71,27 +71,20 @@ func (m *Mover) StoragePath() string {
 func (m *Mover) OrganizedPath(creationDate, filename string) (string, string) {
 	var year, month, day string
 
-	parsed, err := time.Parse(time.RFC3339, creationDate)
-	if err == nil {
-		year = parsed.Format("2006")
-		month = parsed.Format("01")
-		day = parsed.Format("02")
+	t, ok := parseCreationDate(creationDate)
+	if ok {
+		year = t.Format("2006")
+		month = t.Format("01")
+		day = t.Format("02")
 	} else {
-		parsed, err = time.Parse("2006-01-02", creationDate)
-		if err == nil {
-			year = parsed.Format("2006")
-			month = parsed.Format("01")
-			day = parsed.Format("02")
-		} else {
-			// Fallback: sanitize the raw date string as a single path segment.
-			// SafePathSegment rejects traversal characters ('/', '\\', '..') so an
-			// unparseable date can never escape the organized root. An empty result
-			// (empty or unsafe input) is left empty so filepath.Join collapses it,
-			// preserving the organized/unknown/unknown/<file> layout for empty dates.
-			year = SafePathSegment(creationDate)
-			month = unknownSegment
-			day = unknownSegment
-		}
+		// Fallback: sanitize the raw date string as a single path segment.
+		// SafePathSegment rejects traversal characters ('/', '\\', '..') so an
+		// unparseable date can never escape the organized root. An empty result
+		// (empty or unsafe input) is left empty so filepath.Join collapses it,
+		// preserving the organized/unknown/unknown/<file> layout for empty dates.
+		year = SafePathSegment(creationDate)
+		month = unknownSegment
+		day = unknownSegment
 	}
 
 	rel := filepath.Join("organized", year, month, day, filename)
@@ -459,19 +452,32 @@ func copyFileWithOps(src, dst string, ops fileOps) error {
 	return nil
 }
 
+// parseCreationDate parses a creation date string, trying RFC3339 first
+// (e.g. "2024-03-15T10:30:00Z", including fractional seconds) and falling
+// back to the YYYY-MM-DD calendar format. It returns the parsed time and
+// whether parsing succeeded.
+func parseCreationDate(s string) (time.Time, bool) {
+	t, err := time.Parse(time.RFC3339, s)
+	if err == nil {
+		return t, true
+	}
+
+	t, err = time.Parse("2006-01-02", s)
+	if err == nil {
+		return t, true
+	}
+
+	return time.Time{}, false
+}
+
 // datePathSegments converts a date string into the YYYY/MM/DD path segments
 // used by the organized tree. RFC3339 and YYYY-MM-DD values are parsed into
 // their calendar components; anything else falls back to a sanitized single
 // segment with "unknown" month/day placeholders.
 func datePathSegments(dateToUse string) (string, string, string) {
-	t1, err1 := time.Parse(time.RFC3339, dateToUse)
-	if err1 == nil {
-		return t1.Format("2006"), t1.Format("01"), t1.Format("02")
-	}
-
-	t2, err2 := time.Parse("2006-01-02", dateToUse)
-	if err2 == nil {
-		return t2.Format("2006"), t2.Format("01"), t2.Format("02")
+	t, ok := parseCreationDate(dateToUse)
+	if ok {
+		return t.Format("2006"), t.Format("01"), t.Format("02")
 	}
 
 	year := SafePathSegment(dateToUse)
@@ -489,14 +495,9 @@ func isParseableDate(value string) bool {
 		return false
 	}
 
-	_, err := time.Parse(time.RFC3339, value)
-	if err == nil {
-		return true
-	}
+	_, ok := parseCreationDate(value)
 
-	_, err = time.Parse("2006-01-02", value)
-
-	return err == nil
+	return ok
 }
 
 // SafePathSegment converts an arbitrary string into a single path-safe path

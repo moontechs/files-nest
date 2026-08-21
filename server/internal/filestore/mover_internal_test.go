@@ -11,6 +11,72 @@ import (
 	"time"
 )
 
+func TestParseCreationDate(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  time.Time
+		ok    bool
+	}{
+		{
+			name:  "valid RFC3339",
+			input: "2024-03-15T10:30:00Z",
+			want:  time.Date(2024, 3, 15, 10, 30, 0, 0, time.UTC),
+			ok:    true,
+		},
+		{
+			name:  "valid YYYY-MM-DD",
+			input: "2024-06-20",
+			want:  time.Date(2024, 6, 20, 0, 0, 0, 0, time.UTC),
+			ok:    true,
+		},
+		{
+			name:  "RFC3339Nano",
+			input: "2024-12-31T23:59:59.123456789Z",
+			want:  time.Date(2024, 12, 31, 23, 59, 59, 123456789, time.UTC),
+			ok:    true,
+		},
+		{
+			name:  "RFC3339 with numeric zone offset",
+			input: "2024-03-15T10:30:00+02:00",
+			want:  time.Date(2024, 3, 15, 8, 30, 0, 0, time.UTC),
+			ok:    true,
+		},
+		{
+			name:  "empty string",
+			input: "",
+			ok:    false,
+		},
+		{
+			name:  "garbage string",
+			input: "not-a-date",
+			ok:    false,
+		},
+		{
+			name:  "whitespace-only string",
+			input: "   ",
+			ok:    false,
+		},
+		{
+			name:  "RFC3339 without seconds is rejected",
+			input: "2024-03-15T10:30Z",
+			ok:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseCreationDate(tt.input)
+			if ok != tt.ok {
+				t.Fatalf("parseCreationDate(%q) ok = %v, want %v", tt.input, ok, tt.ok)
+			}
+			if tt.ok && !got.Equal(tt.want) {
+				t.Errorf("parseCreationDate(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCopyFile(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "source")
