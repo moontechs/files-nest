@@ -292,10 +292,10 @@ bad cycle, since there's no dry-run step left to catch it beforehand).
 - Create: `server/internal/orphans/apply.go`
 - Create: `server/internal/orphans/apply_test.go`
 
-- [ ] implement `Apply(candidates []Candidate) Result` in `server/internal/orphans/apply.go`: `os.Remove`s each candidate path, appends to `Result.Removed` on success, appends to `Result.Errors` on failure, continues regardless (best-effort)
-- [ ] write test: all candidates removable → all appear in `Result.Removed`, `Result.Errors` empty
-- [ ] write test: one candidate's file already gone / unremovable → its error lands in `Result.Errors`, remaining candidates still removed
-- [ ] run tests - must pass before task 4
+- [x] implement `Apply(candidates []Candidate) Result` in `server/internal/orphans/apply.go`: `os.Remove`s each candidate path, appends to `Result.Removed` on success, appends to `Result.Errors` on failure, continues regardless (best-effort)
+- [x] write test: all candidates removable → all appear in `Result.Removed`, `Result.Errors` empty
+- [x] write test: one candidate's file already gone / unremovable → its error lands in `Result.Errors`, remaining candidates still removed
+- [x] run tests - must pass before task 4
 
 ### Task 4: `runGCOrphans` goroutine wired into `main.go`
 
