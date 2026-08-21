@@ -270,6 +270,9 @@ func gcOrphansCycle(db *store.Store, storagePath string, minAge time.Duration) {
 	for _, e := range result.Errors {
 		log.Printf("gc-orphans: error: %v", e)
 	}
+	if len(result.Errors) > 0 {
+		log.Printf("gc-orphans: %d scan errors this cycle (see above)", len(result.Errors))
+	}
 	for _, e := range applied.Errors {
 		log.Printf("gc-orphans: error: %v", e)
 	}

@@ -16,12 +16,17 @@ import (
 )
 
 // Candidate is a file under the organized root that was not matched by any
-// complete-status upload record. ModTime is populated only for files
-// actually flagged as candidates (from d.Info() in the WalkDir callback),
-// not for every walked file, so matched files cost no extra stat.
+// complete-status upload record. CTime is populated only for files
+// actually flagged as candidates (from ctime(d.Info()) in the WalkDir
+// callback), not for every walked file, so matched files cost no extra
+// stat. CTime (inode status-change time) is used instead of ModTime
+// because filestore.MoveFile now writes client-controlled mtime/atime
+// values via os.Chtimes; ctime cannot be set by os.Chtimes, so it remains
+// a trustworthy "when did this file land here" signal for the age guard —
+// see docs/adr/0006-ctime-based-orphan-age-guard.md.
 type Candidate struct {
-	Path    string // absolute path under organized/
-	ModTime time.Time
+	Path  string // absolute path under organized/
+	CTime time.Time
 }
 
 // Result is the outcome of a Scan or Apply pass over the organized tree.
@@ -49,11 +54,12 @@ type Result struct {
 // files already being flagged as candidates. This ordering is what keeps
 // matched files free of extra stat cost.
 //
-// Errors on nested entries and on d.Info() failures while building a
-// candidate's ModTime are collected into Result.Errors and scanning
-// continues (best-effort); a file whose age can't be determined is
-// excluded as a candidate. An error opening the organized root itself is
-// returned as the function's error return (fatal).
+// Errors on nested entries, on d.Info() failures, and on ctime(info)
+// failures while reading a candidate's CTime are collected into
+// Result.Errors and scanning continues (best-effort); a file whose age
+// can't be determined is excluded as a candidate — an undetermined age
+// must never be treated as "old enough." An error opening the organized
+// root itself is returned as the function's error return (fatal).
 func Scan(db *store.Store, storagePath string) (Result, error) {
 	var result Result
 
@@ -100,9 +106,15 @@ func Scan(db *store.Store, storagePath string) (Result, error) {
 			return nil
 		}
 
+		ct, err := ctime(info)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("ctime %s: %w", path, err))
+			return nil
+		}
+
 		result.Candidates = append(result.Candidates, Candidate{
-			Path:    path,
-			ModTime: info.ModTime(),
+			Path:  path,
+			CTime: ct,
 		})
 		return nil
 	})

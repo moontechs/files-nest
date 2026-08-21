@@ -256,14 +256,16 @@ confirmed with the user):
 - Modify: `server/internal/orphans/scan_test.go`
 - Modify: `server/main.go`
 
-- [ ] rename `Candidate.ModTime` field to `Candidate.CTime` in `scan.go`
-- [ ] update the doc comment on `Candidate` (currently says "ModTime is populated only for files actually flagged as candidates...") to describe `CTime` and why (link to ADR 0006)
-- [ ] in the `WalkDir` callback (~lines 97-106), after `d.Info()` succeeds, call `ctime(info)`; on error append to `result.Errors` (same pattern as the existing `d.Info()` error branch) and skip the candidate (`return nil`) rather than falling back to `ModTime` — an undetermined age must never be treated as "old enough"
-- [ ] on success, populate `Candidate{Path: path, CTime: ct}`
-- [ ] in `server/main.go`'s `gcOrphansCycle` (~line 246-276), the existing `for _, e := range result.Errors { log.Printf(...) }` loop already surfaces every individual `ctime`/stat failure — add one aggregate line logged when `len(result.Errors) > 0` (e.g. `log.Printf("gc-orphans: %d scan errors this cycle (see above)", len(result.Errors))`) so a *sustained* run of `ctime`-read failures (per ADR 0006's network-filesystem warning) is a single grep-able/alertable signal instead of only per-file noise
-- [ ] rename `TestScan_NoRecordFileFlaggedWithModTime` to `TestScan_NoRecordFileFlaggedWithCTime`; remove the `os.Chtimes` backdating (lines ~143-147 — `ctime` cannot be set backward by any process); replace the exact-value assertion with `time.Since(got.CTime) < 5*time.Second`
-- [ ] audit remaining `scan_test.go` tests referencing `ModTime` (`candidatePaths` helper and others) and update field references to `CTime`
-- [ ] run tests — must pass before task 8
+- [x] rename `Candidate.ModTime` field to `Candidate.CTime` in `scan.go`
+- [x] update the doc comment on `Candidate` (currently says "ModTime is populated only for files actually flagged as candidates...") to describe `CTime` and why (link to ADR 0006)
+- [x] in the `WalkDir` callback (~lines 97-106), after `d.Info()` succeeds, call `ctime(info)`; on error append to `result.Errors` (same pattern as the existing `d.Info()` error branch) and skip the candidate (`return nil`) rather than falling back to `ModTime` — an undetermined age must never be treated as "old enough"
+- [x] on success, populate `Candidate{Path: path, CTime: ct}`
+- [x] in `server/main.go`'s `gcOrphansCycle` (~line 246-276), the existing `for _, e := range result.Errors { log.Printf(...) }` loop already surfaces every individual `ctime`/stat failure — add one aggregate line logged when `len(result.Errors) > 0` (e.g. `log.Printf("gc-orphans: %d scan errors this cycle (see above)", len(result.Errors))`) so a *sustained* run of `ctime`-read failures (per ADR 0006's network-filesystem warning) is a single grep-able/alertable signal instead of only per-file noise
+- [x] rename `TestScan_NoRecordFileFlaggedWithModTime` to `TestScan_NoRecordFileFlaggedWithCTime`; remove the `os.Chtimes` backdating (lines ~143-147 — `ctime` cannot be set backward by any process); replace the exact-value assertion with `time.Since(got.CTime) < 5*time.Second`
+- [x] audit remaining `scan_test.go` tests referencing `ModTime` (`candidatePaths` helper and others) and update field references to `CTime`
+- [x] run tests — must pass before task 8
+
+⚠️ Task 8 scope note: renaming `Candidate.ModTime` → `Candidate.CTime` is a compile-breaking change, so two Task 8 items were necessarily completed here to keep `go test ./...` green (the plan's "all tests must pass before next task" rule): the `FilterMinAge` body line (`now.Sub(c.CTime) >= minAge`, Task 8 item 1) and the mechanical `ModTime:` → `CTime:` literal renames in `filter_test.go` (Task 8 item 3). Remaining for Task 8: the `FilterMinAge` doc-comment rewrite, the new "fresh ctime / old mtime" test case, and the full orphans suite run.
 
 ### Task 8: `FilterMinAge` uses `ctime` semantics
 
@@ -271,9 +273,9 @@ confirmed with the user):
 - Modify: `server/internal/orphans/filter.go`
 - Modify: `server/internal/orphans/filter_test.go`
 
-- [ ] update `FilterMinAge` body: `now.Sub(c.CTime) >= minAge` (was `c.ModTime`)
+- [x] update `FilterMinAge` body: `now.Sub(c.CTime) >= minAge` (was `c.ModTime`) — **completed in Task 7** as a compile-required change (field rename is compile-breaking); see ⚠️ note under Task 7
 - [ ] rewrite the doc comment to explain the guard now keys off `ctime` specifically because `mtime`/`atime` are client-controlled since `filestore.MoveFile` started calling `Chtimes` (Task 4) — reference `docs/adr/0006-ctime-based-orphan-age-guard.md`
-- [ ] mechanically update all `Candidate{Path: ..., ModTime: ...}` literals in `filter_test.go` to `CTime: ...` (purely synthetic values, no real files involved, so no other change needed)
+- [x] mechanically update all `Candidate{Path: ..., ModTime: ...}` literals in `filter_test.go` to `CTime: ...` (purely synthetic values, no real files involved, so no other change needed) — **completed in Task 7** for the same compile reason
 - [ ] add new test case demonstrating the fix's purpose: a candidate with `CTime` set to "just now" (fresh write) but conceptually representing a file whose `mtime` would be years old under the old scheme — assert it is correctly *dropped* by `FilterMinAge` (too young by ctime); pair this with Task 6's "Chtimes doesn't move ctime backward" test in the doc comment — together the two tests are the plan's proof that the guard survives client-controlled `mtime`, not just an assertion in the ADR
 - [ ] run full `orphans` package test suite — must pass before task 9
 

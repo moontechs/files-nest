@@ -135,16 +135,10 @@ func TestScan_DeletedRecordFileFlagged(t *testing.T) {
 	}
 }
 
-func TestScan_NoRecordFileFlaggedWithModTime(t *testing.T) {
+func TestScan_NoRecordFileFlaggedWithCTime(t *testing.T) {
 	s, storagePath := newScanEnv(t)
 
 	p := writeFile(t, storagePath, "organized/2026/08/20/orphan.jpg")
-
-	// Set a known, old mtime so the assertion is unambiguous.
-	old := time.Now().Add(-10 * time.Hour).Truncate(time.Second)
-	if err := os.Chtimes(p, old, old); err != nil {
-		t.Fatalf("chtimes: %v", err)
-	}
 
 	result, err := orphans.Scan(s, storagePath)
 	if err != nil {
@@ -158,8 +152,11 @@ func TestScan_NoRecordFileFlaggedWithModTime(t *testing.T) {
 	if got.Path != p {
 		t.Fatalf("candidate path = %q, want %q", got.Path, p)
 	}
-	if !got.ModTime.Equal(old) {
-		t.Fatalf("candidate ModTime = %v, want %v", got.ModTime, old)
+	// CTime is the inode status-change time — recent for a freshly written
+	// file. No Chtimes backdating is applied here (ctime cannot be moved
+	// backward by any process; that property is proven in ctime_test.go).
+	if time.Since(got.CTime) >= 5*time.Second {
+		t.Fatalf("candidate CTime = %v, expected within 5s of now", got.CTime)
 	}
 }
 

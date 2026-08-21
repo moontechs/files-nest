@@ -12,7 +12,7 @@ func TestFilterMinAge(t *testing.T) {
 	minAge := 3 * time.Hour
 
 	t.Run("older than minAge is kept", func(t *testing.T) {
-		in := []orphans.Candidate{{Path: "a", ModTime: now.Add(-4 * time.Hour)}}
+		in := []orphans.Candidate{{Path: "a", CTime: now.Add(-4 * time.Hour)}}
 		got := orphans.FilterMinAge(in, minAge, now)
 		if len(got) != 1 || got[0].Path != "a" {
 			t.Fatalf("expected 1 kept candidate, got %+v", got)
@@ -20,7 +20,7 @@ func TestFilterMinAge(t *testing.T) {
 	})
 
 	t.Run("younger than minAge is dropped", func(t *testing.T) {
-		in := []orphans.Candidate{{Path: "a", ModTime: now.Add(-2 * time.Hour)}}
+		in := []orphans.Candidate{{Path: "a", CTime: now.Add(-2 * time.Hour)}}
 		got := orphans.FilterMinAge(in, minAge, now)
 		if len(got) != 0 {
 			t.Fatalf("expected 0 kept candidates, got %+v", got)
@@ -28,7 +28,7 @@ func TestFilterMinAge(t *testing.T) {
 	})
 
 	t.Run("exactly minAge old is kept (boundary)", func(t *testing.T) {
-		in := []orphans.Candidate{{Path: "a", ModTime: now.Add(-minAge)}}
+		in := []orphans.Candidate{{Path: "a", CTime: now.Add(-minAge)}}
 		got := orphans.FilterMinAge(in, minAge, now)
 		if len(got) != 1 || got[0].Path != "a" {
 			t.Fatalf("expected 1 kept candidate (boundary), got %+v", got)
@@ -44,9 +44,9 @@ func TestFilterMinAge(t *testing.T) {
 
 	t.Run("mixed ages keeps only those old enough", func(t *testing.T) {
 		in := []orphans.Candidate{
-			{Path: "old", ModTime: now.Add(-10 * time.Hour)},
-			{Path: "new", ModTime: now.Add(-time.Minute)},
-			{Path: "border", ModTime: now.Add(-minAge)},
+			{Path: "old", CTime: now.Add(-10 * time.Hour)},
+			{Path: "new", CTime: now.Add(-time.Minute)},
+			{Path: "border", CTime: now.Add(-minAge)},
 		}
 		got := orphans.FilterMinAge(in, minAge, now)
 		if len(got) != 2 {
