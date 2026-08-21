@@ -209,20 +209,20 @@ confirmed with the user):
 - Modify: `server/internal/filestore/mover.go`
 - Modify: `server/internal/filestore/mover_test.go`
 
-- [ ] add `"log"` import to `mover.go` (first use of logging in this package — deliberate, see ADR/brainstorm notes: best-effort `Chtimes` failures must be observable, not silently swallowed)
-- [ ] add `minSaneCreationDate`, `maxSaneCreationDateSkew`, and `isSaneCreationDate(t, now time.Time) bool` per Technical Details
-- [ ] change free function signature to `func MoveFile(src, dst, creationDate string) error`, keeping the existing rename/copy body unchanged
-- [ ] after a successful rename/copy, call `parseCreationDate(creationDate)`; on success, check `isSaneCreationDate(t, time.Now())`; if sane, call `os.Chtimes(dst, t, t)`, logging via `log.Printf("filestore: chtimes %s failed: %v", dst, err)` on error (non-fatal — function still returns `nil`)
-- [ ] on unparseable/empty/out-of-range `creationDate`, skip `Chtimes` entirely with no log line (expected case, not an error — see Overview on EXIF clock corruption)
-- [ ] update the three other in-package callers of the free `MoveFile` to pass a date: `(m *Mover) MoveFile` method passes its own `creationDate` param through directly; `PlanAndMove` passes `plan.DateUsed`; `MoveToPlaned` passes `plan.DateUsed` (from its `PlanDestResult` param)
-- [ ] update `server/internal/api/recovery.go:241` (`moveIntentSource`) call site to pass `intent.CreationDate` — full wiring happens in Task 5, but the signature change means this call site must compile; pass `intent.CreationDate` now since Task 3 already added the field
-- [ ] note (no code change): `Chtimes` runs while `PlanAndMove`/`MoveToPlaned`/the method `MoveFile` hold `m.moveMu`, the single mutex serializing all moves (`mover.go:36-44`) — acceptable since `Chtimes` is a fast local syscall, but flag in a code comment at the call site so a future slow-storage change (e.g. the network-mount case ADR 0006 warns against) doesn't silently turn this into a throughput bottleneck nobody expected
-- [ ] write test: `MoveFile` with a valid `creationDate` — resulting file's `os.Stat(dst).ModTime()` matches the parsed time (within filesystem timestamp resolution, e.g. assert `.Equal()` after truncating to `time.Second`)
-- [ ] write test: `MoveFile` with empty `creationDate` — move succeeds, no panic, `Chtimes` not called (assert resulting `mtime` is close to `time.Now()`, i.e. upload-time behavior unchanged)
-- [ ] write test: `MoveFile` with garbage `creationDate` — same as empty case, move still succeeds
-- [ ] write test: `MoveFile` with an out-of-range but *parseable* `creationDate` (epoch `1970-01-01T00:00:00Z` and a far-future date like `9999-01-01T00:00:00Z`) — move succeeds, `Chtimes` not called, resulting `mtime` stays close to `time.Now()` (proves the clamp, not just the parser)
-- [ ] update existing `TestMoveFile_Success`, `TestMoveFile_CreatesDestinationDirectory`, and the deduplication tests (`TestMoveFile_DeduplicatesWhenDestinationExists`, `TestMoveFile_MultipleDeduplications`, `TestMoveFile_DeduplicationWithExtension`, `TestMoveFile_DeduplicationNoExtension`, `TestMoveFile_DeduplicationWithMultipleDots`) to assert the moved file's `mtime` matches the `creationDate` string each test already passes in
-- [ ] run tests — must pass before task 5
+- [x] add `"log"` import to `mover.go` (first use of logging in this package — deliberate, see ADR/brainstorm notes: best-effort `Chtimes` failures must be observable, not silently swallowed)
+- [x] add `minSaneCreationDate`, `maxSaneCreationDateSkew`, and `isSaneCreationDate(t, now time.Time) bool` per Technical Details
+- [x] change free function signature to `func MoveFile(src, dst, creationDate string) error`, keeping the existing rename/copy body unchanged
+- [x] after a successful rename/copy, call `parseCreationDate(creationDate)`; on success, check `isSaneCreationDate(t, time.Now())`; if sane, call `os.Chtimes(dst, t, t)`, logging via `log.Printf("filestore: chtimes %s failed: %v", dst, err)` on error (non-fatal — function still returns `nil`)
+- [x] on unparseable/empty/out-of-range `creationDate`, skip `Chtimes` entirely with no log line (expected case, not an error — see Overview on EXIF clock corruption)
+- [x] update the three other in-package callers of the free `MoveFile` to pass a date: `(m *Mover) MoveFile` method passes its own `creationDate` param through directly; `PlanAndMove` passes `plan.DateUsed`; `MoveToPlaned` passes `plan.DateUsed` (from its `PlanDestResult` param)
+- [x] update `server/internal/api/recovery.go:241` (`moveIntentSource`) call site to pass `intent.CreationDate` — full wiring happens in Task 5, but the signature change means this call site must compile; pass `intent.CreationDate` now since Task 3 already added the field
+- [x] note (no code change): `Chtimes` runs while `PlanAndMove`/`MoveToPlaned`/the method `MoveFile` hold `m.moveMu`, the single mutex serializing all moves (`mover.go:36-44`) — acceptable since `Chtimes` is a fast local syscall, but flag in a code comment at the call site so a future slow-storage change (e.g. the network-mount case ADR 0006 warns against) doesn't silently turn this into a throughput bottleneck nobody expected
+- [x] write test: `MoveFile` with a valid `creationDate` — resulting file's `os.Stat(dst).ModTime()` matches the parsed time (within filesystem timestamp resolution, e.g. assert `.Equal()` after truncating to `time.Second`)
+- [x] write test: `MoveFile` with empty `creationDate` — move succeeds, no panic, `Chtimes` not called (assert resulting `mtime` is close to `time.Now()`, i.e. upload-time behavior unchanged)
+- [x] write test: `MoveFile` with garbage `creationDate` — same as empty case, move still succeeds
+- [x] write test: `MoveFile` with an out-of-range but *parseable* `creationDate` (epoch `1970-01-01T00:00:00Z` and a far-future date like `9999-01-01T00:00:00Z`) — move succeeds, `Chtimes` not called, resulting `mtime` stays close to `time.Now()` (proves the clamp, not just the parser)
+- [x] update existing `TestMoveFile_Success`, `TestMoveFile_CreatesDestinationDirectory`, and the deduplication tests (`TestMoveFile_DeduplicatesWhenDestinationExists`, `TestMoveFile_MultipleDeduplications`, `TestMoveFile_DeduplicationWithExtension`, `TestMoveFile_DeduplicationNoExtension`, `TestMoveFile_DeduplicationWithMultipleDots`) to assert the moved file's `mtime` matches the `creationDate` string each test already passes in
+- [x] run tests — must pass before task 5
 
 ### Task 5: Wire crash-recovery path to real timestamps
 

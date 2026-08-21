@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -238,7 +239,10 @@ func (m *Mover) MoveFile(srcPath, creationDate, filename, backendID string) (*Mo
 	baseRel, _ := m.OrganizedPath(creationDate, filename)
 	deduped := plan.Rel != baseRel
 
-	err := MoveFile(srcPath, plan.Abs)
+	// Pass the raw creationDate through (not plan.DateUsed): the method's
+	// contract is that the caller's creationDate wins for the timestamp,
+	// matching the date it used for path construction via PlanDestination.
+	err := MoveFile(srcPath, plan.Abs, creationDate)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +279,7 @@ func (m *Mover) PlanAndMove(
 		}
 	}
 
-	err := MoveFile(src, plan.Abs)
+	err := MoveFile(src, plan.Abs, plan.DateUsed)
 	if err != nil {
 		return plan, err
 	}
@@ -299,17 +303,25 @@ func (m *Mover) MoveToPlaned(src string, plan PlanDestResult, beforeMove func(Pl
 		}
 	}
 
-	return MoveFile(src, plan.Abs)
+	return MoveFile(src, plan.Abs, plan.DateUsed)
 }
 
 // MoveFile moves a file from src to dst atomically using os.Rename.
 // It creates the destination directory if needed. On EXDEV (cross-device
 // link) it falls back to copy-then-delete.
 //
+// creationDate, when parseable and plausible, is applied to the moved
+// file's mtime/atime via os.Chtimes so filesystem tools and backups see
+// the file's actual capture date instead of the upload time. This is
+// best-effort: an unparseable, empty, or implausible date (the common
+// EXIF clock-corruption case) leaves the file at upload-time mtime, and
+// a Chtimes failure is logged but does not fail the move — the move
+// itself already succeeded.
+//
 // MoveFile is idempotent for crash recovery: if src does not exist but
 // dst does, it returns nil (the file was already moved). If both src
 // and dst are missing, it returns a descriptive error.
-func MoveFile(src, dst string) error {
+func MoveFile(src, dst, creationDate string) error {
 	// Idempotent recovery: if src is gone but dst exists, treat as already moved.
 	_, err := os.Stat(src)
 	if os.IsNotExist(err) {
@@ -326,7 +338,57 @@ func MoveFile(src, dst string) error {
 		return fmt.Errorf("create destination directory %s: %w", filepath.Dir(dst), err)
 	}
 
-	return renameOrCopy(src, dst)
+	if err := renameOrCopy(src, dst); err != nil {
+		return err
+	}
+
+	// The Chtimes call below runs while PlanAndMove / MoveToPlaned / the
+	// method MoveFile hold m.moveMu, the single mutex serializing all moves
+	// (mover.go). That is acceptable because Chtimes is a fast local
+	// syscall, but if moves ever target slow storage (e.g. the network-mount
+	// case ADR 0006 warns against), this turns into a throughput bottleneck
+	// nobody asked for — revisit then.
+	applyCreationTimestamp(dst, creationDate)
+
+	return nil
+}
+
+// applyCreationTimestamp best-effort sets dst's mtime/atime to the
+// client-supplied creation date. Unparseable, empty, or out-of-range
+// dates skip Chtimes entirely with no log line — implausible dates are an
+// expected/common input for this data source (camera/phone clocks with a
+// dead RTC battery routinely produce epoch or far-future EXIF dates), not
+// an error. A Chtimes failure on a sane date is logged but not returned:
+// the move itself already succeeded, and a missing/wrong timestamp is a
+// lesser defect than losing the uploaded file.
+func applyCreationTimestamp(dst, creationDate string) {
+	if creationDate == "" {
+		return
+	}
+
+	t, ok := parseCreationDate(creationDate)
+	if !ok || !isSaneCreationDate(t, time.Now()) {
+		return
+	}
+
+	if err := os.Chtimes(dst, t, t); err != nil {
+		log.Printf("filestore: chtimes %s failed: %v", dst, err)
+	}
+}
+
+// isSaneCreationDate reports whether a parsed creation date is plausible
+// enough to burn into permanent filesystem state. Chtimes writes are not
+// reversible and leave no "this looked suspicious" record, so dates
+// before the sane minimum (a dead RTC battery's epoch output) or more
+// than maxSaneCreationDateSkew into the future (client clock skew) are
+// clamped out: the file keeps its upload-time mtime instead.
+var (
+	minSaneCreationDate     = time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)
+	maxSaneCreationDateSkew = 24 * time.Hour // allow for client clock skew
+)
+
+func isSaneCreationDate(t, now time.Time) bool {
+	return !t.Before(minSaneCreationDate) && !t.After(now.Add(maxSaneCreationDateSkew))
 }
 
 // renameOrCopy renames src to dst, falling back to a copy-then-delete on

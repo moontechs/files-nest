@@ -77,6 +77,32 @@ func TestParseCreationDate(t *testing.T) {
 	}
 }
 
+func TestIsSaneCreationDate(t *testing.T) {
+	now := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name string
+		t    time.Time
+		want bool
+	}{
+		{name: "min boundary inclusive", t: minSaneCreationDate, want: true},
+		{name: "just before min", t: minSaneCreationDate.Add(-time.Nanosecond), want: false},
+		{name: "max boundary inclusive", t: now.Add(maxSaneCreationDateSkew), want: true},
+		{name: "just after max", t: now.Add(maxSaneCreationDateSkew + time.Nanosecond), want: false},
+		{name: "epoch", t: time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC), want: false},
+		{name: "far future", t: time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC), want: false},
+		{name: "typical capture date", t: time.Date(2024, 3, 15, 10, 30, 0, 0, time.UTC), want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSaneCreationDate(tt.t, now); got != tt.want {
+				t.Errorf("isSaneCreationDate(%v, %v) = %v, want %v", tt.t, now, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCopyFile(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "source")
