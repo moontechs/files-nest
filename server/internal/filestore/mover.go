@@ -382,6 +382,8 @@ func applyCreationTimestamp(dst, creationDate string) {
 // before the sane minimum (a dead RTC battery's epoch output) or more
 // than maxSaneCreationDateSkew into the future (client clock skew) are
 // clamped out: the file keeps its upload-time mtime instead.
+//
+//nolint:gochecknoglobals // immutable config thresholds for the sanity clamp, never mutated at runtime
 var (
 	minSaneCreationDate     = time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)
 	maxSaneCreationDateSkew = 24 * time.Hour // allow for client clock skew
@@ -524,15 +526,15 @@ func copyFileWithOps(src, dst string, ops fileOps) error {
 // (e.g. "2024-03-15T10:30:00Z", including fractional seconds) and falling
 // back to the YYYY-MM-DD calendar format. It returns the parsed time and
 // whether parsing succeeded.
-func parseCreationDate(s string) (time.Time, bool) {
-	t, err := time.Parse(time.RFC3339, s)
+func parseCreationDate(input string) (time.Time, bool) {
+	parsed, err := time.Parse(time.RFC3339, input)
 	if err == nil {
-		return t, true
+		return parsed, true
 	}
 
-	t, err = time.Parse("2006-01-02", s)
+	parsed, err = time.Parse("2006-01-02", input)
 	if err == nil {
-		return t, true
+		return parsed, true
 	}
 
 	return time.Time{}, false

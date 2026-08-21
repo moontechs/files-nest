@@ -3,11 +3,16 @@
 package orphans
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"syscall"
 	"time"
 )
+
+// errUnexpectedStatType is returned by ctime when the platform's
+// syscall.Stat_t type assertion fails.
+var errUnexpectedStatType = errors.New("orphans.ctime: unexpected sys stat type")
 
 // ctime returns the inode status-change time for info. On Darwin this is
 // read from the st_ctimespec field of the syscall.Stat_t. Unlike
@@ -18,7 +23,8 @@ import (
 func ctime(info fs.FileInfo) (time.Time, error) {
 	st, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
-		return time.Time{}, fmt.Errorf("orphans.ctime: unexpected sys stat type %T", info.Sys())
+		return time.Time{}, fmt.Errorf("%w: %T", errUnexpectedStatType, info.Sys())
 	}
+
 	return time.Unix(st.Ctimespec.Sec, st.Ctimespec.Nsec), nil
 }

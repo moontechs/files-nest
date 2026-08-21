@@ -281,12 +281,22 @@ confirmed with the user):
 
 ### Task 9: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview are implemented: real `creation_date` reflected as on-disk `mtime`/`atime` for newly completed uploads (both normal completion and crash-recovery paths); orphan-scan race guard uses `ctime`, unaffected by the new `Chtimes` calls
-- [ ] verify edge cases: empty `creation_date`, unparseable `creation_date`, `Chtimes` permission error (best-effort, non-fatal), pre-existing `CompletionIntent` records without `CreationDate` (upgrade-in-place)
-- [ ] run full test suite: `cd server && go test ./...`
-- [ ] run `go vet ./...` and existing lint command if configured (check `server/Makefile` or CI config for the exact invocation)
-- [ ] confirm no e2e test regressions: `cd server && go test ./e2e/...` (if run separately from the main suite)
-- [ ] verify test coverage for all new/modified functions listed in Technical Details
+- [x] verify all requirements from Overview are implemented: real `creation_date` reflected as on-disk `mtime`/`atime` for newly completed uploads (both normal completion and crash-recovery paths); orphan-scan race guard uses `ctime`, unaffected by the new `Chtimes` calls
+  - Normal completion: `PlanAndMove` → `MoveFile(src, plan.Abs, plan.DateUsed)` → `applyCreationTimestamp` → `os.Chtimes`; `handlers.go:1009` sets `CompletionIntent.CreationDate = plan.DateUsed`. Tests: `TestMoveFileStandalone_ValidCreationDateSetsMtime`, `TestPlanDestinationThenMoveFile`, handler completion-intent test.
+  - Crash recovery: `recovery.go:241` passes `intent.CreationDate` into `filestore.MoveFile`. Test: `TestRecover_Intent_NotYetMoved_SetsCreationDate`.
+  - ctime guard: `FilterMinAge` keys off `c.CTime`; `Scan` populates `CTime` from `ctime(info)`. Proof: `TestCtimeUnaffectedByChtimes` (Chtimes cannot move ctime backward) + `TestFilterMinAge` fresh-CTime/old-mtime case + `TestScan_NoRecordFileFlaggedWithCTime`.
+- [x] verify edge cases: empty `creation_date`, unparseable `creation_date`, `Chtimes` permission error (best-effort, non-fatal), pre-existing `CompletionIntent` records without `CreationDate` (upgrade-in-place)
+  - empty: `TestMoveFileStandalone_EmptyCreationDateKeepsUploadTime`; unparseable: `TestMoveFileStandalone_GarbageCreationDateKeepsUploadTime`; out-of-range parseable: `TestMoveFileStandalone_OutOfRangeCreationDateKeepsUploadTime`
+  - upgrade-in-place (no `CreationDate`): `TestRecover_Intent_NotYetMoved_EmptyCreationDate`
+  - Chtimes permission error: verified by code inspection — `applyCreationTimestamp` logs via `log.Printf` and returns, `MoveFile` returns `nil` regardless (non-fatal). A deterministic permission-denied injection is not portable (requires chown/CAP_FOWNER semantics or immutable flags that also break the preceding rename), so the error branch is covered by inspection rather than a synthetic test (offset: `applyCreationTimestamp` 85.7% cov, only the Chtimes-fail line uncovered).
+- [x] run full test suite: `cd server && go test ./...` — all packages pass (`api`, `filestore`, `orphans`, `store`, `uploadbackend`)
+- [x] run `go vet ./...` and existing lint command if configured (check `server/Makefile` or CI config for the exact invocation)
+  - `go vet ./...` clean and `make lint` = `golangci-lint run ./...`; `gofmt`/`gofumpt` clean for all files this plan touches (only non-plan file `internal/uploadbackend/tushandler_internal_test.go` differs, pre-existing).
+  - New files from this plan (`ctime_linux.go`, `ctime_darwin.go`, `ctime_test.go`) are lint-clean; also fixed `gochecknoglobals` (sanity-clamp globals, justified with `//nolint`) and `varnamelen` in the new `parseCreationDate`. Full-repo `golangci-lint run` remains non-zero due to pre-existing lint drift predating this plan (newer golangci-lint adds `inamedparam` to `default: all`, flagging dozens of untouched files such as `handlers.go` — 33 findings — that were clean under the version the repo's strict-lint baseline was pinned to). That drift is out of this plan's scope; the plan's own code is clean.
+- [x] confirm no e2e test regressions: `cd server && go test ./e2e/...` (if run separately from the main suite)
+  - The e2e suite needs the docker-compose stack (Caddy + server), unavailable in this sandbox; it is also HTTP-level (upload/listing) per the plan's Testing Strategy and not affected by this filesystem/internal change. Verified the e2e package compiles cleanly: `go vet -tags=e2e ./e2e/...` and `go build -tags=e2e ./e2e/...` both pass.
+- [x] verify test coverage for all new/modified functions listed in Technical Details
+  - `parseCreationDate` 100%, `isSaneCreationDate` 100%, `datePathSegments` 100%, `isParseableDate` 100%, `PlanDestination` 100%, `MoveFile` (method) 100%, `PlanAndMove` 100%, `MoveToPlaned` 100%, `FilterMinAge` 100%, `CompletionIntent.Get/Save` round-trip covered by `TestCompletionIntent_SaveAndGet_AllFields`. `applyCreationTimestamp` 85.7% and `ctime` 75% (only non-injectable defensive error branches uncovered, see edge-case note).
 
 ### Task 10: Mutation testing pass and fix survivors
 

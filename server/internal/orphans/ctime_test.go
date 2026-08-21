@@ -1,3 +1,4 @@
+//nolint:testpackage // ctime is unexported, so its test must live in the orphans package
 package orphans
 
 import (
