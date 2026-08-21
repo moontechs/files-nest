@@ -262,16 +262,16 @@ bad cycle, since there's no dry-run step left to catch it beforehand).
 - Create: `server/internal/orphans/scan.go`
 - Create: `server/internal/orphans/scan_test.go`
 
-- [ ] define `Candidate` (with `Path`, `ModTime`) and `Result` types in `server/internal/orphans/scan.go`
-- [ ] implement `Scan(db *store.Store, storagePath string) (Result, error)`: call `db.ListByStatus(store.StatusComplete)`, set `Result.KnownComplete` to the count of records returned, build `map[string]struct{}` keyed by `filepath.Join(storagePath, rec.OrganizedPath)` (NOT `filepath.Join(organizedRoot, rec.OrganizedPath)` — see Context note); inside the `filepath.WalkDir` callback over `filepath.Join(storagePath, "organized")`, check known-set membership **first**, and only call `d.Info()` (to populate `ModTime`) for files not in the set — this ordering is what keeps matched files free of extra stat cost, so don't call `d.Info()` unconditionally
-- [ ] per-file/per-subdirectory walk errors (including `d.Info()` failures while building a candidate's `ModTime`) append to `Result.Errors` and scanning continues (best-effort), excluding that file as a candidate since its age can't be determined; an error opening the organized root itself returns as the function's error return (fatal)
-- [ ] write test: file referenced by a `complete` record is NOT flagged
-- [ ] write test: file referenced only by a `deleted`-status record's stale `OrganizedPath` IS flagged
-- [ ] write test: file with no matching record at all IS flagged, with `ModTime` matching the file's actual mtime
-- [ ] write test: unreadable subdirectory produces an entry in `Result.Errors`, scan continues over sibling files
-- [ ] write test: nonexistent organized root returns a fatal error
-- [ ] write test: known-path matching correctly joins `storagePath` + `OrganizedPath` (regression test pinning the path-form bug caught in review — a record's `OrganizedPath` of `organized/2026/08/20/x.jpg` under `storagePath` must match the file found by walking `storagePath/organized`, not `storagePath/organized/organized/...`)
-- [ ] run tests - must pass before task 2
+- [x] define `Candidate` (with `Path`, `ModTime`) and `Result` types in `server/internal/orphans/scan.go`
+- [x] implement `Scan(db *store.Store, storagePath string) (Result, error)`: call `db.ListByStatus(store.StatusComplete)`, set `Result.KnownComplete` to the count of records returned, build `map[string]struct{}` keyed by `filepath.Join(storagePath, rec.OrganizedPath)` (NOT `filepath.Join(organizedRoot, rec.OrganizedPath)` — see Context note); inside the `filepath.WalkDir` callback over `filepath.Join(storagePath, "organized")`, check known-set membership **first**, and only call `d.Info()` (to populate `ModTime`) for files not in the set — this ordering is what keeps matched files free of extra stat cost, so don't call `d.Info()` unconditionally
+- [x] per-file/per-subdirectory walk errors (including `d.Info()` failures while building a candidate's `ModTime`) append to `Result.Errors` and scanning continues (best-effort), excluding that file as a candidate since its age can't be determined; an error opening the organized root itself returns as the function's error return (fatal)
+- [x] write test: file referenced by a `complete` record is NOT flagged
+- [x] write test: file referenced only by a `deleted`-status record's stale `OrganizedPath` IS flagged
+- [x] write test: file with no matching record at all IS flagged, with `ModTime` matching the file's actual mtime
+- [x] write test: unreadable subdirectory produces an entry in `Result.Errors`, scan continues over sibling files
+- [x] write test: nonexistent organized root returns a fatal error
+- [x] write test: known-path matching correctly joins `storagePath` + `OrganizedPath` (regression test pinning the path-form bug caught in review — a record's `OrganizedPath` of `organized/2026/08/20/x.jpg` under `storagePath` must match the file found by walking `storagePath/organized`, not `storagePath/organized/organized/...`)
+- [x] run tests - must pass before task 2
 
 ### Task 2: `orphans.FilterMinAge` — race guard against in-flight uploads
 
