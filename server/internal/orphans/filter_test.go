@@ -1,4 +1,4 @@
-package orphans
+package orphans_test
 
 import (
 	"testing"

@@ -267,7 +267,10 @@ func gcOrphansCycle(db *store.Store, storagePath string, minAge time.Duration) {
 	for _, c := range applied.Removed {
 		log.Printf("gc-orphans: removed orphan %s", c.Path)
 	}
-	for _, e := range append(result.Errors, applied.Errors...) {
+	for _, e := range result.Errors {
+		log.Printf("gc-orphans: error: %v", e)
+	}
+	for _, e := range applied.Errors {
 		log.Printf("gc-orphans: error: %v", e)
 	}
 }
