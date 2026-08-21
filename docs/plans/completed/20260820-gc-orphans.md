@@ -323,9 +323,9 @@ bad cycle, since there's no dry-run step left to catch it beforehand).
 
 ### Task 6: Update documentation
 
-- [ ] add `GC_ORPHANS_INTERVAL` to the env var table in `server/README.md:119-123`, and a short subsection (matching the shape of "Concurrency Limit") explaining the immediate-on-startup + interval cycle, the 3-hour age guard, and that cleanup is automatic (no manual trigger)
-- [ ] update `CLAUDE.md` if the new `internal/orphans` package or `main.go` goroutine changes any documented architecture overview
-- [ ] move this plan to `docs/plans/completed/`
+- [x] add `GC_ORPHANS_INTERVAL` to the env var table in `server/README.md:119-123`, and a short subsection (matching the shape of "Concurrency Limit") explaining the immediate-on-startup + interval cycle, the 3-hour age guard, and that cleanup is automatic (no manual trigger)
+- [x] update `CLAUDE.md` if the new `internal/orphans` package or `main.go` goroutine changes any documented architecture overview — no `CLAUDE.md` exists anywhere in the repo (confirmed via `find . -name CLAUDE.md`), so there is nothing to update
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 

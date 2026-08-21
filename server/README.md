@@ -120,6 +120,7 @@ The server is configured exclusively through environment variables.
 | `STORAGE_PATH`  | No       | `./data`    | Root directory for all storage (see below).      |
 | `PORT`          | No       | `8080`      | HTTP listen port.                                |
 | `MAX_CONCURRENT_UPLOADS` | No | `4` | Max concurrent in-flight `PATCH .../data` (see below). |
+| `GC_ORPHANS_INTERVAL` | No | `48h` | Interval between background orphan-file cleanup cycles (see below). |
 
 \* When both `BACKUP_USER` and `BACKUP_PASS` are empty, authentication is
 disabled. This is useful for local development but **must not** be used in
@@ -144,6 +145,22 @@ server logs a warning and falls back to the default of `4`. The production
 deliberately do not set this variable, so both pick up the default of `4`.
 A client can discover the live limit at runtime via `GET /config` (see
 below) rather than hard-coding it.
+
+### Orphan Cleanup
+
+`GC_ORPHANS_INTERVAL` controls the background orphan-file cleanup cycle.
+Orphans are files in `organized/` with no live upload record — for example,
+files whose delete failed to remove the on-disk copy, or files referenced
+only by a `deleted`-status record. The server runs one cleanup cycle
+immediately at startup (after crash recovery completes) and then one per
+interval; the value must be a positive duration (`time.ParseDuration`
+format, e.g. `48h`, `1h`, `30m`). On a parse error or a non-positive value
+the server logs a warning and falls back to the default of `48h`.
+
+Files are only removed once their modification time is older than 3 hours,
+so an in-flight upload that has written its file to `organized/` moments
+before its DB record commits as `complete` is never mistaken for an orphan.
+Cleanup is fully automatic — there is no manual trigger and no dry-run mode.
 
 ### Storage Layout
 
