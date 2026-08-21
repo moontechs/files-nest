@@ -302,12 +302,12 @@ bad cycle, since there's no dry-run step left to catch it beforehand).
 **Files:**
 - Modify: `server/main.go`
 
-- [ ] add `orphanMinCandidateAge = 3 * time.Hour` to the existing `const` block (`server/main.go:23-26`), alongside `valueLogGCDiscardRatio`
-- [ ] parse `GC_ORPHANS_INTERVAL` env var via `time.ParseDuration`, default `"48h"`; on parse error or non-positive duration, log a `WARNING` and fall back to the default — mirrors the `MAX_CONCURRENT_UPLOADS` block (`server/main.go:52-58`)
-- [ ] implement `runGCOrphans(ctx context.Context, db *store.Store, storagePath string, interval, minAge time.Duration)`: runs one `orphans.Scan` → `orphans.FilterMinAge` cycle immediately, applies the circuit breaker (skip `Apply` and log loudly if `len(candidates) > max(50, result.KnownComplete/5)`), otherwise `orphans.Apply`s and logs each candidate found/removed/errored via `log.Printf("gc-orphans: ...")`, then loops on `select { case <-ctx.Done(): return; case <-ticker.C: <same cycle> }` — mirrors `runBadgerGC`'s shape (`server/main.go:165-189`) with the added immediate-first-run and breaker
-- [ ] start it via `go runGCOrphans(ctx, dbStore, storagePath, gcOrphansInterval, orphanMinCandidateAge)` **after** `recoverer.Recover()` returns (`server/main.go:86-88`) — NOT alongside `go runBadgerGC(ctx, dbStore.DB())` at line 75 — so the immediate first cycle can never race a file `Recover()` hasn't reconciled yet; reuse the same `ctx`/`cancel` already in `run()`
-- [ ] no dedicated unit test for `runGCOrphans` itself (matches `runBadgerGC`'s zero-test precedent in code shape — see Solution Overview's note on why that precedent covers shape, not risk parity); correctness is covered by Tasks 1-3's tests plus the startup-ordering and circuit-breaker guards above
-- [ ] run `cd server && go build ./...` and `cd server && go test ./...` — must pass before task 5
+- [x] add `orphanMinCandidateAge = 3 * time.Hour` to the existing `const` block (`server/main.go:23-26`), alongside `valueLogGCDiscardRatio`
+- [x] parse `GC_ORPHANS_INTERVAL` env var via `time.ParseDuration`, default `"48h"`; on parse error or non-positive duration, log a `WARNING` and fall back to the default — mirrors the `MAX_CONCURRENT_UPLOADS` block (`server/main.go:52-58`)
+- [x] implement `runGCOrphans(ctx context.Context, db *store.Store, storagePath string, interval, minAge time.Duration)`: runs one `orphans.Scan` → `orphans.FilterMinAge` cycle immediately, applies the circuit breaker (skip `Apply` and log loudly if `len(candidates) > max(50, result.KnownComplete/5)`), otherwise `orphans.Apply`s and logs each candidate found/removed/errored via `log.Printf("gc-orphans: ...")`, then loops on `select { case <-ctx.Done(): return; case <-ticker.C: <same cycle> }` — mirrors `runBadgerGC`'s shape (`server/main.go:165-189`) with the added immediate-first-run and breaker
+- [x] start it via `go runGCOrphans(ctx, dbStore, storagePath, gcOrphansInterval, orphanMinCandidateAge)` **after** `recoverer.Recover()` returns (`server/main.go:86-88`) — NOT alongside `go runBadgerGC(ctx, dbStore.DB())` at line 75 — so the immediate first cycle can never race a file `Recover()` hasn't reconciled yet; reuse the same `ctx`/`cancel` already in `run()`
+- [x] no dedicated unit test for `runGCOrphans` itself (matches `runBadgerGC`'s zero-test precedent in code shape — see Solution Overview's note on why that precedent covers shape, not risk parity); correctness is covered by Tasks 1-3's tests plus the startup-ordering and circuit-breaker guards above
+- [x] run `cd server && go build ./...` and `cd server && go test ./...` — must pass before task 5
 
 ### Task 5: Verify acceptance criteria
 
