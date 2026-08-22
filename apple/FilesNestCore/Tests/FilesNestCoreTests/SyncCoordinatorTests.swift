@@ -413,6 +413,51 @@ extension SyncCoordinatorTests {
             .sync(range: .all, onProgress: { box.append($0) })
         #expect(box.values.isEmpty)
     }
+
+    // MARK: - persisted remaining uploads (resume groundwork)
+
+    @Test func cleanSyncClearsRemaining() async throws {
+        let server = FakeServer(host: "sc-remain-clear.test")
+        let state = InMemorySyncStateStore()
+        state.saveRemainingUploads([resource("STALE")])   // a leftover from an earlier interrupted run
+        let report = try await makeCoordinator(server: server, library: [resource("A"), resource("B")],
+                                               state: state).sync(range: .all)
+        #expect(report.uploaded.count == 2)
+        #expect(state.loadRemainingUploads().isEmpty)   // nothing left after a full sync
+    }
+
+    @Test func cancelledSyncPersistsNotYetUploaded() async throws {
+        // Two items; A blocks until released, so only B can complete before we cancel.
+        let server = FakeServer(host: "sc-remain-cancel.test")
+        let state = InMemorySyncStateStore()
+        let a = resource("A", date: "2024-06-15T10:00:00Z")
+        let b = resource("B", date: "2024-06-15T10:01:00Z")
+        let baton = Baton()
+        let client = server.client()
+        let coord = SyncCoordinator(
+            client: client,
+            library: FakeAssetLibrary(items: [a, b], error: nil),
+            uploader: AssetUploader(client: client,
+                                    source: OrderedDataSource(baton: baton, waitID: "A#photo",
+                                                              totalBytes: 250, blobSize: 100)),
+            state: state,
+            configuredConcurrency: 2,
+            now: { Date(timeIntervalSince1970: 1_700_000_000) })
+
+        let bDone = Baton()
+        let task = Task { try await coord.sync(range: .all) { p in
+            if p.completed == 1 { bDone.release() }   // B finished; A is still blocked
+        } }
+        await bDone.wait()
+        task.cancel()
+        baton.release()                    // let A unwind
+        _ = try? await task.value
+
+        // A never successfully uploaded, so it is the persisted remaining.
+        let remaining = state.loadRemainingUploads().map { $0.key.localIdentifier }
+        #expect(remaining.contains("A"))
+        #expect(!remaining.contains("B"))
+    }
 }
 
 /// Thread-safe collector for the `@Sendable` progress callback.
