@@ -180,10 +180,10 @@ struct PanelView: View {
             } else {
                 HStack(spacing: 8) {
                     Button(isPaused ? "Resume" : "Pause") { isPaused ? model.resume() : model.pause() }
-                        .disabled(isCounting)
+                        .disabled(isPaused ? !model.status.canResume : !model.status.canPause)
                     Button("Sync Now") { model.syncNow() }
                         .buttonStyle(.borderedProminent)
-                        .disabled(isCounting)   // don't let Sync Now supersede an in-flight count
+                        .disabled(!model.status.canSyncNow)
                 }
             }
         }
@@ -212,13 +212,12 @@ struct PanelView: View {
         }
     }
 
-    private var isCounting: Bool { if case .counting = model.status { return true }; return false }
 
     /// Enumeration in progress with no known total yet: `.syncing` or `.counting` at total 0.
     private var showsIndeterminateSpinner: Bool {
         switch model.status {
         case .syncing(let p): return p.total == 0
-        case .counting(_, let total): return total == 0
+        case .counting(_, let total, _): return total == 0
         default: return false
         }
     }
@@ -226,7 +225,7 @@ struct PanelView: View {
     private var ringFraction: CGFloat {
         switch model.status {
         case .syncing(let p): return CGFloat(p.fraction)
-        case .counting(let done, let total): return total > 0 ? CGFloat(done) / CGFloat(total) : 0
+        case .counting(let done, let total, _): return total > 0 ? CGFloat(done) / CGFloat(total) : 0
         case .watching: return 1
         default: return 0
         }
@@ -252,7 +251,7 @@ struct PanelView: View {
     private var statusLabel: String {
         switch model.status {
         case .signedOut: return "Needs setup"
-        case .counting: return "Checking"
+        case .counting(_, _, let purpose): return purpose == .verify ? "Verifying" : "Checking"
         case .watching: return "Protected"
         case .syncing: return "Backing up"
         case .paused: return "Paused"
@@ -264,7 +263,10 @@ struct PanelView: View {
     private var title: String {
         switch model.status {
         case .signedOut: return "Your backup needs a server"
-        case .counting: return "Counting…"
+        case .counting(_, _, let purpose):
+            // A verify pass follows a completed upload; saying "Counting…" again there reads
+            // as "it started over", which is exactly what the resume work set out to avoid.
+            return purpose == .verify ? "Verifying backup…" : "Counting…"
         case .watching: return "Up to date"
         case .syncing: return "Syncing…"
         case .paused: return "Paused"
@@ -274,8 +276,9 @@ struct PanelView: View {
     private var subtitle: String {
         switch model.status {
         case .signedOut: return "Connect your own FilesNest server to begin"
-        case .counting(let done, let total):
-            return total > 0 ? "\(done.formatted()) of \(total.formatted())" : "Scanning library…"
+        case .counting(let done, let total, let purpose):
+            let scope = purpose == .verify ? "Checking for changes" : "Scanning library"
+            return total > 0 ? "\(scope) · \(done.formatted()) of \(total.formatted())" : "\(scope)…"
         case .watching(let last): return last.map { "Last sync \($0.formatted(.relative(presentation: .named)))" } ?? "Watching for new items"
         case .syncing(let p):
             if p.total == 0 { return "Scanning library…" }

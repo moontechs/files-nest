@@ -1037,6 +1037,42 @@ import Foundation
         await hold.open()
     }
 
+    /// The count chained after a fast-path upload is a VERIFY pass. It must say so, or it
+    /// reads as "the counter started over" right after the upload finished.
+    @Test func reconcileAfterAResumedUploadIsMarkedAsVerification() async {
+        let state = InMemorySyncStateStore()
+        state.saveRemainingUploads([AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                                                  filename: "A.jpg",
+                                                  creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)])
+        let hold = Gate()
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: state,
+            perform: { _, _ in self.emptyReport() },
+            resume: { _, _ in self.emptyReport() },
+            assess: { _, _ in await hold.wait(); return Assessment(backedUp: 1, pending: 0, resourceTotal: 1) })
+
+        await engine.start()
+        let s = await awaitStatus(engine) { if case .counting = $0 { return true }; return false }
+        guard case .counting(_, _, let purpose) = s else { Issue.record("expected .counting"); return }
+        #expect(purpose == .verify)
+        await hold.open()
+    }
+
+    /// A plain launch count is a survey, not a verification.
+    @Test func launchCountIsMarkedAsSurvey() async {
+        let hold = Gate()
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: InMemorySyncStateStore(),
+            perform: { _, _ in self.emptyReport() },
+            assess: { _, _ in await hold.wait(); return Assessment(backedUp: 0, pending: 0, resourceTotal: 0) })
+
+        await engine.start()
+        let s = await awaitStatus(engine) { if case .counting = $0 { return true }; return false }
+        guard case .counting(_, _, let purpose) = s else { Issue.record("expected .counting"); return }
+        #expect(purpose == .survey)
+        await hold.open()
+    }
+
     @Test func launchWithEmptySavedListCountsAsBefore() async {
         let engine = LiveSyncEngine(
             credentials: creds(true), state: InMemorySyncStateStore(),

@@ -69,6 +69,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                                                      // Only advanced on a failure-free finish, so a failed/partial
                                                      // sync never lets an incremental window skip un-uploaded work.
     private var pendingLibraryChange = false  // a change arrived mid-run; drain when the run finishes
+    private var countPurpose: CountPurpose = .survey   // what the in-flight count is for (UI intent)
     private var resumeCompletedBase = 0          // files finished by earlier runs of this backup session,
                                                  // so a resumed run's counter continues instead of
                                                  // restarting at 0 (it only knows its own files)
@@ -175,7 +176,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         case .failed(let gen, let message):
             if gen == generation { syncChild = nil; lastProgress = nil; setStatus(.error(message: message)) }
         case .counting(let gen, let done, let total):
-            if gen == generation { setStatus(.counting(done: done, total: total)) }
+            if gen == generation { setStatus(.counting(done: done, total: total, purpose: countPurpose)) }
         case .assessFinished(let gen, let a):
             if gen == generation {
                 assessChild = nil
@@ -387,7 +388,9 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         lastProgress = nil
         if !report.failed.isEmpty { logFailures(report.failed) }
         resumeGeneration = nil
-        startIdleCount(range: .all, autoSync: true)
+        // Marked as verification: this pass confirms what just uploaded and catches what
+        // changed while the app was closed. Labelling it stops it reading as a restart.
+        startIdleCount(range: .all, autoSync: true, purpose: .verify)
     }
 
     private func finishSync(_ report: SyncReport) {
@@ -421,11 +424,12 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     /// generation-gated. `nil` result = the scan failed → the handler settles to `.watching`.
     /// Bump the generation and start an off-consumer count. If `autoSync` and the count finds
     /// pending work, `.assessFinished` chains into a sync (count-then-upload).
-    private func startIdleCount(range: SyncRange, autoSync: Bool) {
+    private func startIdleCount(range: SyncRange, autoSync: Bool, purpose: CountPurpose = .survey) {
         guard signedIn else { return }
         generation &+= 1
         lastProgress = nil
         resumeCompletedBase = 0                       // a count begins a fresh cycle
+        countPurpose = purpose
         autoSyncRange = autoSync ? range : nil
         beginCounting(gen: generation, range: range)
     }
@@ -449,7 +453,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
 
     private func beginCounting(gen: UInt64, range: SyncRange) {
         guard let assess else { setStatus(.watching(lastSync: lastSync)); return }
-        setStatus(.counting(done: 0, total: 0))
+        setStatus(.counting(done: 0, total: 0, purpose: countPurpose))
         assessChild = Task { [assess, submit] in
             do {
                 let progress = AssessProgress { done, total in submit(.counting(gen: gen, done: done, total: total)) }
