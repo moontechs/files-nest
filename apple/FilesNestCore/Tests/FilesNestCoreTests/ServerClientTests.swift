@@ -46,3 +46,36 @@ struct FakeCredentialStore: CredentialStore {
     let req = try await client.authorizedRequest(URL(string: "https://h.test/uploads")!, method: "GET")
     #expect(req.value(forHTTPHeaderField: "Authorization") == nil)
 }
+
+@Test func configDecodesMaxConcurrentUploads() async throws {
+    let host = "sc-config.test"
+    // NB: don't call #expect inside the handler — it runs on URLSession's worker
+    // thread where swift-testing can't associate it. The decoded result below is
+    // the assertion; the handler only serves /config for this host.
+    MockURLProtocol.setHandler(forHost: host) { req in
+        let body = #"{"maxConcurrentUploads": 7}"#.data(using: .utf8)!
+        return MockURLProtocol.respond(status: 200,
+                                       headers: ["Content-Type": "application/json"],
+                                       body: body, for: req.url!)
+    }
+    defer { MockURLProtocol.removeHandler(forHost: host) }
+
+    let client = ServerClient(baseURL: URL(string: "https://\(host)")!,
+                              credentials: FakeCredentialStore(creds: nil),
+                              session: MockURLProtocol.makeSession())
+    let cfg = try await client.config()
+    #expect(cfg == ServerConfig(maxConcurrentUploads: 7))
+}
+
+@Test func configThrowsNotFoundOnOldServer() async throws {
+    let host = "sc-config-404.test"
+    MockURLProtocol.setHandler(forHost: host) { req in
+        MockURLProtocol.respond(status: 404, body: Data(), for: req.url!)
+    }
+    defer { MockURLProtocol.removeHandler(forHost: host) }
+
+    let client = ServerClient(baseURL: URL(string: "https://\(host)")!,
+                              credentials: FakeCredentialStore(creds: nil),
+                              session: MockURLProtocol.makeSession())
+    await #expect(throws: ServerClientError.notFound) { _ = try await client.config() }
+}

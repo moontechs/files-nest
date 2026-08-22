@@ -6,14 +6,16 @@ public struct SyncProgress: Sendable, Equatable {
     public let currentItemName: String?
     public let currentItemID: String?     // PHAsset local identifier, for the thumbnail
     public let bytesRemaining: Int64?
+    public let inFlight: Int              // uploads currently in flight (concurrency)
 
     public init(completed: Int, total: Int, currentItemName: String?,
-                bytesRemaining: Int64?, currentItemID: String? = nil) {
+                bytesRemaining: Int64?, currentItemID: String? = nil, inFlight: Int = 0) {
         self.completed = completed
         self.total = total
         self.currentItemName = currentItemName
         self.currentItemID = currentItemID
         self.bytesRemaining = bytesRemaining
+        self.inFlight = inFlight
     }
 
     /// 0.0…1.0; 0 when `total == 0`. Drives the panel's progress ring.

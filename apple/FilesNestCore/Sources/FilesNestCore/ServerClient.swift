@@ -4,11 +4,14 @@ public struct ServerClient: Sendable {
     let baseURL: URL
     let credentials: any CredentialStore
     let session: URLSession
+    let maxPatchRetries: Int
 
-    public init(baseURL: URL, credentials: any CredentialStore, session: URLSession? = nil) {
+    public init(baseURL: URL, credentials: any CredentialStore,
+                session: URLSession? = nil, maxPatchRetries: Int = 5) {
         self.baseURL = baseURL
         self.credentials = credentials
         self.session = session ?? Self.makeNonPersistentSession()
+        self.maxPatchRetries = maxPatchRetries
     }
 
     private static func makeNonPersistentSession() -> URLSession {
@@ -25,6 +28,7 @@ public struct ServerClient: Sendable {
     }
     func uploadsURL() -> URL { baseURL.appendingPathComponent("uploads") }
     func uploadURL(id: String) -> URL { baseURL.appendingPathComponent("uploads").appendingPathComponent(id) }
+    func configURL() -> URL { baseURL.appendingPathComponent("config") }
 
     // MARK: Request building + sending
 
@@ -56,6 +60,10 @@ public struct ServerClient: Sendable {
         }
         guard let http = response as? HTTPURLResponse else {
             throw ServerClientError.transport("non-HTTP response")
+        }
+        if http.statusCode == 503 {
+            let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap { Int($0) }
+            throw ServerClientError.serviceUnavailable(retryAfter: retryAfter)
         }
         if let err = ServerClientError.map(status: http.statusCode, body: data) { throw err }
         return (data, http)
@@ -110,6 +118,14 @@ public struct ServerClient: Sendable {
         return try decode(UploadRecord.self, from: data)
     }
 
+    /// GET /config — server-advertised limits (e.g. the concurrency cap).
+    /// Throws `.notFound` on a server that predates the endpoint.
+    public func config() async throws -> ServerConfig {
+        let req = try await authorizedRequest(configURL(), method: "GET")
+        let (data, _) = try await send(req)
+        return try decode(ServerConfig.self, from: data)
+    }
+
     // MARK: TUS data endpoints
 
     /// HEAD /uploads/{id}/data — the current offset, for resuming.
@@ -134,6 +150,24 @@ public struct ServerClient: Sendable {
     @discardableResult
     public func patchData(uploadID id: String, offset: Int64, data: Data,
                           finalLength: Int64?) async throws -> Int64 {
+        var attempt = 0
+        while true {
+            do {
+                return try await sendPatch(uploadID: id, offset: offset,
+                                           data: data, finalLength: finalLength)
+            } catch let ServerClientError.serviceUnavailable(retryAfter) {
+                guard attempt < maxPatchRetries else {
+                    throw ServerClientError.serviceUnavailable(retryAfter: retryAfter)
+                }
+                attempt += 1
+                try await Task.sleep(for: .seconds(retryAfter ?? 1))
+                // Loop: a 503 leaves the offset unchanged, so re-send the same PATCH.
+            }
+        }
+    }
+
+    private func sendPatch(uploadID id: String, offset: Int64, data: Data,
+                           finalLength: Int64?) async throws -> Int64 {
         var req = try await authorizedRequest(dataURL(for: id), method: "PATCH")
         req.setValue("application/offset+octet-stream", forHTTPHeaderField: "Content-Type")
         req.setValue(String(offset), forHTTPHeaderField: "Upload-Offset")

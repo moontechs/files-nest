@@ -97,7 +97,9 @@ struct PanelView: View {
             ThumbnailView(id: p.currentItemID, size: 34, loader: thumbnails)
             VStack(alignment: .leading, spacing: 2) {
                 Text(p.currentItemName ?? "…").font(.caption).bold().lineLimit(1)
-                Text("Uploading · \(p.completed) of \(p.total)")
+                Text(p.inFlight > 1
+                     ? "Uploading \(p.inFlight) · \(p.completed) of \(p.total)"
+                     : "Uploading · \(p.completed) of \(p.total)")
                     .font(.caption2).foregroundStyle(.secondary)
                 ProgressView(value: p.fraction).controlSize(.mini)
             }
@@ -179,7 +181,9 @@ struct PanelView: View {
                 HStack(spacing: 8) {
                     Button(isPaused ? "Resume" : "Pause") { isPaused ? model.resume() : model.pause() }
                         .disabled(isCounting)
-                    Button("Sync Now") { model.syncNow() }.buttonStyle(.borderedProminent)
+                    Button("Sync Now") { model.syncNow() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isCounting)   // don't let Sync Now supersede an in-flight count
                 }
             }
         }
