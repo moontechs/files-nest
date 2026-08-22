@@ -458,6 +458,45 @@ extension SyncCoordinatorTests {
         #expect(remaining.contains("A"))
         #expect(!remaining.contains("B"))
     }
+
+    // MARK: - resume(resources:)
+
+    @Test func resumeUploadsGivenResourcesWithoutScanning() async throws {
+        let server = FakeServer(host: "sc-resume.test")
+        let state = InMemorySyncStateStore()
+        let client = server.client()
+        // A library that FAILS if enumerated — proves resume never scans.
+        let coord = SyncCoordinator(
+            client: client,
+            library: FakeAssetLibrary(items: [], error: FakeSourceError.injected),
+            uploader: AssetUploader(client: client, source: FakeAssetDataSource(totalBytes: 250, blobSize: 100)),
+            state: state,
+            configuredConcurrency: 2,
+            now: { Date(timeIntervalSince1970: 1_700_000_000) })
+
+        let report = try await coord.resume(resources: [resource("A"), resource("B")])
+        #expect(Set(report.uploaded.map(\.localIdentifier)) == ["A", "B"])
+        #expect(server.all().count == 2)
+        #expect(report.deleted.isEmpty)
+    }
+
+    @Test func alreadyCompletedCountsAsUploaded() async throws {
+        let server = FakeServer(host: "sc-already.test")
+        server.seed(localIdentifier: "A#photo", status: "complete")   // already done on the server
+        let state = InMemorySyncStateStore()
+        let client = server.client()
+        let coord = SyncCoordinator(
+            client: client,
+            library: FakeAssetLibrary(items: [], error: FakeSourceError.injected),
+            uploader: AssetUploader(client: client, source: FakeAssetDataSource(totalBytes: 250, blobSize: 100)),
+            state: state,
+            configuredConcurrency: 1,
+            now: { Date(timeIntervalSince1970: 1_700_000_000) })
+
+        let report = try await coord.resume(resources: [resource("A")])
+        #expect(report.uploaded.map(\.localIdentifier) == ["A"])   // not a failure
+        #expect(report.failed.isEmpty)
+    }
 }
 
 /// Thread-safe collector for the `@Sendable` progress callback.

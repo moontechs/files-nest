@@ -82,6 +82,18 @@ final class FakeServer: @unchecked Sendable {
         func lost() -> (HTTPURLResponse, Data) {
             resp(409, [:], #"{"error":"backend_lost"}"#.data(using: .utf8)!)
         }
+        /// Mirrors the server's status guards on data ops (`handlers.go` HEAD guard /
+        /// `rejectUploadNotUploading`): only an `uploading` record accepts data. A
+        /// completed record is the resume case — the client must read that as
+        /// "already done", not as a failure.
+        func rejectIfNotUploading(_ r: Record) -> (HTTPURLResponse, Data)? {
+            switch r.status {
+            case "uploading": return nil
+            case "complete": return resp(409, [:], #"{"error":"upload already completed"}"#.data(using: .utf8)!)
+            case "deleted": return resp(404, [:], #"{"error":"upload not found"}"#.data(using: .utf8)!)
+            default: return resp(409, [:], #"{"error":"upload not in uploading state"}"#.data(using: .utf8)!)
+            }
+        }
         func json(_ r: Record) -> [String: Any] {
             var o: [String: Any] = ["id": r.id, "local_identifier": r.localIdentifier,
                                     "status": r.status, "backend_id": r.backendID]
@@ -138,6 +150,7 @@ final class FakeServer: @unchecked Sendable {
             if markLostOnFirstDataOp && !backendLostIDs.contains(id) { backendLostIDs.insert(id) }
             if backendLostIDs.contains(id) { records[id]?.status = "backend_lost"; return lost() }
             guard let r = records[id] else { return resp(404) }
+            if let rejection = rejectIfNotUploading(r) { return rejection }
             return resp(200, ["Upload-Offset": String(r.offset)])
 
         case ("PATCH", 3) where parts[0] == "uploads" && parts[2] == "data":
@@ -145,6 +158,7 @@ final class FakeServer: @unchecked Sendable {
             if markLostOnFirstDataOp && !backendLostIDs.contains(id) { backendLostIDs.insert(id) }
             if backendLostIDs.contains(id) { records[id]?.status = "backend_lost"; return lost() }
             guard var r = records[id] else { return resp(404) }
+            if let rejection = rejectIfNotUploading(r) { return rejection }
             let off = Int64(req.value(forHTTPHeaderField: "Upload-Offset") ?? "0") ?? 0
             r.offset = off + req.httpBodyByteCount()
             if let fl = req.value(forHTTPHeaderField: "Upload-Length").flatMap(Int64.init) { r.length = fl }

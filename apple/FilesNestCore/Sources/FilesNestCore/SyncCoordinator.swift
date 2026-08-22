@@ -60,6 +60,17 @@ public struct SyncCoordinator: Sendable {
         return SyncReport(uploaded: uploaded, deleted: deleted, failed: failed, skipped: plan.skipped)
     }
 
+    /// Re-drive a saved list of resources without enumerating or diffing. Each is
+    /// rebuilt as a `.create` (idempotent server-side); every file still HEADs its
+    /// offset, so half-done/done/new all resolve correctly.
+    public func resume(resources: [AssetResource],
+                       onProgress: @Sendable (SyncProgress) -> Void = { _ in }) async throws -> SyncReport {
+        state.saveLastSyncStarted(now())
+        let uploads = resources.map { PlannedUpload(resource: $0, mode: .create) }
+        let (uploaded, failed) = try await runUploads(uploads, onProgress: onProgress)
+        return SyncReport(uploaded: uploaded, deleted: [], failed: failed, skipped: 0)
+    }
+
     /// Injected value wins (tests, future Settings UI). Otherwise discover the cap
     /// from GET /config, falling back to the default when the endpoint is absent
     /// (old server) or unreachable — config never fails a sync.
