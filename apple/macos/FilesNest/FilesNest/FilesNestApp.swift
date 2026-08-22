@@ -37,6 +37,21 @@ struct FilesNestApp: App {
                                                   state: stateStore)
                 return try await coordinator.sync(range: range, onProgress: onProgress)
             },
+            resume: { resources, onProgress in
+                // Re-drive the persisted not-yet-uploaded list: no scan, no diff, so a launch or
+                // Resume starts backing up immediately. The engine chains a full reconcile after.
+                guard let url = urlStore.load(),
+                      (try await credStore.basicCredentials()) != nil else {
+                    throw NotSignedInError()
+                }
+                let client   = ServerClient(baseURL: url, credentials: credStore)
+                let uploader = AssetUploader(client: client, source: PhotosAssetDataSource())
+                let coordinator = SyncCoordinator(client: client,
+                                                  library: library,
+                                                  uploader: uploader,
+                                                  state: stateStore)
+                return try await coordinator.resume(resources: resources, onProgress: onProgress)
+            },
             assess: { range, progress in
                 // Scan (drives the determinate "Counting…" state) + server diff → exact at-rest
                 // Pending via SyncPlanner. `.all` on launch/restart; `.modifiedSince` on a change.
