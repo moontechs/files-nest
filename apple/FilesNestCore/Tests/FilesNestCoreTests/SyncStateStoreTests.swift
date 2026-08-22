@@ -43,4 +43,28 @@ struct SyncStateStoreTests {
         store.saveAssessment(a)
         #expect(store.loadAssessment() == a)
     }
+
+    @Test func inMemoryRemainingUploadsRoundTrips() {
+        let store = InMemorySyncStateStore()
+        #expect(store.loadRemainingUploads().isEmpty)
+        let items = [AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                                   filename: "A.jpg", creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)]
+        store.saveRemainingUploads(items)
+        #expect(store.loadRemainingUploads() == items)
+        store.clearRemainingUploads()
+        #expect(store.loadRemainingUploads().isEmpty)
+    }
+
+    @Test func userDefaultsRemainingUploadsRoundTripsAndToleratesGarbage() {
+        let defaults = UserDefaults(suiteName: "remaining-\(UUID().uuidString)")!
+        let store = UserDefaultsSyncStateStore(defaults: defaults)
+        #expect(store.loadRemainingUploads().isEmpty)
+        let items = [AssetResource(key: ResourceKey(localIdentifier: "A", kind: .video),
+                                   filename: "A.mov", creationDate: Date(timeIntervalSince1970: 2), bundleID: "b")]
+        store.saveRemainingUploads(items)
+        #expect(store.loadRemainingUploads() == items)
+        // Undecodable value -> [] (clean fallback to a normal count).
+        defaults.set(Data([0x00, 0x01]), forKey: "com.filesnest.sync.remainingUploads")
+        #expect(store.loadRemainingUploads().isEmpty)
+    }
 }
