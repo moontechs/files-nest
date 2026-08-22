@@ -39,7 +39,8 @@ struct FilesNestApp: App {
             },
             resume: { resources, onProgress in
                 // Re-drive the persisted not-yet-uploaded list: no scan, no diff, so a launch or
-                // Resume starts backing up immediately. The engine chains a full reconcile after.
+                // Resume starts backing up immediately. Cold launches verify afterwards; an
+                // unchanged Pause resumes its known plan without another full library scan.
                 guard let url = urlStore.load(),
                       (try await credStore.basicCredentials()) != nil else {
                     throw NotSignedInError()

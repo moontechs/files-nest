@@ -903,14 +903,18 @@ import Foundation
         #expect(order.marks.contains("assess"))
     }
 
-    @Test func resumeWithSavedListAndNoChangeFastPaths() async {
+    @Test func resumeWithSavedListAndNoChangeFastPathsWithoutVerificationScan() async {
         let state = InMemorySyncStateStore()
         let hold = Gate()   // stall the resume upload so the `.syncing` fast-path state is observable
+        let assessCalls = Counter()
         let engine = LiveSyncEngine(
             credentials: creds(true), state: state,
             perform: { _, _ in self.emptyReport() },
             resume: { _, _ in await hold.wait(); return self.emptyReport() },
-            assess: { _, _ in Assessment(backedUp: 0, pending: 0, resourceTotal: 0) })
+            assess: { _, _ in
+                await assessCalls.inc()
+                return Assessment(backedUp: 0, pending: 0, resourceTotal: 0)
+            })
         // Get to paused, then seed a saved list and resume.
         await engine.start(); await engine.settle()
         await engine.pause(); await engine.settle()
@@ -921,19 +925,27 @@ import Foundation
         // Fast-path drives `.syncing` (the non-fast-path would go to `.watching`).
         #expect(isSyncing(await awaitStatus(engine, isSyncing)))
         await hold.open()
+        _ = await awaitStatus(engine, isWatching)
+        #expect(await assessCalls.value == 1) // launch only; Resume did not re-enumerate the library
     }
 
-    @Test func resumeWithPendingChangeFallsBackToRescan() async {
+    @Test func resumeWithPendingChangeUploadsSavedPlanThenChecksIncrementally() async {
         let state = InMemorySyncStateStore()
+        let resumeCalls = Counter()
+        let ranges = RangeBox()
         let engine = LiveSyncEngine(
             credentials: creds(true), state: state,
             perform: { _, _ in self.emptyReport() },
             resume: { _, _ in
-                Issue.record("a change coalesced while paused must rescan, not fast-path")
+                await resumeCalls.inc()
                 return self.emptyReport()
             },
-            assess: { _, _ in Assessment(backedUp: 0, pending: 0, resourceTotal: 0) })
+            assess: { range, _ in
+                await ranges.add(range)
+                return Assessment(backedUp: 0, pending: 0, resourceTotal: 0)
+            })
         await engine.start(); await engine.settle()
+        await ranges.clear()
         await engine.pause(); await engine.settle()
         state.saveRemainingUploads([AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
                                                   filename: "A.jpg",
@@ -941,6 +953,11 @@ import Foundation
         await engine.libraryDidChange(); await engine.settle()   // coalesced during the pause
         await engine.resume()
         #expect(isWatching(await awaitStatus(engine, isWatching)))
+        #expect(await resumeCalls.value == 1)
+        guard case .modifiedSince = await ranges.all.first else {
+            Issue.record("the post-resume check must be incremental, not a whole-library scan")
+            return
+        }
     }
 
     @Test func signOutClearsSavedList() async {

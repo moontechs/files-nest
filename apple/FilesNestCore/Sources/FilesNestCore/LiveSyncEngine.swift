@@ -77,6 +77,10 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                                                  // chains a reconcile on finish. Generation-gated rather
                                                  // than a flag, so ANY supersede (pause, syncNow, count,
                                                  // sign-out, failure) invalidates it automatically.
+    private var resumeNeedsVerification = false  // cold-launch data may be stale; an unchanged paused run
+                                                 // resumes a plan from this process and can finish without a scan.
+    private var resumeFollowUpRange: SyncRange?  // change seen while paused: reconcile only its window after
+                                                 // the saved plan has resumed, never discard that plan for .all.
 
     // Published snapshot + stream registries (read from arbitrary threads → fanoutLock).
     private let fanoutLock = NSLock()
@@ -222,6 +226,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         incrementalAnchor = nil                     // a fresh sign-in re-establishes the baseline via .all
         state.clearRemainingUploads()               // a saved list must not survive sign-out
         resumeGeneration = nil
+        resumeNeedsVerification = false
+        resumeFollowUpRange = nil
         resumeCompletedBase = 0
         setStatus(.signedOut)
         setSummary(.empty)                          // drop stale failures
@@ -239,6 +245,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         incrementalAnchor = nil                     // config may have changed → re-ground via the forced .all
         state.clearRemainingUploads()               // config/server change → re-ground from scratch
         resumeGeneration = nil
+        resumeNeedsVerification = false
+        resumeFollowUpRange = nil
         resumeCompletedBase = 0
         if let cached = cachedAssessment?() {
             setSummary(SyncSummary(backedUp: cached.backedUp, pending: cached.pending, failed: currentSummary.failed,
@@ -274,7 +282,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
             } else {
                 let saved = state.loadRemainingUploads()
                 if !saved.isEmpty, resume != nil {
-                    doResumeUpload(saved)                        // fast-path: upload saved → then reconcile
+                    doResumeUpload(saved, needsVerification: true) // cold launch: catch up, then verify stale state
                 } else {
                     startIdleCount(range: .all, autoSync: true)  // launch/restart catch-up (option A) — always full
                 }
@@ -304,11 +312,17 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         // generation during an active sync would orphan its in-flight child.
         guard case .paused = currentStatus else { return }
         let saved = state.loadRemainingUploads()
-        // A change coalesced while paused means the saved list is known-stale, so rescan instead
-        // of fast-pathing — that is what catches the edits made during the pause.
-        if !saved.isEmpty, !pendingLibraryChange, resume != nil {
+        if !saved.isEmpty, resume != nil {
             assessChild?.cancel(); assessChild = nil
-            doResumeUpload(saved)                     // fast-path: upload saved → then reconcile
+            // A saved plan is still the fastest safe way to complete the work known at Pause.
+            // If Photos changed meanwhile, follow with an incremental check from the original
+            // sync's start; dropping the plan and starting a new `.all` count wastes a large
+            // library scan without making that change safer.
+            let followUpRange: SyncRange? = pendingLibraryChange
+                ? .modifiedSince((currentSyncStartedAt ?? now()).addingTimeInterval(-Self.incrementalMargin))
+                : nil
+            pendingLibraryChange = false
+            doResumeUpload(saved, needsVerification: false, followUpRange: followUpRange)
         } else {
             generation &+= 1
             assessChild?.cancel(); assessChild = nil  // defensive; no count is in flight while paused
@@ -357,8 +371,11 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                             inFlight: p.inFlight)
     }
 
-    /// Fast-path: upload a saved list straight away (no count), then chain a full reconcile.
-    private func doResumeUpload(_ resources: [AssetResource]) {
+    /// Fast-path: upload a saved list straight away (no count). A cold launch verifies the
+    /// potentially stale on-disk plan afterwards; an unchanged pause resumes the in-process plan
+    /// directly, so it does not needlessly enumerate the entire library again.
+    private func doResumeUpload(_ resources: [AssetResource], needsVerification: Bool,
+                                followUpRange: SyncRange? = nil) {
         guard signedIn, syncChild == nil, let resume else { return }
         generation &+= 1
         assessChild?.cancel(); assessChild = nil
@@ -367,6 +384,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         currentSyncStartedAt = now()
         syncBaseBackedUp = currentSummary.backedUp
         resumeGeneration = gen
+        resumeNeedsVerification = needsVerification
+        resumeFollowUpRange = followUpRange
         setStatus(.syncing(SyncProgress(completed: 0, total: 0, currentItemName: nil, bytesRemaining: nil)))
         syncChild = Task { [resume, submit] in
             do {
@@ -380,17 +399,33 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         }
     }
 
-    /// A fast-path upload finished → hand off to a full `.all` reconcile, which sets exact
-    /// numbers and catches deletions / photos added while closed. (The coordinator has already
-    /// cleared/updated the saved list.)
+    /// A fast-path upload finished. A cold launch needs a full reconcile to catch changes while
+    /// the app was closed. After an unchanged Pause, the saved plan and the current assessment
+    /// came from this process, so the report is enough to finish without another library scan.
     private func finishResumeUpload(_ report: SyncReport) {
         syncChild = nil
         lastProgress = nil
         if !report.failed.isEmpty { logFailures(report.failed) }
         resumeGeneration = nil
-        // Marked as verification: this pass confirms what just uploaded and catches what
-        // changed while the app was closed. Labelling it stops it reading as a restart.
-        startIdleCount(range: .all, autoSync: true, purpose: .verify)
+        if let range = resumeFollowUpRange {
+            resumeFollowUpRange = nil
+            startIdleCount(range: range, autoSync: true, purpose: .verify)
+            return
+        }
+        if resumeNeedsVerification {
+            resumeNeedsVerification = false
+            // Marked as verification: this pass confirms what just uploaded and catches what
+            // changed while the app was closed. Labelling it stops it reading as a restart.
+            startIdleCount(range: .all, autoSync: true, purpose: .verify)
+            return
+        }
+
+        let pendingUploads = report.failed.filter { $0.kind == .upload }.count
+        if pendingUploads == 0 { incrementalAnchor = currentSyncStartedAt }
+        setSummary(SyncSummary(backedUp: currentSummary.backedUp, pending: pendingUploads,
+                               failed: report.failed, resourceTotal: currentSummary.resourceTotal))
+        setStatus(.watching(lastSync: lastSync))
+        drainPendingChangeIfAny()
     }
 
     private func finishSync(_ report: SyncReport) {
