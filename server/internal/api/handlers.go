@@ -1001,12 +1001,13 @@ func (h *Handler) moveCompletedFile(
 ) (filestore.PlanDestResult, bool) {
 	saveIntent := func(plan filestore.PlanDestResult) error {
 		intent := &store.CompletionIntent{
-			ID:        upload.ID,
-			BackendID: upload.BackendID,
-			Src:       srcPath,
-			Dst:       plan.Abs,
-			DstRel:    plan.Rel,
-			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+			ID:           upload.ID,
+			BackendID:    upload.BackendID,
+			Src:          srcPath,
+			Dst:          plan.Abs,
+			DstRel:       plan.Rel,
+			CreationDate: plan.DateUsed,
+			CreatedAt:    time.Now().UTC().Format(time.RFC3339),
 		}
 
 		return h.store.SaveCompletionIntent(intent)
@@ -1023,7 +1024,7 @@ func (h *Handler) moveCompletedFile(
 	}
 
 	if existing != nil {
-		existingPlan := filestore.PlanDestResult{Abs: existing.Dst, Rel: existing.DstRel}
+		existingPlan := filestore.PlanDestResult{Abs: existing.Dst, Rel: existing.DstRel, DateUsed: existing.CreationDate}
 
 		moveErr := h.mover.MoveToPlaned(srcPath, existingPlan, saveIntent)
 		if moveErr != nil {

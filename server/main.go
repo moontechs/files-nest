@@ -16,6 +16,7 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/moontechs/files-nest/server/internal/api"
+	"github.com/moontechs/files-nest/server/internal/orphans"
 	"github.com/moontechs/files-nest/server/internal/store"
 	"github.com/moontechs/files-nest/server/internal/uploadbackend"
 )
@@ -24,6 +25,7 @@ const (
 	readHeaderTimeout      = 15 * time.Second
 	idleTimeout            = 60 * time.Second
 	valueLogGCDiscardRatio = 0.5
+	orphanMinCandidateAge  = 3 * time.Hour
 )
 
 // errPartialBackupCredentials is returned when only one of BACKUP_USER /
@@ -58,6 +60,17 @@ func run() error {
 	}
 	limiter := api.NewConcurrencyLimiter(maxConcurrentUploads)
 
+	// Interval for the background orphan-file cleanup cycle. A
+	// missing/invalid/non-positive configured value falls back to the default
+	// of 48h with a logged warning, mirroring the MAX_CONCURRENT_UPLOADS
+	// fallback-with-warning pattern.
+	gcOrphansInterval, err := time.ParseDuration(getEnv("GC_ORPHANS_INTERVAL", "48h"))
+	if err != nil || gcOrphansInterval <= 0 {
+		log.Printf("WARNING: invalid GC_ORPHANS_INTERVAL=%q (must be a positive duration like 48h), "+
+			"falling back to default of 48h", getEnv("GC_ORPHANS_INTERVAL", "48h"))
+		gcOrphansInterval = 48 * time.Hour
+	}
+
 	// Open BadgerDB
 	dbPath := filepath.Join(storagePath, "db")
 	log.Printf("opening store at %s", dbPath)
@@ -89,6 +102,12 @@ func run() error {
 	if err != nil {
 		log.Printf("startup recovery completed with errors: %v", err)
 	}
+
+	// Start the orphan-file cleanup goroutine only after crash recovery has
+	// completed, so its immediate first cycle can never race a file Recover()
+	// is still reconciling (which, after a long-enough outage, could carry an
+	// mtime old enough to pass the age guard).
+	go runGCOrphans(ctx, dbStore, storagePath, gcOrphansInterval, orphanMinCandidateAge)
 
 	// Create the API handler with per-upload locks and storage path.
 	handler := api.NewHandler(dbStore, tusdHandler, storagePath)
@@ -191,6 +210,72 @@ func runBadgerGC(ctx context.Context, db BadgerGCer) {
 // BadgerGCer is the subset of badger.DB used by the GC goroutine.
 type BadgerGCer interface {
 	RunValueLogGC(discardRatio float64) error
+}
+
+// runGCOrphans periodically scans organized/ for files with no live
+// (complete-status) record and deletes them. It mirrors runBadgerGC's shape
+// (a time.Ticker plus a select on ctx.Done()/ticker.C) with two deliberate
+// differences: it runs one cycle immediately upon startup before entering the
+// ticker wait, so pre-existing orphans aren't left for up to a full interval
+// after a restart; and it is started strictly after crash recovery completes
+// (see run()), so its immediate first cycle can never delete a file recovery
+// is still reconciling. Unlike runBadgerGC this goroutine deletes user files
+// with no undo, so the circuit breaker inside gcOrphansCycle is what caps the
+// blast radius of any future Scan regression.
+func runGCOrphans(ctx context.Context, db *store.Store, storagePath string, interval, minAge time.Duration) {
+	gcOrphansCycle(db, storagePath, minAge)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			gcOrphansCycle(db, storagePath, minAge)
+		}
+	}
+}
+
+// gcOrphansCycle runs a single orphan scan/filter/apply pass: scan the
+// organized tree against complete-status records, drop candidates younger
+// than minAge, apply a circuit breaker before deleting anything, then delete
+// survivors (best-effort) and log what happened. Any single error is isolated
+// to this cycle; the caller's ticker tries again next interval.
+func gcOrphansCycle(db *store.Store, storagePath string, minAge time.Duration) {
+	result, err := orphans.Scan(db, storagePath)
+	if err != nil {
+		log.Printf("gc-orphans: scan failed: %v", err)
+		return // this cycle only; the ticker will try again next interval
+	}
+
+	candidates := orphans.FilterMinAge(result.Candidates, minAge, time.Now())
+
+	// Circuit breaker: if more than 20% of the known-complete set (with a
+	// floor of 50) show up as candidates, Scan's known-path matching probably
+	// regressed. Skip the delete and log loudly rather than risk mass
+	// deletion; the next cycle tries again from scratch.
+	if breaker := max(50, result.KnownComplete/5); len(candidates) > breaker {
+		log.Printf("gc-orphans: ERROR: %d candidates exceeds circuit breaker "+
+			"(%d, known-complete=%d) — skipping delete this cycle",
+			len(candidates), breaker, result.KnownComplete)
+		return
+	}
+
+	applied := orphans.Apply(candidates)
+	for _, c := range applied.Removed {
+		log.Printf("gc-orphans: removed orphan %s", c.Path)
+	}
+	for _, e := range result.Errors {
+		log.Printf("gc-orphans: error: %v", e)
+	}
+	if len(result.Errors) > 0 {
+		log.Printf("gc-orphans: %d scan errors this cycle (see above)", len(result.Errors))
+	}
+	for _, e := range applied.Errors {
+		log.Printf("gc-orphans: error: %v", e)
+	}
 }
 
 func getEnv(key, fallback string) string {

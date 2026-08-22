@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/moontechs/files-nest/server/internal/filestore"
 )
@@ -114,6 +115,36 @@ func assertPathNotExists(t *testing.T, path string) {
 		t.Errorf("path %s should not exist", path)
 	} else if !os.IsNotExist(err) {
 		t.Errorf("unexpected error checking %s: %v", path, err)
+	}
+}
+
+// assertMtimeMatches asserts the file at path has an mtime equal to the
+// given creation date string, within filesystem timestamp resolution.
+func assertMtimeMatches(t *testing.T, path, creationDate string) {
+	t.Helper()
+	want, err := time.Parse(time.RFC3339, creationDate)
+	if err != nil {
+		t.Fatalf("bad creationDate in test %q: %v", creationDate, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat %s: %v", path, err)
+	}
+	if !info.ModTime().Truncate(time.Second).Equal(want) {
+		t.Errorf("mtime of %s: got %v, want %v", path, info.ModTime(), want)
+	}
+}
+
+// assertMtimeRecent asserts the file at path has an mtime close to now,
+// i.e. Chtimes was not applied and the file kept its upload-time mtime.
+func assertMtimeRecent(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat %s: %v", path, err)
+	}
+	if since := time.Since(info.ModTime()); since > 5*time.Second {
+		t.Errorf("mtime of %s: %v is %v in the past; expected upload-time mtime", path, info.ModTime(), since)
 	}
 }
 
@@ -304,6 +335,10 @@ func TestMoveFile_Success(t *testing.T) {
 	if string(gotContent) != string(content) {
 		t.Errorf("content at destination: got %q, want %q", string(gotContent), string(content))
 	}
+
+	// The moved file's mtime should match the creation date (Task 4 applies
+	// Chtimes), not the upload time.
+	assertMtimeMatches(t, result.Dst, "2024-03-15T10:30:00Z")
 }
 
 func TestMoveFile_CreatesDestinationDirectory(t *testing.T) {
@@ -329,6 +364,9 @@ func TestMoveFile_CreatesDestinationDirectory(t *testing.T) {
 
 	// File should exist at destination.
 	assertPathExists(t, result.Dst)
+
+	// The moved file's mtime should match the creation date.
+	assertMtimeMatches(t, result.Dst, "2024-06-20T14:30:00Z")
 }
 
 // ---------------------------------------------------------------------------
@@ -389,6 +427,9 @@ func TestMoveFile_DeduplicatesWhenDestinationExists(t *testing.T) {
 	if string(gotNew) != "new content" {
 		t.Errorf("deduplicated file content: got %q, want %q", string(gotNew), "new content")
 	}
+
+	// The deduplicated (newly moved) file should carry the creation date.
+	assertMtimeMatches(t, result.Dst, "2024-03-15T10:30:00Z")
 }
 
 func TestMoveFile_MultipleDeduplications(t *testing.T) {
@@ -463,6 +504,7 @@ func TestMoveFile_MultipleDeduplications(t *testing.T) {
 		if string(got) != tc.want {
 			t.Errorf("content at %s: got %q, want %q", tc.path, string(got), tc.want)
 		}
+		assertMtimeMatches(t, tc.path, "2024-03-15T10:30:00Z")
 	}
 }
 
@@ -492,6 +534,8 @@ func TestMoveFile_DeduplicationWithExtension(t *testing.T) {
 	if filepath.Ext(result.Dst) != ".mp4" {
 		t.Errorf("extension should be preserved, got %q", filepath.Ext(result.Dst))
 	}
+
+	assertMtimeMatches(t, result.Dst, "2024-06-15T12:00:00Z")
 }
 
 func TestMoveFile_DeduplicationNoExtension(t *testing.T) {
@@ -519,6 +563,8 @@ func TestMoveFile_DeduplicationNoExtension(t *testing.T) {
 	if filepath.Base(result.Dst) != expectedFilename {
 		t.Errorf("filename: got %q, want %q", filepath.Base(result.Dst), expectedFilename)
 	}
+
+	assertMtimeMatches(t, result.Dst, "2024-01-01T00:00:00Z")
 }
 
 func TestMoveFile_DeduplicationWithMultipleDots(t *testing.T) {
@@ -546,6 +592,8 @@ func TestMoveFile_DeduplicationWithMultipleDots(t *testing.T) {
 	if filepath.Base(result.Dst) != expectedFilename {
 		t.Errorf("filename: got %q, want %q", filepath.Base(result.Dst), expectedFilename)
 	}
+
+	assertMtimeMatches(t, result.Dst, "2024-08-01T00:00:00Z")
 }
 
 // ---------------------------------------------------------------------------
@@ -1399,7 +1447,7 @@ func TestMoveFileStandalone_Basic(t *testing.T) {
 	content := []byte("standalone move content")
 	writeFile(t, src, content)
 
-	if err := filestore.MoveFile(src, dst); err != nil {
+	if err := filestore.MoveFile(src, dst, ""); err != nil {
 		t.Fatalf("MoveFile failed: %v", err)
 	}
 
@@ -1425,7 +1473,7 @@ func TestMoveFileStandalone_CreatesDestDir(t *testing.T) {
 	dst := filepath.Join(dir, "deeply", "nested", "dir", "output.bin")
 	writeFile(t, src, []byte("data"))
 
-	if err := filestore.MoveFile(src, dst); err != nil {
+	if err := filestore.MoveFile(src, dst, ""); err != nil {
 		t.Fatalf("MoveFile failed: %v", err)
 	}
 
@@ -1440,7 +1488,7 @@ func TestMoveFileStandalone_SameDirectoryMove(t *testing.T) {
 	dst := filepath.Join(dir, "renamed.txt")
 	writeFile(t, src, []byte("rename content"))
 
-	if err := filestore.MoveFile(src, dst); err != nil {
+	if err := filestore.MoveFile(src, dst, ""); err != nil {
 		t.Fatalf("MoveFile failed: %v", err)
 	}
 
@@ -1468,7 +1516,7 @@ func TestMoveFileStandalone_IdempotentSrcMissingDstExists(t *testing.T) {
 	writeFile(t, dst, []byte("already at destination"))
 
 	// Source doesn't exist, destination exists — MoveFile should treat as already moved.
-	if err := filestore.MoveFile(src, dst); err != nil {
+	if err := filestore.MoveFile(src, dst, ""); err != nil {
 		t.Errorf("MoveFile should return nil for already-moved file, got: %v", err)
 	}
 
@@ -1501,7 +1549,7 @@ func TestMoveFileStandalone_IdempotentSrcMissingDstExistsLarge(t *testing.T) {
 	}
 
 	// Source missing, destination exists — idempotent.
-	if err := filestore.MoveFile(src, dst); err != nil {
+	if err := filestore.MoveFile(src, dst, ""); err != nil {
 		t.Errorf("MoveFile should be idempotent when dst exists, got: %v", err)
 	}
 
@@ -1528,7 +1576,7 @@ func TestMoveFileStandalone_BothMissingError(t *testing.T) {
 	src := filepath.Join(dir, "nonexistent.txt")
 	dst := filepath.Join(dir, "nowhere.txt")
 
-	err := filestore.MoveFile(src, dst)
+	err := filestore.MoveFile(src, dst, "")
 	if err == nil {
 		t.Fatal("expected error when both source and destination are missing")
 	}
@@ -1540,7 +1588,7 @@ func TestMoveFileStandalone_BothMissingError_DeepPaths(t *testing.T) {
 	src := filepath.Join(dir, "a", "b", "c", "missing.txt")
 	dst := filepath.Join(dir, "x", "y", "z", "nowhere.txt")
 
-	err := filestore.MoveFile(src, dst)
+	err := filestore.MoveFile(src, dst, "")
 	if err == nil {
 		t.Fatal("expected error when both source and destination are missing with deep paths")
 	}
@@ -1553,9 +1601,114 @@ func TestMoveFileStandalone_SrcMissingDstMissingButDstParentCreated(t *testing.T
 	dst := filepath.Join(dir, "parent", "missing_dst.txt")
 
 	// Parent directory does not exist, source missing — should error.
-	err := filestore.MoveFile(src, dst)
+	err := filestore.MoveFile(src, dst, "")
 	if err == nil {
 		t.Fatal("expected error when src missing and parent dir doesn't exist")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MoveFile (standalone) — Chtimes timestamp application (Task 4)
+// ---------------------------------------------------------------------------
+
+func TestMoveFileStandalone_ValidCreationDateSetsMtime(t *testing.T) {
+	dir := t.TempDir()
+
+	src := filepath.Join(dir, "src.txt")
+	dst := filepath.Join(dir, "dst.txt")
+	writeFile(t, src, []byte("content"))
+
+	creationDate := "2024-03-15T10:30:00Z"
+	if err := filestore.MoveFile(src, dst, creationDate); err != nil {
+		t.Fatalf("MoveFile failed: %v", err)
+	}
+
+	assertPathNotExists(t, src)
+	assertMtimeMatches(t, dst, creationDate)
+}
+
+func TestMoveFileStandalone_DateOnlyCreationDateSetsMtimeUTC(t *testing.T) {
+	dir := t.TempDir()
+
+	src := filepath.Join(dir, "src.txt")
+	dst := filepath.Join(dir, "dst.txt")
+	writeFile(t, src, []byte("content"))
+
+	// Date-only creation dates parse to UTC midnight (pre-existing path
+	// behavior, now visible on disk via Chtimes).
+	if err := filestore.MoveFile(src, dst, "2024-06-20"); err != nil {
+		t.Fatalf("MoveFile failed: %v", err)
+	}
+
+	want := time.Date(2024, 6, 20, 0, 0, 0, 0, time.UTC)
+	info, err := os.Stat(dst)
+	if err != nil {
+		t.Fatalf("Stat dst: %v", err)
+	}
+	if !info.ModTime().Truncate(time.Second).Equal(want) {
+		t.Errorf("mtime: got %v, want %v", info.ModTime(), want)
+	}
+}
+
+func TestMoveFileStandalone_EmptyCreationDateKeepsUploadTime(t *testing.T) {
+	dir := t.TempDir()
+
+	src := filepath.Join(dir, "src.txt")
+	dst := filepath.Join(dir, "dst.txt")
+	writeFile(t, src, []byte("content"))
+
+	// Empty creationDate: move succeeds, Chtimes skipped, upload-time mtime kept.
+	if err := filestore.MoveFile(src, dst, ""); err != nil {
+		t.Fatalf("MoveFile failed: %v", err)
+	}
+
+	assertPathNotExists(t, src)
+	assertMtimeRecent(t, dst)
+}
+
+func TestMoveFileStandalone_GarbageCreationDateKeepsUploadTime(t *testing.T) {
+	dir := t.TempDir()
+
+	src := filepath.Join(dir, "src.txt")
+	dst := filepath.Join(dir, "dst.txt")
+	writeFile(t, src, []byte("content"))
+
+	// Unparseable creationDate: same as empty — move succeeds, no Chtimes.
+	if err := filestore.MoveFile(src, dst, "not-a-date"); err != nil {
+		t.Fatalf("MoveFile failed: %v", err)
+	}
+
+	assertPathNotExists(t, src)
+	assertMtimeRecent(t, dst)
+}
+
+func TestMoveFileStandalone_OutOfRangeCreationDateKeepsUploadTime(t *testing.T) {
+	// Parseable but implausible dates (EXIF clock corruption: epoch output
+	// from a dead RTC battery, far-future timestamps) must be clamped out —
+	// Chtimes skipped, upload-time mtime kept. This proves the sanity-range
+	// clamp, not just the parser.
+	for _, tt := range []struct {
+		name string
+		date string
+	}{
+		{name: "epoch", date: "1970-01-01T00:00:00Z"},
+		{name: "just before sane minimum", date: "1989-12-31T23:59:59Z"},
+		{name: "far future", date: "9999-01-01T00:00:00Z"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+
+			src := filepath.Join(dir, "src.txt")
+			dst := filepath.Join(dir, "dst.txt")
+			writeFile(t, src, []byte("content"))
+
+			if err := filestore.MoveFile(src, dst, tt.date); err != nil {
+				t.Fatalf("MoveFile failed: %v", err)
+			}
+
+			assertPathNotExists(t, src)
+			assertMtimeRecent(t, dst)
+		})
 	}
 }
 
@@ -1574,8 +1727,9 @@ func TestPlanDestinationThenMoveFile(t *testing.T) {
 	// Plan destination.
 	plan := m.PlanDestination("2024-09-15T10:30:00Z", "", "IMG_final.jpg", "tusd-integration")
 
-	// Move file using standalone MoveFile.
-	if err := filestore.MoveFile(src, plan.Abs); err != nil {
+	// Move file using standalone MoveFile, passing the planned DateUsed so
+	// the moved file's timestamps match the resolved date.
+	if err := filestore.MoveFile(src, plan.Abs, plan.DateUsed); err != nil {
 		t.Fatalf("MoveFile failed: %v", err)
 	}
 
@@ -1597,6 +1751,10 @@ func TestPlanDestinationThenMoveFile(t *testing.T) {
 	if plan.Rel != expectedRel {
 		t.Errorf("rel: got %q, want %q", plan.Rel, expectedRel)
 	}
+
+	// The moved file's mtime should reflect the resolved date (DateUsed),
+	// proving the DateUsed -> MoveFile -> Chtimes wiring end to end.
+	assertMtimeMatches(t, plan.Abs, plan.DateUsed)
 }
 
 func TestPlanDestinationWithCollisionThenMoveFile(t *testing.T) {
@@ -1618,8 +1776,8 @@ func TestPlanDestinationWithCollisionThenMoveFile(t *testing.T) {
 		t.Errorf("rel: got %q, want %q", plan.Rel, expectedRel)
 	}
 
-	// Move the file.
-	if err := filestore.MoveFile(src, plan.Abs); err != nil {
+	// Move the file, passing the planned DateUsed for timestamp application.
+	if err := filestore.MoveFile(src, plan.Abs, plan.DateUsed); err != nil {
 		t.Fatalf("MoveFile failed: %v", err)
 	}
 
@@ -1712,6 +1870,65 @@ func TestPlanDestination_EmptyFilename(t *testing.T) {
 	expectedAbs := filepath.Join(m.StoragePath(), plan.Rel)
 	if plan.Abs != expectedAbs {
 		t.Errorf("abs: got %q, want %q", plan.Abs, expectedAbs)
+	}
+}
+
+func TestPlanDestination_DateUsed(t *testing.T) {
+	m := openTestMover(t)
+
+	tests := []struct {
+		desc         string
+		creationDate string
+		createdAt    string
+		wantDateUsed string
+	}{
+		{
+			desc:         "valid creationDate is used verbatim",
+			creationDate: "2024-03-15T10:30:00Z",
+			wantDateUsed: "2024-03-15T10:30:00Z",
+		},
+		{
+			desc:         "valid date-only creationDate is used verbatim",
+			creationDate: "2024-06-20",
+			wantDateUsed: "2024-06-20",
+		},
+		{
+			desc:         "creationDate preferred over createdAt when both valid",
+			creationDate: "2024-01-15T10:00:00Z",
+			createdAt:    "2024-06-20T12:00:00Z",
+			wantDateUsed: "2024-01-15T10:00:00Z",
+		},
+		{
+			desc:         "falls back to createdAt when creationDate empty",
+			createdAt:    "2024-07-04T12:00:00Z",
+			wantDateUsed: "2024-07-04T12:00:00Z",
+		},
+		{
+			desc:         "falls back to createdAt when creationDate unparseable",
+			creationDate: "not-a-date",
+			createdAt:    "2024-07-04",
+			wantDateUsed: "2024-07-04",
+		},
+		{
+			desc:         "raw unparseable creationDate kept when createdAt also unparseable",
+			creationDate: "garbage-date",
+			createdAt:    "also-garbage",
+			wantDateUsed: "garbage-date",
+		},
+		{
+			desc:         "raw unparseable createdAt kept when creationDate empty",
+			createdAt:    "also-garbage",
+			wantDateUsed: "also-garbage",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			plan := m.PlanDestination(tt.creationDate, tt.createdAt, "file.txt", "tusd-dateused")
+			if plan.DateUsed != tt.wantDateUsed {
+				t.Errorf("DateUsed: got %q, want %q", plan.DateUsed, tt.wantDateUsed)
+			}
+		})
 	}
 }
 

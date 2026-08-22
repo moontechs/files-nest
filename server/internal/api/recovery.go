@@ -238,7 +238,7 @@ func moveIntentSource(intent *store.CompletionIntent) error {
 		return fmt.Errorf("create destination directory %s: %w", dstDir, err)
 	}
 
-	err = filestore.MoveFile(intent.Src, intent.Dst)
+	err = filestore.MoveFile(intent.Src, intent.Dst, intent.CreationDate)
 	if err != nil {
 		return fmt.Errorf("move file %s -> %s: %w", intent.Src, intent.Dst, err)
 	}

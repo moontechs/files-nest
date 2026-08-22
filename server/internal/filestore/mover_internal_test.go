@@ -4,12 +4,127 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestParseCreationDate(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  time.Time
+		ok    bool
+	}{
+		{
+			name:  "valid RFC3339",
+			input: "2024-03-15T10:30:00Z",
+			want:  time.Date(2024, 3, 15, 10, 30, 0, 0, time.UTC),
+			ok:    true,
+		},
+		{
+			name:  "valid YYYY-MM-DD",
+			input: "2024-06-20",
+			want:  time.Date(2024, 6, 20, 0, 0, 0, 0, time.UTC),
+			ok:    true,
+		},
+		{
+			name:  "RFC3339Nano",
+			input: "2024-12-31T23:59:59.123456789Z",
+			want:  time.Date(2024, 12, 31, 23, 59, 59, 123456789, time.UTC),
+			ok:    true,
+		},
+		{
+			name:  "RFC3339 with numeric zone offset",
+			input: "2024-03-15T10:30:00+02:00",
+			want:  time.Date(2024, 3, 15, 8, 30, 0, 0, time.UTC),
+			ok:    true,
+		},
+		{
+			name:  "empty string",
+			input: "",
+			ok:    false,
+		},
+		{
+			name:  "garbage string",
+			input: "not-a-date",
+			ok:    false,
+		},
+		{
+			name:  "whitespace-only string",
+			input: "   ",
+			ok:    false,
+		},
+		{
+			name:  "RFC3339 without seconds is rejected",
+			input: "2024-03-15T10:30Z",
+			ok:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseCreationDate(tt.input)
+			if ok != tt.ok {
+				t.Fatalf("parseCreationDate(%q) ok = %v, want %v", tt.input, ok, tt.ok)
+			}
+			if tt.ok && !got.Equal(tt.want) {
+				t.Errorf("parseCreationDate(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsSaneCreationDate(t *testing.T) {
+	now := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name string
+		t    time.Time
+		want bool
+	}{
+		{name: "min boundary inclusive", t: minSaneCreationDate, want: true},
+		{name: "just before min", t: minSaneCreationDate.Add(-time.Nanosecond), want: false},
+		{name: "max boundary inclusive", t: now.Add(maxSaneCreationDateSkew), want: true},
+		{name: "just after max", t: now.Add(maxSaneCreationDateSkew + time.Nanosecond), want: false},
+		{name: "epoch", t: time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC), want: false},
+		{name: "far future", t: time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC), want: false},
+		{name: "typical capture date", t: time.Date(2024, 3, 15, 10, 30, 0, 0, time.UTC), want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSaneCreationDate(tt.t, now); got != tt.want {
+				t.Errorf("isSaneCreationDate(%v, %v) = %v, want %v", tt.t, now, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestApplyCreationTimestampLogsChtimesFailure is the mutation-testing
+// guard for the best-effort Chtimes error branch in applyCreationTimestamp
+// (Task 4): a Chtimes failure on a sane date must be observable (logged),
+// not silently swallowed — otherwise a mutated `err != nil` → `err == nil`
+// would pass unnoticed. It feeds a non-existent destination so os.Chtimes
+// deterministically fails, then asserts the failure is logged while the
+// function still returns without panicking (non-fatal).
+func TestApplyCreationTimestampLogsChtimesFailure(t *testing.T) {
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+
+	// A path that cannot exist: os.Chtimes must fail, and the failure must
+	// surface as a logged line rather than a swallowed error.
+	applyCreationTimestamp(filepath.Join(t.TempDir(), "does-not-exist"), "2024-03-15T10:30:00Z")
+
+	if !strings.Contains(buf.String(), "chtimes") {
+		t.Errorf("expected Chtimes failure to be logged, got: %q", buf.String())
+	}
+}
 
 func TestCopyFile(t *testing.T) {
 	dir := t.TempDir()
