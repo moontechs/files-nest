@@ -459,6 +459,39 @@ extension SyncCoordinatorTests {
         #expect(!remaining.contains("B"))
     }
 
+    /// Sign-out / server change clears the saved list while a run is still unwinding.
+    /// The superseded run's cleanup write must not resurrect it — a list from one
+    /// server must never drive uploads against another (design §7).
+    @Test func supersededRunCannotResurrectAClearedRemaining() async throws {
+        let server = FakeServer(host: "sc-remain-resurrect.test")
+        let state = InMemorySyncStateStore()
+        let a = resource("A", date: "2024-06-15T10:00:00Z")
+        let b = resource("B", date: "2024-06-15T10:01:00Z")
+        let baton = Baton()
+        let client = server.client()
+        let coord = SyncCoordinator(
+            client: client,
+            library: FakeAssetLibrary(items: [a, b], error: nil),
+            uploader: AssetUploader(client: client,
+                                    source: OrderedDataSource(baton: baton, waitID: "A#photo",
+                                                              totalBytes: 250, blobSize: 100)),
+            state: state,
+            configuredConcurrency: 2,
+            now: { Date(timeIntervalSince1970: 1_700_000_000) })
+
+        let bDone = Baton()
+        let task = Task { try await coord.sync(range: .all) { p in
+            if p.completed == 1 { bDone.release() }
+        } }
+        await bDone.wait()
+        task.cancel()
+        state.clearRemainingUploads()   // engine: sign-out / config change
+        baton.release()                 // only now can the cancelled run unwind and write
+        _ = try? await task.value
+
+        #expect(state.loadRemainingUploads().isEmpty)
+    }
+
     // MARK: - resume(resources:)
 
     @Test func resumeUploadsGivenResourcesWithoutScanning() async throws {

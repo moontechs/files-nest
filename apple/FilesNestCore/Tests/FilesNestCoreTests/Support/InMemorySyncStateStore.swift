@@ -8,6 +8,7 @@ final class InMemorySyncStateStore: SyncStateStore, @unchecked Sendable {
     private var value: Date?
     private var _assessment: Assessment?
     private var _remaining: [AssetResource] = []
+    private var _remainingSession: UInt64 = 0
 
     func loadLastSyncStarted() -> Date? { lock.lock(); defer { lock.unlock() }; return value }
     func saveLastSyncStarted(_ date: Date) { lock.lock(); defer { lock.unlock() }; value = date }
@@ -15,6 +16,11 @@ final class InMemorySyncStateStore: SyncStateStore, @unchecked Sendable {
     func saveAssessment(_ assessment: Assessment) { lock.lock(); defer { lock.unlock() }; _assessment = assessment }
 
     func loadRemainingUploads() -> [AssetResource] { lock.lock(); defer { lock.unlock() }; return _remaining }
-    func saveRemainingUploads(_ resources: [AssetResource]) { lock.lock(); defer { lock.unlock() }; _remaining = resources }
-    func clearRemainingUploads() { lock.lock(); defer { lock.unlock() }; _remaining = [] }
+    func remainingUploadsSession() -> UInt64 { lock.lock(); defer { lock.unlock() }; return _remainingSession }
+    func saveRemainingUploads(_ resources: [AssetResource], session: UInt64) {
+        lock.lock(); defer { lock.unlock() }
+        guard session == _remainingSession else { return }
+        _remaining = resources
+    }
+    func clearRemainingUploads() { lock.lock(); defer { lock.unlock() }; _remainingSession &+= 1; _remaining = [] }
 }

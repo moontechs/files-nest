@@ -94,6 +94,9 @@ public struct SyncCoordinator: Sendable {
                             onProgress: @Sendable (SyncProgress) -> Void) async throws
         -> (uploaded: [ResourceKey], failed: [FailedItem]) {
         let cap = try await resolveCap()
+        // Captured up front: if the engine clears the list mid-run (sign-out, server change),
+        // this run's later writes are dropped rather than resurrecting a superseded plan.
+        let session = state.remainingUploadsSession()
         let uploadTotal = uploads.count
 
         var uploaded: [ResourceKey] = []
@@ -162,16 +165,16 @@ public struct SyncCoordinator: Sendable {
                     sincePersist += 1
                     if sincePersist >= Self.persistEvery {
                         sincePersist = 0
-                        state.saveRemainingUploads(remaining())
+                        state.saveRemainingUploads(remaining(), session: session)
                     }
                     if !addNext() { emit() }   // refresh completed + drained in-flight set
                 }
             }
         } catch is CancellationError {
-            state.saveRemainingUploads(remaining())   // final write on pause/quit
+            state.saveRemainingUploads(remaining(), session: session)   // final write on pause/quit
             throw CancellationError()
         }
-        state.saveRemainingUploads(remaining())        // clean finish → remaining is the failures (empty if none)
+        state.saveRemainingUploads(remaining(), session: session)   // clean finish → remaining is the failures (empty if none)
         return (uploaded, failed)
     }
 
