@@ -970,6 +970,34 @@ import Foundation
         #expect(state.loadRemainingUploads().isEmpty)
     }
 
+    /// A fast-path upload that FAILS must not leave the engine routing later, normal
+    /// syncs through the resume-finish handler — that would drop the report's summary.
+    @Test func failedFastPathDoesNotMisrouteALaterSync() async {
+        struct Boom: Error {}
+        let state = InMemorySyncStateStore()
+        state.saveRemainingUploads([AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                                                  filename: "A.jpg",
+                                                  creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)])
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: state,
+            perform: { _, _ in
+                SyncReport(uploaded: [ResourceKey(localIdentifier: "B", kind: .photo)],
+                           deleted: [], failed: [], skipped: 4)
+            },
+            resume: { _, _ in throw Boom() },
+            assess: { _, _ in Assessment(backedUp: 99, pending: 0, resourceTotal: 99) })
+
+        await engine.start()
+        _ = await awaitStatus(engine, isError)      // the fast-path upload failed
+        await engine.syncNow()
+        _ = await awaitStatus(engine, isWatching)   // the normal sync completed
+        await engine.settle()
+
+        // finishSync sourced the summary from the report (4 skipped + 1 uploaded), rather than
+        // finishResumeUpload kicking off another count (which would show the assess value).
+        #expect(await awaitSummary(engine) { _ in true }.backedUp == 5)
+    }
+
     @Test func launchWithEmptySavedListCountsAsBefore() async {
         let engine = LiveSyncEngine(
             credentials: creds(true), state: InMemorySyncStateStore(),

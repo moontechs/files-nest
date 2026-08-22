@@ -69,7 +69,10 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                                                      // Only advanced on a failure-free finish, so a failed/partial
                                                      // sync never lets an incremental window skip un-uploaded work.
     private var pendingLibraryChange = false  // a change arrived mid-run; drain when the run finishes
-    private var resumeReconcilePending = false   // a fast-path upload should chain a reconcile on finish
+    private var resumeGeneration: UInt64?        // generation of an in-flight fast-path upload, which
+                                                 // chains a reconcile on finish. Generation-gated rather
+                                                 // than a flag, so ANY supersede (pause, syncNow, count,
+                                                 // sign-out, failure) invalidates it automatically.
 
     // Published snapshot + stream registries (read from arbitrary threads → fanoutLock).
     private let fanoutLock = NSLock()
@@ -165,7 +168,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 setStatus(.syncing(p))
             }
         case .finished(let gen, let report):
-            if gen == generation { resumeReconcilePending ? finishResumeUpload(report) : finishSync(report) }
+            if gen == generation { gen == resumeGeneration ? finishResumeUpload(report) : finishSync(report) }
         case .failed(let gen, let message):
             if gen == generation { syncChild = nil; lastProgress = nil; setStatus(.error(message: message)) }
         case .counting(let gen, let done, let total):
@@ -214,7 +217,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         autoSyncRange = nil
         incrementalAnchor = nil                     // a fresh sign-in re-establishes the baseline via .all
         state.clearRemainingUploads()               // a saved list must not survive sign-out
-        resumeReconcilePending = false
+        resumeGeneration = nil
         setStatus(.signedOut)
         setSummary(.empty)                          // drop stale failures
     }
@@ -230,7 +233,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         assessChild?.cancel(); assessChild = nil
         incrementalAnchor = nil                     // config may have changed → re-ground via the forced .all
         state.clearRemainingUploads()               // config/server change → re-ground from scratch
-        resumeReconcilePending = false
+        resumeGeneration = nil
         if let cached = cachedAssessment?() {
             setSummary(SyncSummary(backedUp: cached.backedUp, pending: cached.pending, failed: currentSummary.failed,
                                    resourceTotal: cached.resourceTotal))
@@ -339,7 +342,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         lastProgress = nil
         currentSyncStartedAt = now()
         syncBaseBackedUp = currentSummary.backedUp
-        resumeReconcilePending = true
+        resumeGeneration = gen
         setStatus(.syncing(SyncProgress(completed: 0, total: 0, currentItemName: nil, bytesRemaining: nil)))
         syncChild = Task { [resume, submit] in
             do {
@@ -360,7 +363,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         syncChild = nil
         lastProgress = nil
         if !report.failed.isEmpty { logFailures(report.failed) }
-        resumeReconcilePending = false
+        resumeGeneration = nil
         startIdleCount(range: .all, autoSync: true)
     }
 
