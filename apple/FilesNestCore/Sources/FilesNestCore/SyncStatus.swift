@@ -22,11 +22,47 @@ public struct SyncProgress: Sendable, Equatable {
     public var fraction: Double { total > 0 ? Double(completed) / Double(total) : 0 }
 }
 
+/// Why a count is running, so the panel can say what it is doing. A count that follows a
+/// completed upload is a verification pass, not a fresh survey — without this the two are
+/// indistinguishable and the second one reads as "it started over".
+public enum CountPurpose: Sendable, Equatable {
+    case survey     // establishing the backlog: launch, sign-in, a library change
+    case verify     // confirming what was just uploaded, and catching what changed meanwhile
+}
+
 public enum SyncStatus: Sendable, Equatable {
     case signedOut                        // no credentials → "Sign in in Settings"
-    case counting(done: Int, total: Int)  // launch scan in progress (determinate)
+    case counting(done: Int, total: Int, purpose: CountPurpose = .survey)  // scan in progress (determinate)
     case watching(lastSync: Date?)        // idle, monitoring for new items
     case syncing(SyncProgress)
     case paused(pending: Int)
     case error(message: String)
+}
+
+public extension SyncStatus {
+    /// Whether each control would actually do something. These mirror the guards in
+    /// `LiveSyncEngine`'s command handlers, so a button is never offered for a command
+    /// the engine will drop on the floor.
+    ///
+    /// `doSyncNow` requires `syncChild == nil` and returns early when paused; superseding
+    /// an in-flight count would restart its scan from zero.
+    var canSyncNow: Bool {
+        switch self {
+        case .watching, .error:                     return true
+        case .syncing, .paused, .counting, .signedOut: return false
+        }
+    }
+
+    /// `doPause` is a no-op when signed out or already paused. Counting is excluded by
+    /// policy rather than capability: the engine would cancel the scan, but `.paused`
+    /// carries the remaining of a RUN, so pausing a count would report "0 pending".
+    var canPause: Bool {
+        switch self {
+        case .syncing, .watching, .error: return true
+        case .paused, .counting, .signedOut: return false
+        }
+    }
+
+    /// `doResume` only acts from `.paused`.
+    var canResume: Bool { if case .paused = self { return true }; return false }
 }

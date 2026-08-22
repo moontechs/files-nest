@@ -2,7 +2,7 @@ import Foundation
 
 /// One uploadable resource of a Photos asset. A Live Photo yields two of these
 /// (`#photo` and `#pairedVideo`) sharing `bundleID`. `key.encoded` is the diff key.
-public struct AssetResource: Sendable, Equatable {
+public struct AssetResource: Sendable, Equatable, Codable {
     public let key: ResourceKey
     public let filename: String
     public let creationDate: Date

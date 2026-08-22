@@ -76,11 +76,28 @@ final class FakeServer: @unchecked Sendable {
 
         func resp(_ status: Int, _ headers: [String: String] = [:], _ body: Data = Data())
             -> (HTTPURLResponse, Data) {
-            (HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1",
-                             headerFields: headers)!, body)
+            // HTTP forbids a body on a HEAD response, and URLSession drops it, so an
+            // error discriminator in the body is NOT readable by the client on HEAD.
+            // Modelling that is what keeps this fake honest about 409s (see the
+            // status guards below): the real server's `{"error":...}` never arrives.
+            let delivered = (method == "HEAD") ? Data() : body
+            return (HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1",
+                                    headerFields: headers)!, delivered)
         }
         func lost() -> (HTTPURLResponse, Data) {
             resp(409, [:], #"{"error":"backend_lost"}"#.data(using: .utf8)!)
+        }
+        /// Mirrors the server's status guards on data ops (`handlers.go` HEAD guard /
+        /// `rejectUploadNotUploading`): only an `uploading` record accepts data. A
+        /// completed record is the resume case — the client must read that as
+        /// "already done", not as a failure.
+        func rejectIfNotUploading(_ r: Record) -> (HTTPURLResponse, Data)? {
+            switch r.status {
+            case "uploading": return nil
+            case "complete": return resp(409, [:], #"{"error":"upload already completed"}"#.data(using: .utf8)!)
+            case "deleted": return resp(404, [:], #"{"error":"upload not found"}"#.data(using: .utf8)!)
+            default: return resp(409, [:], #"{"error":"upload not in uploading state"}"#.data(using: .utf8)!)
+            }
         }
         func json(_ r: Record) -> [String: Any] {
             var o: [String: Any] = ["id": r.id, "local_identifier": r.localIdentifier,
@@ -133,11 +150,18 @@ final class FakeServer: @unchecked Sendable {
             let obj: [String: Any] = ["items": slice.map(json), "next_cursor": next]
             return resp(200, [:], try JSONSerialization.data(withJSONObject: obj))
 
+        case ("GET", 2) where parts[0] == "uploads":
+            // Real route (router.go): the client reads a record to learn WHY a bodyless
+            // HEAD returned 409 (completed vs deleted vs lost backend).
+            guard let r = records[parts[1]] else { return resp(404) }
+            return resp(200, [:], try JSONSerialization.data(withJSONObject: json(r)))
+
         case ("HEAD", 3) where parts[0] == "uploads" && parts[2] == "data":
             let id = parts[1]
             if markLostOnFirstDataOp && !backendLostIDs.contains(id) { backendLostIDs.insert(id) }
             if backendLostIDs.contains(id) { records[id]?.status = "backend_lost"; return lost() }
             guard let r = records[id] else { return resp(404) }
+            if let rejection = rejectIfNotUploading(r) { return rejection }
             return resp(200, ["Upload-Offset": String(r.offset)])
 
         case ("PATCH", 3) where parts[0] == "uploads" && parts[2] == "data":
@@ -145,6 +169,7 @@ final class FakeServer: @unchecked Sendable {
             if markLostOnFirstDataOp && !backendLostIDs.contains(id) { backendLostIDs.insert(id) }
             if backendLostIDs.contains(id) { records[id]?.status = "backend_lost"; return lost() }
             guard var r = records[id] else { return resp(404) }
+            if let rejection = rejectIfNotUploading(r) { return rejection }
             let off = Int64(req.value(forHTTPHeaderField: "Upload-Offset") ?? "0") ?? 0
             r.offset = off + req.httpBodyByteCount()
             if let fl = req.value(forHTTPHeaderField: "Upload-Length").flatMap(Int64.init) { r.length = fl }

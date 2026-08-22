@@ -12,6 +12,8 @@ public struct SyncCoordinator: Sendable {
     private let now: @Sendable () -> Date
 
     private static let defaultConcurrency = 4
+    /// One O(N) encode of a shrinking list per tick, not per file.
+    private static let persistEvery = 500
 
     public init(client: ServerClient,
                 library: any AssetLibrary,
@@ -35,85 +37,10 @@ public struct SyncCoordinator: Sendable {
         let serverRecords = try await pagedServerRecords()
         let plan = SyncPlanner.plan(library: libraryResources, server: serverRecords, range: range)
 
-        // Injected value wins (tests, future Settings UI). Otherwise discover the
-        // cap from GET /config, falling back to the default when the endpoint is
-        // absent (old server) or unreachable — config never fails a sync.
-        let cap: Int
-        if let injected = configuredConcurrency {
-            cap = max(1, injected)
-        } else {
-            let discovered: Int
-            do {
-                discovered = try await client.config().maxConcurrentUploads
-            } catch is CancellationError {
-                throw CancellationError()   // never let a cancel look like a config miss
-            } catch {
-                discovered = Self.defaultConcurrency
-            }
-            cap = max(1, discovered)
-        }
-        let uploadTotal = plan.uploads.count
-
-        var uploaded: [ResourceKey] = []
-        var failed: [FailedItem] = []
+        let result = try await runUploads(plan.uploads, onProgress: onProgress)
+        let uploaded = result.uploaded
+        var failed = result.failed        // the deletes loop below still appends delete failures
         var deleted: [ResourceKey] = []
-
-        var iterator = plan.uploads.makeIterator()
-        // In-flight uploads in start order. The strip reports the most-recently-
-        // started one that is STILL running (the last element) — never one that has
-        // already completed while an older upload is still in flight.
-        var inFlightItems: [(key: ResourceKey, name: String)] = []
-
-        // `completed` is successful uploads so far (not attempts), so a live "backed
-        // up" count derived from it never credits a failed item.
-        func emit() {
-            let current = inFlightItems.last
-            onProgress(SyncProgress(completed: uploaded.count,
-                                    total: uploadTotal,
-                                    currentItemName: current?.name,
-                                    bytesRemaining: nil,
-                                    currentItemID: current?.key.localIdentifier,
-                                    inFlight: inFlightItems.count))
-        }
-
-        try await withThrowingTaskGroup(of: UploadOutcome.self) { group in
-            // Adds one upload task if any remain. Runs only on this coordinator
-            // coroutine, so the in-flight list and `onProgress` stay single-threaded
-            // even though the uploads themselves run concurrently.
-            func addNext() -> Bool {
-                guard let item = iterator.next() else { return false }
-                inFlightItems.append((item.resource.key, item.resource.filename))
-                group.addTask {
-                    try Task.checkCancellation()
-                    do {
-                        try await execute(item)
-                        return .success(item.resource.key)
-                    } catch is CancellationError {
-                        throw CancellationError()
-                    } catch {
-                        return .failed(FailedItem(key: item.resource.key,
-                                                  filename: item.resource.filename,
-                                                  reason: String(describing: error)))
-                    }
-                }
-                emit()   // newest still-in-flight item becomes the reported current
-                return true
-            }
-
-            for _ in 0..<cap { if !addNext() { break } }
-
-            while let outcome = try await group.next() {
-                let completedKey: ResourceKey
-                switch outcome {
-                case .success(let key): uploaded.append(key); completedKey = key
-                case .failed(let item): failed.append(item); completedKey = item.key
-                }
-                if let idx = inFlightItems.firstIndex(where: { $0.key == completedKey }) {
-                    inFlightItems.remove(at: idx)
-                }
-                if !addNext() { emit() }   // refresh completed + drained in-flight set
-            }
-        }
 
         for del in plan.deletes {
             try Task.checkCancellation()
@@ -131,6 +58,124 @@ public struct SyncCoordinator: Sendable {
         }
 
         return SyncReport(uploaded: uploaded, deleted: deleted, failed: failed, skipped: plan.skipped)
+    }
+
+    /// Re-drive a saved list of resources without enumerating or diffing. Each is
+    /// rebuilt as a `.create` (idempotent server-side); every file still HEADs its
+    /// offset, so half-done/done/new all resolve correctly.
+    public func resume(resources: [AssetResource],
+                       onProgress: @Sendable (SyncProgress) -> Void = { _ in }) async throws -> SyncReport {
+        state.saveLastSyncStarted(now())
+        let uploads = resources.map { PlannedUpload(resource: $0, mode: .create) }
+        let (uploaded, failed) = try await runUploads(uploads, onProgress: onProgress)
+        return SyncReport(uploaded: uploaded, deleted: [], failed: failed, skipped: 0)
+    }
+
+    /// Injected value wins (tests, future Settings UI). Otherwise discover the cap
+    /// from GET /config, falling back to the default when the endpoint is absent
+    /// (old server) or unreachable — config never fails a sync.
+    private func resolveCap() async throws -> Int {
+        if let injected = configuredConcurrency { return max(1, injected) }
+        let discovered: Int
+        do {
+            discovered = try await client.config().maxConcurrentUploads
+        } catch is CancellationError {
+            throw CancellationError()   // never let a cancel look like a config miss
+        } catch {
+            discovered = Self.defaultConcurrency
+        }
+        return max(1, discovered)
+    }
+
+    /// Bounded sliding-window upload of `uploads`, persisting the not-yet-uploaded
+    /// resources (throttled + on cancel) so a pause/quit/launch can resume without
+    /// re-scanning. Ends by writing the final remaining (empty when all succeeded).
+    private func runUploads(_ uploads: [PlannedUpload],
+                            onProgress: @Sendable (SyncProgress) -> Void) async throws
+        -> (uploaded: [ResourceKey], failed: [FailedItem]) {
+        let cap = try await resolveCap()
+        // Captured up front: if the engine clears the list mid-run (sign-out, server change),
+        // this run's later writes are dropped rather than resurrecting a superseded plan.
+        let session = state.remainingUploadsSession()
+        let uploadTotal = uploads.count
+
+        var uploaded: [ResourceKey] = []
+        var failed: [FailedItem] = []
+        var iterator = uploads.makeIterator()
+        // In-flight uploads in start order. The strip reports the most-recently-
+        // started one that is STILL running (the last element) — never one that has
+        // already completed while an older upload is still in flight.
+        var inFlightItems: [(key: ResourceKey, name: String)] = []
+        var sincePersist = 0
+
+        func remaining() -> [AssetResource] {
+            let done = Set(uploaded.map(\.encoded))
+            return uploads.filter { !done.contains($0.resource.key.encoded) }.map(\.resource)
+        }
+        // `completed` is successful uploads so far (not attempts), so a live "backed
+        // up" count derived from it never credits a failed item.
+        func emit() {
+            let current = inFlightItems.last
+            onProgress(SyncProgress(completed: uploaded.count,
+                                    total: uploadTotal,
+                                    currentItemName: current?.name,
+                                    bytesRemaining: nil,
+                                    currentItemID: current?.key.localIdentifier,
+                                    inFlight: inFlightItems.count))
+        }
+
+        do {
+            try await withThrowingTaskGroup(of: UploadOutcome.self) { group in
+                // Adds one upload task if any remain. Runs only on this coordinator
+                // coroutine, so the in-flight list and `onProgress` stay single-threaded
+                // even though the uploads themselves run concurrently.
+                func addNext() -> Bool {
+                    guard let item = iterator.next() else { return false }
+                    inFlightItems.append((item.resource.key, item.resource.filename))
+                    group.addTask {
+                        try Task.checkCancellation()
+                        do {
+                            try await execute(item)
+                            return .success(item.resource.key)
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch ServerClientError.alreadyCompleted {
+                            return .success(item.resource.key)   // already on the server → done
+                        } catch {
+                            return .failed(FailedItem(key: item.resource.key,
+                                                      filename: item.resource.filename,
+                                                      reason: String(describing: error)))
+                        }
+                    }
+                    emit()   // newest still-in-flight item becomes the reported current
+                    return true
+                }
+
+                for _ in 0..<cap { if !addNext() { break } }
+
+                while let outcome = try await group.next() {
+                    let completedKey: ResourceKey
+                    switch outcome {
+                    case .success(let key): uploaded.append(key); completedKey = key
+                    case .failed(let item): failed.append(item); completedKey = item.key
+                    }
+                    if let idx = inFlightItems.firstIndex(where: { $0.key == completedKey }) {
+                        inFlightItems.remove(at: idx)
+                    }
+                    sincePersist += 1
+                    if sincePersist >= Self.persistEvery {
+                        sincePersist = 0
+                        state.saveRemainingUploads(remaining(), session: session)
+                    }
+                    if !addNext() { emit() }   // refresh completed + drained in-flight set
+                }
+            }
+        } catch is CancellationError {
+            state.saveRemainingUploads(remaining(), session: session)   // final write on pause/quit
+            throw CancellationError()
+        }
+        state.saveRemainingUploads(remaining(), session: session)   // clean finish → remaining is the failures (empty if none)
+        return (uploaded, failed)
     }
 
     private func pagedServerRecords() async throws -> [UploadRecord] {

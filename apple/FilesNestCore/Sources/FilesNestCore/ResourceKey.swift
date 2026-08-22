@@ -2,7 +2,7 @@ import Foundation
 
 /// The PhotoKit resource kinds this client can address. Closed set, and no
 /// case contains '#', which is what makes `ResourceKey` parsing unambiguous.
-public enum ResourceKind: String, Sendable, CaseIterable {
+public enum ResourceKind: String, Sendable, CaseIterable, Codable {
     case photo
     case pairedVideo
     case fullSizePhoto
@@ -20,7 +20,7 @@ public enum ResourceKeyError: Error, Equatable {
 /// Addresses one *resource* of one asset. A Live Photo's JPEG and MOV share a
 /// `localIdentifier` but differ in `kind`, so they encode to distinct keys.
 /// See docs/design/20260724-photosassetdatasource.md §5.
-public struct ResourceKey: Sendable, Equatable {
+public struct ResourceKey: Sendable, Equatable, Codable {
     public let localIdentifier: String
     public let kind: ResourceKind
 

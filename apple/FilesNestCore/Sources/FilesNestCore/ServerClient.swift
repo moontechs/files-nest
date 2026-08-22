@@ -132,13 +132,40 @@ public struct ServerClient: Sendable {
     /// `length` is nil when the server reports `Upload-Defer-Length` (size not yet declared).
     public func offset(forUploadID id: String) async throws -> UploadOffset {
         let req = try await authorizedRequest(dataURL(for: id), method: "HEAD")
-        let (_, http) = try await send(req)
+        let http: HTTPURLResponse
+        do {
+            (_, http) = try await send(req)
+        } catch ServerClientError.unexpectedStatus(let code, _) where code == 409 {
+            throw await conflictReason(forUploadID: id)
+        }
         guard let offsetString = http.value(forHTTPHeaderField: "Upload-Offset"),
               let offset = Int64(offsetString) else {
             throw ServerClientError.decoding("missing or invalid Upload-Offset header")
         }
         let length = http.value(forHTTPHeaderField: "Upload-Length").flatMap(Int64.init)
         return UploadOffset(offset: offset, length: length)
+    }
+
+    /// Why a HEAD returned 409. The server writes a `{"error":...}` discriminator, but
+    /// HTTP forbids a body on a HEAD response, so it never reaches us and the status code
+    /// alone is ambiguous (completed / deleted / lost backend all 409). Re-read the record
+    /// to recover the reason — without this, an already-complete upload looks like an
+    /// unknown failure and a lost backend never triggers re-registration.
+    private func conflictReason(forUploadID id: String) async -> ServerClientError {
+        let record: UploadRecord
+        do {
+            record = try await getUpload(id: id)
+        } catch ServerClientError.notFound {
+            return .alreadyDeleted        // deleted between the HEAD and this read
+        } catch {
+            return .unexpectedStatus(code: 409, message: nil)   // can't tell; surface as-is
+        }
+        switch record.status {
+        case .complete:               return .alreadyCompleted
+        case .deleted:                return .alreadyDeleted
+        case .backendLost:            return .backendLost
+        case .uploading, .completing: return .notUploading
+        }
     }
 
     /// PATCH /uploads/{id}/data — appends `data` at `offset`.

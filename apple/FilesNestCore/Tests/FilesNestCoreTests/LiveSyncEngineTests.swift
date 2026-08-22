@@ -877,6 +877,222 @@ import Foundation
         #expect(server.events.count > eventsBefore)                 // the re-sync hit the server
         #expect(await awaitSummary(engine) { _ in true }.backedUp == 2)
     }
+
+    // MARK: - persisted resume / fast launch
+
+    @Test func launchWithSavedListResumesBeforeCounting() async {
+        let state = InMemorySyncStateStore()
+        state.saveRemainingUploads([AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                                                  filename: "A.jpg",
+                                                  creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)])
+        let order = OrderRecorder()
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: state,
+            perform: { _, _ in order.mark("perform"); return self.emptyReport() },
+            resume: { _, _ in
+                order.mark("resume")
+                return SyncReport(uploaded: [ResourceKey(localIdentifier: "A", kind: .photo)],
+                                  deleted: [], failed: [], skipped: 0)
+            },
+            assess: { _, _ in order.mark("assess"); return Assessment(backedUp: 1, pending: 0, resourceTotal: 1) })
+        await engine.start()
+        _ = await awaitStatus(engine, isWatching)   // settle through resume -> reconcile
+        await engine.settle()
+        // The saved list uploaded first; the reconcile count ran only after it.
+        #expect(order.marks.first == "resume")
+        #expect(order.marks.contains("assess"))
+    }
+
+    @Test func resumeWithSavedListAndNoChangeFastPaths() async {
+        let state = InMemorySyncStateStore()
+        let hold = Gate()   // stall the resume upload so the `.syncing` fast-path state is observable
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: state,
+            perform: { _, _ in self.emptyReport() },
+            resume: { _, _ in await hold.wait(); return self.emptyReport() },
+            assess: { _, _ in Assessment(backedUp: 0, pending: 0, resourceTotal: 0) })
+        // Get to paused, then seed a saved list and resume.
+        await engine.start(); await engine.settle()
+        await engine.pause(); await engine.settle()
+        state.saveRemainingUploads([AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                                                  filename: "A.jpg",
+                                                  creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)])
+        await engine.resume()
+        // Fast-path drives `.syncing` (the non-fast-path would go to `.watching`).
+        #expect(isSyncing(await awaitStatus(engine, isSyncing)))
+        await hold.open()
+    }
+
+    @Test func resumeWithPendingChangeFallsBackToRescan() async {
+        let state = InMemorySyncStateStore()
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: state,
+            perform: { _, _ in self.emptyReport() },
+            resume: { _, _ in
+                Issue.record("a change coalesced while paused must rescan, not fast-path")
+                return self.emptyReport()
+            },
+            assess: { _, _ in Assessment(backedUp: 0, pending: 0, resourceTotal: 0) })
+        await engine.start(); await engine.settle()
+        await engine.pause(); await engine.settle()
+        state.saveRemainingUploads([AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                                                  filename: "A.jpg",
+                                                  creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)])
+        await engine.libraryDidChange(); await engine.settle()   // coalesced during the pause
+        await engine.resume()
+        #expect(isWatching(await awaitStatus(engine, isWatching)))
+    }
+
+    @Test func signOutClearsSavedList() async {
+        let state = InMemorySyncStateStore()
+        state.saveRemainingUploads([AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                                                  filename: "A.jpg",
+                                                  creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)])
+        let store = MutableCreds(.init(username: "u", password: "p"))
+        let engine = LiveSyncEngine(credentials: store, state: state,
+                                    perform: { _, _ in self.emptyReport() })
+        await engine.start(); await engine.settle()
+        store.set(nil)
+        await engine.reconcile(); await engine.settle()   // reconcile re-reads creds → signed out
+        #expect(state.loadRemainingUploads().isEmpty)
+    }
+
+    @Test func reconcileClearsSavedList() async {
+        let state = InMemorySyncStateStore()
+        state.saveRemainingUploads([AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                                                  filename: "A.jpg",
+                                                  creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)])
+        let engine = LiveSyncEngine(credentials: creds(true), state: state,
+                                    perform: { _, _ in self.emptyReport() },
+                                    assess: { _, _ in Assessment(backedUp: 0, pending: 0, resourceTotal: 0) })
+        await engine.start(); await engine.settle()
+        await engine.reconcile(); await engine.settle()   // config/server change → re-ground from scratch
+        #expect(state.loadRemainingUploads().isEmpty)
+    }
+
+    /// A fast-path upload that FAILS must not leave the engine routing later, normal
+    /// syncs through the resume-finish handler — that would drop the report's summary.
+    @Test func failedFastPathDoesNotMisrouteALaterSync() async {
+        struct Boom: Error {}
+        let state = InMemorySyncStateStore()
+        state.saveRemainingUploads([AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                                                  filename: "A.jpg",
+                                                  creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)])
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: state,
+            perform: { _, _ in
+                SyncReport(uploaded: [ResourceKey(localIdentifier: "B", kind: .photo)],
+                           deleted: [], failed: [], skipped: 4)
+            },
+            resume: { _, _ in throw Boom() },
+            assess: { _, _ in Assessment(backedUp: 99, pending: 0, resourceTotal: 99) })
+
+        await engine.start()
+        _ = await awaitStatus(engine, isError)      // the fast-path upload failed
+        await engine.syncNow()
+        _ = await awaitStatus(engine, isWatching)   // the normal sync completed
+        await engine.settle()
+
+        // finishSync sourced the summary from the report (4 skipped + 1 uploaded), rather than
+        // finishResumeUpload kicking off another count (which would show the assess value).
+        #expect(await awaitSummary(engine) { _ in true }.backedUp == 5)
+    }
+
+    /// Pause at "2 of 5" then Resume must keep counting from 2, not restart at 0 — the
+    /// resumed run only knows about the files IT uploads, so the engine offsets its
+    /// progress by what the interrupted run already did.
+    @Test func resumedProgressContinuesInsteadOfRestartingAtZero() async {
+        let state = InMemorySyncStateStore()
+        let hold = Gate()
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: state,
+            perform: { _, onProgress in
+                onProgress(SyncProgress(completed: 2, total: 5, currentItemName: "b.jpg", bytesRemaining: nil))
+                await hold.wait()
+                return self.emptyReport()
+            },
+            resume: { _, onProgress in
+                // The resumed run sees only the 3 remaining files.
+                onProgress(SyncProgress(completed: 1, total: 3, currentItemName: "c.jpg", bytesRemaining: nil))
+                await Gate().wait()          // stay in .syncing so the status is observable
+                return self.emptyReport()
+            },
+            assess: { _, _ in Assessment(backedUp: 0, pending: 5, resourceTotal: 5) })
+
+        await engine.start()
+        _ = await awaitStatus(engine, isSyncing)
+        _ = await awaitStatus(engine) { if case .syncing(let p) = $0 { return p.completed == 2 }; return false }
+        await engine.pause(); await engine.settle()
+        state.saveRemainingUploads((0..<3).map {
+            AssetResource(key: ResourceKey(localIdentifier: "r\($0)", kind: .photo), filename: "r\($0).jpg",
+                          creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)
+        })
+        await engine.resume()
+
+        // 2 already done + 1 in this run = 3 of 5 — the counter continues.
+        let p = await awaitStatus(engine) { if case .syncing(let q) = $0 { return q.completed > 0 }; return false }
+        guard case .syncing(let shown) = p else { Issue.record("expected .syncing"); return }
+        #expect(shown.completed == 3)
+        #expect(shown.total == 5)
+        await hold.open()
+    }
+
+    /// The count chained after a fast-path upload is a VERIFY pass. It must say so, or it
+    /// reads as "the counter started over" right after the upload finished.
+    @Test func reconcileAfterAResumedUploadIsMarkedAsVerification() async {
+        let state = InMemorySyncStateStore()
+        state.saveRemainingUploads([AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                                                  filename: "A.jpg",
+                                                  creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)])
+        let hold = Gate()
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: state,
+            perform: { _, _ in self.emptyReport() },
+            resume: { _, _ in self.emptyReport() },
+            assess: { _, _ in await hold.wait(); return Assessment(backedUp: 1, pending: 0, resourceTotal: 1) })
+
+        await engine.start()
+        let s = await awaitStatus(engine) { if case .counting = $0 { return true }; return false }
+        guard case .counting(_, _, let purpose) = s else { Issue.record("expected .counting"); return }
+        #expect(purpose == .verify)
+        await hold.open()
+    }
+
+    /// A plain launch count is a survey, not a verification.
+    @Test func launchCountIsMarkedAsSurvey() async {
+        let hold = Gate()
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: InMemorySyncStateStore(),
+            perform: { _, _ in self.emptyReport() },
+            assess: { _, _ in await hold.wait(); return Assessment(backedUp: 0, pending: 0, resourceTotal: 0) })
+
+        await engine.start()
+        let s = await awaitStatus(engine) { if case .counting = $0 { return true }; return false }
+        guard case .counting(_, _, let purpose) = s else { Issue.record("expected .counting"); return }
+        #expect(purpose == .survey)
+        await hold.open()
+    }
+
+    @Test func launchWithEmptySavedListCountsAsBefore() async {
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: InMemorySyncStateStore(),
+            perform: { _, _ in self.emptyReport() },
+            resume: { _, _ in
+                Issue.record("resume must not run without a saved list")
+                return self.emptyReport()
+            },
+            assess: { _, _ in Assessment(backedUp: 0, pending: 0, resourceTotal: 0) })
+        await engine.start(); await engine.settle()
+        #expect(isWatching(await awaitStatus(engine, isWatching)))
+    }
+}
+
+/// Records the order in which fake closures ran, for ordering assertions.
+final class OrderRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _marks: [String] = []
+    var marks: [String] { lock.lock(); defer { lock.unlock() }; return _marks }
+    func mark(_ s: String) { lock.lock(); _marks.append(s); lock.unlock() }
 }
 
 /// Counts `perform` invocations across concurrency.

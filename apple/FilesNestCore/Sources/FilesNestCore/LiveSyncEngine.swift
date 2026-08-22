@@ -30,6 +30,11 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     public typealias Perform =
         @Sendable (SyncRange, @Sendable (SyncProgress) -> Void) async throws -> SyncReport
 
+    /// Re-drives a saved list of not-yet-uploaded resources (no enumeration, no diff),
+    /// so Resume and a cold launch can start uploading without re-counting the library.
+    public typealias Resume =
+        @Sendable ([AssetResource], @Sendable (SyncProgress) -> Void) async throws -> SyncReport
+
     private enum Command: Sendable {
         case start, pause, resume, syncNow
         case libraryChanged
@@ -45,6 +50,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private let credentials: any CredentialStore
     private let state: any SyncStateStore
     private let perform: Perform
+    private let resume: Resume?
     private let assess: (@Sendable (_ range: SyncRange, _ progress: AssessProgress) async throws -> Assessment)?
     private let cachedAssessment: (@Sendable () -> Assessment?)?
     private let now: @Sendable () -> Date
@@ -63,6 +69,14 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                                                      // Only advanced on a failure-free finish, so a failed/partial
                                                      // sync never lets an incremental window skip un-uploaded work.
     private var pendingLibraryChange = false  // a change arrived mid-run; drain when the run finishes
+    private var countPurpose: CountPurpose = .survey   // what the in-flight count is for (UI intent)
+    private var resumeCompletedBase = 0          // files finished by earlier runs of this backup session,
+                                                 // so a resumed run's counter continues instead of
+                                                 // restarting at 0 (it only knows its own files)
+    private var resumeGeneration: UInt64?        // generation of an in-flight fast-path upload, which
+                                                 // chains a reconcile on finish. Generation-gated rather
+                                                 // than a flag, so ANY supersede (pause, syncNow, count,
+                                                 // sign-out, failure) invalidates it automatically.
 
     // Published snapshot + stream registries (read from arbitrary threads → fanoutLock).
     private let fanoutLock = NSLock()
@@ -77,12 +91,14 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     public init(credentials: any CredentialStore,
                 state: any SyncStateStore,
                 perform: @escaping Perform,
+                resume: Resume? = nil,
                 assess: (@Sendable (_ range: SyncRange, _ progress: AssessProgress) async throws -> Assessment)? = nil,
                 cachedAssessment: (@Sendable () -> Assessment?)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.credentials = credentials
         self.state = state
         self.perform = perform
+        self.resume = resume
         self.assess = assess
         self.cachedAssessment = cachedAssessment
         self.now = now
@@ -147,20 +163,20 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         case .syncNow: doSyncNow(range: .all)      // manual Sync Now is always a full sync
         case .progress(let gen, let p):
             if gen == generation {
-                lastProgress = p
+                lastProgress = p          // raw: pause derives the remaining of THIS run from it
                 // Live climb: each completed upload is one more file on the server. Reconciled
                 // to the true server count by the post-completion refresh.
                 setSummary(SyncSummary(backedUp: syncBaseBackedUp + p.completed,
                                        pending: currentSummary.pending, failed: currentSummary.failed,
                                        resourceTotal: currentSummary.resourceTotal))
-                setStatus(.syncing(p))
+                setStatus(.syncing(sessionProgress(p)))
             }
         case .finished(let gen, let report):
-            if gen == generation { finishSync(report) }
+            if gen == generation { gen == resumeGeneration ? finishResumeUpload(report) : finishSync(report) }
         case .failed(let gen, let message):
             if gen == generation { syncChild = nil; lastProgress = nil; setStatus(.error(message: message)) }
         case .counting(let gen, let done, let total):
-            if gen == generation { setStatus(.counting(done: done, total: total)) }
+            if gen == generation { setStatus(.counting(done: done, total: total, purpose: countPurpose)) }
         case .assessFinished(let gen, let a):
             if gen == generation {
                 assessChild = nil
@@ -204,6 +220,9 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         pendingLibraryChange = false                // sign-out drops any coalesced change
         autoSyncRange = nil
         incrementalAnchor = nil                     // a fresh sign-in re-establishes the baseline via .all
+        state.clearRemainingUploads()               // a saved list must not survive sign-out
+        resumeGeneration = nil
+        resumeCompletedBase = 0
         setStatus(.signedOut)
         setSummary(.empty)                          // drop stale failures
     }
@@ -218,6 +237,9 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         syncChild?.cancel(); syncChild = nil        // stop old-config work
         assessChild?.cancel(); assessChild = nil
         incrementalAnchor = nil                     // config may have changed → re-ground via the forced .all
+        state.clearRemainingUploads()               // config/server change → re-ground from scratch
+        resumeGeneration = nil
+        resumeCompletedBase = 0
         if let cached = cachedAssessment?() {
             setSummary(SyncSummary(backedUp: cached.backedUp, pending: cached.pending, failed: currentSummary.failed,
                                    resourceTotal: cached.resourceTotal))
@@ -250,7 +272,12 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 pendingLibraryChange = false
                 startIdleCount(range: .all, autoSync: false)
             } else {
-                startIdleCount(range: .all, autoSync: true)   // launch/restart catch-up (option A) — always full
+                let saved = state.loadRemainingUploads()
+                if !saved.isEmpty, resume != nil {
+                    doResumeUpload(saved)                        // fast-path: upload saved → then reconcile
+                } else {
+                    startIdleCount(range: .all, autoSync: true)  // launch/restart catch-up (option A) — always full
+                }
             }
         }
     }
@@ -264,6 +291,9 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         assessChild?.cancel(); assessChild = nil      // pausing during a count cancels it
         // Preserve the not-yet-uploaded count so "Paused" shows remaining work, not 0.
         let remaining = lastProgress.map { max(0, $0.total - $0.completed) } ?? 0
+        // Carry what this run finished into the session tally, so Resume continues the
+        // counter ("1,200 of 46,193") instead of restarting at 0 over just the remainder.
+        resumeCompletedBase += lastProgress?.completed ?? 0
         setStatus(.paused(pending: remaining))
         lastProgress = nil                            // cleared on this non-syncing transition (invariant)
     }
@@ -273,11 +303,19 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         // Only meaningful from `.paused` — where there is no active child to strand. Bumping the
         // generation during an active sync would orphan its in-flight child.
         guard case .paused = currentStatus else { return }
-        generation &+= 1
-        assessChild?.cancel(); assessChild = nil      // defensive; no count is in flight while paused
-        lastProgress = nil                            // resumed work is a fresh run; no stale remaining
-        setStatus(.watching(lastSync: lastSync))
-        drainPendingChangeIfAny()                     // honor a change that arrived while paused
+        let saved = state.loadRemainingUploads()
+        // A change coalesced while paused means the saved list is known-stale, so rescan instead
+        // of fast-pathing — that is what catches the edits made during the pause.
+        if !saved.isEmpty, !pendingLibraryChange, resume != nil {
+            assessChild?.cancel(); assessChild = nil
+            doResumeUpload(saved)                     // fast-path: upload saved → then reconcile
+        } else {
+            generation &+= 1
+            assessChild?.cancel(); assessChild = nil  // defensive; no count is in flight while paused
+            lastProgress = nil                        // resumed work is a fresh run; no stale remaining
+            setStatus(.watching(lastSync: lastSync))
+            drainPendingChangeIfAny()                 // honor a change that arrived while paused
+        }
     }
 
     private func doSyncNow(range: SyncRange) {
@@ -286,6 +324,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         if case .paused = currentStatus { return }
         generation &+= 1
         assessChild?.cancel(); assessChild = nil      // syncNow supersedes an in-flight count
+        resumeCompletedBase = 0                       // a full run counts the library itself
         let gen = generation
         lastProgress = nil
         currentSyncRange = range                     // for finishSync's backedUp sourcing
@@ -302,6 +341,56 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 submit(.failed(gen: gen, message: String(describing: error)))
             }
         }
+    }
+
+    /// A resumed run reports only the files IT uploads, so publishing it raw would send the
+    /// panel back to "0 of <remaining>" after a Pause. Offset by what earlier runs of this
+    /// session finished, so the ring and the "N of M" line continue. Display only — the
+    /// summary's backed-up climb uses the raw count and must not be double-counted.
+    private func sessionProgress(_ p: SyncProgress) -> SyncProgress {
+        guard resumeCompletedBase > 0, generation == resumeGeneration else { return p }
+        return SyncProgress(completed: resumeCompletedBase + p.completed,
+                            total: resumeCompletedBase + p.total,
+                            currentItemName: p.currentItemName,
+                            bytesRemaining: p.bytesRemaining,
+                            currentItemID: p.currentItemID,
+                            inFlight: p.inFlight)
+    }
+
+    /// Fast-path: upload a saved list straight away (no count), then chain a full reconcile.
+    private func doResumeUpload(_ resources: [AssetResource]) {
+        guard signedIn, syncChild == nil, let resume else { return }
+        generation &+= 1
+        assessChild?.cancel(); assessChild = nil
+        let gen = generation
+        lastProgress = nil
+        currentSyncStartedAt = now()
+        syncBaseBackedUp = currentSummary.backedUp
+        resumeGeneration = gen
+        setStatus(.syncing(SyncProgress(completed: 0, total: 0, currentItemName: nil, bytesRemaining: nil)))
+        syncChild = Task { [resume, submit] in
+            do {
+                let report = try await resume(resources) { progress in submit(.progress(gen: gen, progress)) }
+                submit(.finished(gen: gen, report))
+            } catch is CancellationError {
+                // Superseded (pause/sign-out) already set the terminal status.
+            } catch {
+                submit(.failed(gen: gen, message: String(describing: error)))
+            }
+        }
+    }
+
+    /// A fast-path upload finished → hand off to a full `.all` reconcile, which sets exact
+    /// numbers and catches deletions / photos added while closed. (The coordinator has already
+    /// cleared/updated the saved list.)
+    private func finishResumeUpload(_ report: SyncReport) {
+        syncChild = nil
+        lastProgress = nil
+        if !report.failed.isEmpty { logFailures(report.failed) }
+        resumeGeneration = nil
+        // Marked as verification: this pass confirms what just uploaded and catches what
+        // changed while the app was closed. Labelling it stops it reading as a restart.
+        startIdleCount(range: .all, autoSync: true, purpose: .verify)
     }
 
     private func finishSync(_ report: SyncReport) {
@@ -335,10 +424,12 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     /// generation-gated. `nil` result = the scan failed → the handler settles to `.watching`.
     /// Bump the generation and start an off-consumer count. If `autoSync` and the count finds
     /// pending work, `.assessFinished` chains into a sync (count-then-upload).
-    private func startIdleCount(range: SyncRange, autoSync: Bool) {
+    private func startIdleCount(range: SyncRange, autoSync: Bool, purpose: CountPurpose = .survey) {
         guard signedIn else { return }
         generation &+= 1
         lastProgress = nil
+        resumeCompletedBase = 0                       // a count begins a fresh cycle
+        countPurpose = purpose
         autoSyncRange = autoSync ? range : nil
         beginCounting(gen: generation, range: range)
     }
@@ -362,7 +453,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
 
     private func beginCounting(gen: UInt64, range: SyncRange) {
         guard let assess else { setStatus(.watching(lastSync: lastSync)); return }
-        setStatus(.counting(done: 0, total: 0))
+        setStatus(.counting(done: 0, total: 0, purpose: countPurpose))
         assessChild = Task { [assess, submit] in
             do {
                 let progress = AssessProgress { done, total in submit(.counting(gen: gen, done: done, total: total)) }
