@@ -877,6 +877,52 @@ import Foundation
         #expect(server.events.count > eventsBefore)                 // the re-sync hit the server
         #expect(await awaitSummary(engine) { _ in true }.backedUp == 2)
     }
+
+    // MARK: - persisted resume / fast launch
+
+    @Test func launchWithSavedListResumesBeforeCounting() async {
+        let state = InMemorySyncStateStore()
+        state.saveRemainingUploads([AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                                                  filename: "A.jpg",
+                                                  creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)])
+        let order = OrderRecorder()
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: state,
+            perform: { _, _ in order.mark("perform"); return self.emptyReport() },
+            resume: { _, _ in
+                order.mark("resume")
+                return SyncReport(uploaded: [ResourceKey(localIdentifier: "A", kind: .photo)],
+                                  deleted: [], failed: [], skipped: 0)
+            },
+            assess: { _, _ in order.mark("assess"); return Assessment(backedUp: 1, pending: 0, resourceTotal: 1) })
+        await engine.start()
+        _ = await awaitStatus(engine, isWatching)   // settle through resume -> reconcile
+        await engine.settle()
+        // The saved list uploaded first; the reconcile count ran only after it.
+        #expect(order.marks.first == "resume")
+        #expect(order.marks.contains("assess"))
+    }
+
+    @Test func launchWithEmptySavedListCountsAsBefore() async {
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: InMemorySyncStateStore(),
+            perform: { _, _ in self.emptyReport() },
+            resume: { _, _ in
+                Issue.record("resume must not run without a saved list")
+                return self.emptyReport()
+            },
+            assess: { _, _ in Assessment(backedUp: 0, pending: 0, resourceTotal: 0) })
+        await engine.start(); await engine.settle()
+        #expect(isWatching(await awaitStatus(engine, isWatching)))
+    }
+}
+
+/// Records the order in which fake closures ran, for ordering assertions.
+final class OrderRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _marks: [String] = []
+    var marks: [String] { lock.lock(); defer { lock.unlock() }; return _marks }
+    func mark(_ s: String) { lock.lock(); _marks.append(s); lock.unlock() }
 }
 
 /// Counts `perform` invocations across concurrency.
