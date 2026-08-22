@@ -998,6 +998,45 @@ import Foundation
         #expect(await awaitSummary(engine) { _ in true }.backedUp == 5)
     }
 
+    /// Pause at "2 of 5" then Resume must keep counting from 2, not restart at 0 — the
+    /// resumed run only knows about the files IT uploads, so the engine offsets its
+    /// progress by what the interrupted run already did.
+    @Test func resumedProgressContinuesInsteadOfRestartingAtZero() async {
+        let state = InMemorySyncStateStore()
+        let hold = Gate()
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: state,
+            perform: { _, onProgress in
+                onProgress(SyncProgress(completed: 2, total: 5, currentItemName: "b.jpg", bytesRemaining: nil))
+                await hold.wait()
+                return self.emptyReport()
+            },
+            resume: { _, onProgress in
+                // The resumed run sees only the 3 remaining files.
+                onProgress(SyncProgress(completed: 1, total: 3, currentItemName: "c.jpg", bytesRemaining: nil))
+                await Gate().wait()          // stay in .syncing so the status is observable
+                return self.emptyReport()
+            },
+            assess: { _, _ in Assessment(backedUp: 0, pending: 5, resourceTotal: 5) })
+
+        await engine.start()
+        _ = await awaitStatus(engine, isSyncing)
+        _ = await awaitStatus(engine) { if case .syncing(let p) = $0 { return p.completed == 2 }; return false }
+        await engine.pause(); await engine.settle()
+        state.saveRemainingUploads((0..<3).map {
+            AssetResource(key: ResourceKey(localIdentifier: "r\($0)", kind: .photo), filename: "r\($0).jpg",
+                          creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)
+        })
+        await engine.resume()
+
+        // 2 already done + 1 in this run = 3 of 5 — the counter continues.
+        let p = await awaitStatus(engine) { if case .syncing(let q) = $0 { return q.completed > 0 }; return false }
+        guard case .syncing(let shown) = p else { Issue.record("expected .syncing"); return }
+        #expect(shown.completed == 3)
+        #expect(shown.total == 5)
+        await hold.open()
+    }
+
     @Test func launchWithEmptySavedListCountsAsBefore() async {
         let engine = LiveSyncEngine(
             credentials: creds(true), state: InMemorySyncStateStore(),
