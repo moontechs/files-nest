@@ -76,8 +76,13 @@ final class FakeServer: @unchecked Sendable {
 
         func resp(_ status: Int, _ headers: [String: String] = [:], _ body: Data = Data())
             -> (HTTPURLResponse, Data) {
-            (HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1",
-                             headerFields: headers)!, body)
+            // HTTP forbids a body on a HEAD response, and URLSession drops it, so an
+            // error discriminator in the body is NOT readable by the client on HEAD.
+            // Modelling that is what keeps this fake honest about 409s (see the
+            // status guards below): the real server's `{"error":...}` never arrives.
+            let delivered = (method == "HEAD") ? Data() : body
+            return (HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1",
+                                    headerFields: headers)!, delivered)
         }
         func lost() -> (HTTPURLResponse, Data) {
             resp(409, [:], #"{"error":"backend_lost"}"#.data(using: .utf8)!)
@@ -144,6 +149,12 @@ final class FakeServer: @unchecked Sendable {
             let next = end < sorted.count ? encodeCursor(end) : ""
             let obj: [String: Any] = ["items": slice.map(json), "next_cursor": next]
             return resp(200, [:], try JSONSerialization.data(withJSONObject: obj))
+
+        case ("GET", 2) where parts[0] == "uploads":
+            // Real route (router.go): the client reads a record to learn WHY a bodyless
+            // HEAD returned 409 (completed vs deleted vs lost backend).
+            guard let r = records[parts[1]] else { return resp(404) }
+            return resp(200, [:], try JSONSerialization.data(withJSONObject: json(r)))
 
         case ("HEAD", 3) where parts[0] == "uploads" && parts[2] == "data":
             let id = parts[1]
