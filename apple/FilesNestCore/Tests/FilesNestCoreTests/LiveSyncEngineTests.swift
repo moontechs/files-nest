@@ -903,6 +903,73 @@ import Foundation
         #expect(order.marks.contains("assess"))
     }
 
+    @Test func resumeWithSavedListAndNoChangeFastPaths() async {
+        let state = InMemorySyncStateStore()
+        let hold = Gate()   // stall the resume upload so the `.syncing` fast-path state is observable
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: state,
+            perform: { _, _ in self.emptyReport() },
+            resume: { _, _ in await hold.wait(); return self.emptyReport() },
+            assess: { _, _ in Assessment(backedUp: 0, pending: 0, resourceTotal: 0) })
+        // Get to paused, then seed a saved list and resume.
+        await engine.start(); await engine.settle()
+        await engine.pause(); await engine.settle()
+        state.saveRemainingUploads([AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                                                  filename: "A.jpg",
+                                                  creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)])
+        await engine.resume()
+        // Fast-path drives `.syncing` (the non-fast-path would go to `.watching`).
+        #expect(isSyncing(await awaitStatus(engine, isSyncing)))
+        await hold.open()
+    }
+
+    @Test func resumeWithPendingChangeFallsBackToRescan() async {
+        let state = InMemorySyncStateStore()
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: state,
+            perform: { _, _ in self.emptyReport() },
+            resume: { _, _ in
+                Issue.record("a change coalesced while paused must rescan, not fast-path")
+                return self.emptyReport()
+            },
+            assess: { _, _ in Assessment(backedUp: 0, pending: 0, resourceTotal: 0) })
+        await engine.start(); await engine.settle()
+        await engine.pause(); await engine.settle()
+        state.saveRemainingUploads([AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                                                  filename: "A.jpg",
+                                                  creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)])
+        await engine.libraryDidChange(); await engine.settle()   // coalesced during the pause
+        await engine.resume()
+        #expect(isWatching(await awaitStatus(engine, isWatching)))
+    }
+
+    @Test func signOutClearsSavedList() async {
+        let state = InMemorySyncStateStore()
+        state.saveRemainingUploads([AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                                                  filename: "A.jpg",
+                                                  creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)])
+        let store = MutableCreds(.init(username: "u", password: "p"))
+        let engine = LiveSyncEngine(credentials: store, state: state,
+                                    perform: { _, _ in self.emptyReport() })
+        await engine.start(); await engine.settle()
+        store.set(nil)
+        await engine.reconcile(); await engine.settle()   // reconcile re-reads creds → signed out
+        #expect(state.loadRemainingUploads().isEmpty)
+    }
+
+    @Test func reconcileClearsSavedList() async {
+        let state = InMemorySyncStateStore()
+        state.saveRemainingUploads([AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                                                  filename: "A.jpg",
+                                                  creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)])
+        let engine = LiveSyncEngine(credentials: creds(true), state: state,
+                                    perform: { _, _ in self.emptyReport() },
+                                    assess: { _, _ in Assessment(backedUp: 0, pending: 0, resourceTotal: 0) })
+        await engine.start(); await engine.settle()
+        await engine.reconcile(); await engine.settle()   // config/server change → re-ground from scratch
+        #expect(state.loadRemainingUploads().isEmpty)
+    }
+
     @Test func launchWithEmptySavedListCountsAsBefore() async {
         let engine = LiveSyncEngine(
             credentials: creds(true), state: InMemorySyncStateStore(),

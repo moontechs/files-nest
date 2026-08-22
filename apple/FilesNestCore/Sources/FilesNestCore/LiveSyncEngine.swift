@@ -213,6 +213,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         pendingLibraryChange = false                // sign-out drops any coalesced change
         autoSyncRange = nil
         incrementalAnchor = nil                     // a fresh sign-in re-establishes the baseline via .all
+        state.clearRemainingUploads()               // a saved list must not survive sign-out
+        resumeReconcilePending = false
         setStatus(.signedOut)
         setSummary(.empty)                          // drop stale failures
     }
@@ -227,6 +229,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         syncChild?.cancel(); syncChild = nil        // stop old-config work
         assessChild?.cancel(); assessChild = nil
         incrementalAnchor = nil                     // config may have changed → re-ground via the forced .all
+        state.clearRemainingUploads()               // config/server change → re-ground from scratch
+        resumeReconcilePending = false
         if let cached = cachedAssessment?() {
             setSummary(SyncSummary(backedUp: cached.backedUp, pending: cached.pending, failed: currentSummary.failed,
                                    resourceTotal: cached.resourceTotal))
@@ -287,11 +291,19 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         // Only meaningful from `.paused` — where there is no active child to strand. Bumping the
         // generation during an active sync would orphan its in-flight child.
         guard case .paused = currentStatus else { return }
-        generation &+= 1
-        assessChild?.cancel(); assessChild = nil      // defensive; no count is in flight while paused
-        lastProgress = nil                            // resumed work is a fresh run; no stale remaining
-        setStatus(.watching(lastSync: lastSync))
-        drainPendingChangeIfAny()                     // honor a change that arrived while paused
+        let saved = state.loadRemainingUploads()
+        // A change coalesced while paused means the saved list is known-stale, so rescan instead
+        // of fast-pathing — that is what catches the edits made during the pause.
+        if !saved.isEmpty, !pendingLibraryChange, resume != nil {
+            assessChild?.cancel(); assessChild = nil
+            doResumeUpload(saved)                     // fast-path: upload saved → then reconcile
+        } else {
+            generation &+= 1
+            assessChild?.cancel(); assessChild = nil  // defensive; no count is in flight while paused
+            lastProgress = nil                        // resumed work is a fresh run; no stale remaining
+            setStatus(.watching(lastSync: lastSync))
+            drainPendingChangeIfAny()                 // honor a change that arrived while paused
+        }
     }
 
     private func doSyncNow(range: SyncRange) {
