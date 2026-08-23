@@ -372,7 +372,7 @@ func applyCreationTimestamp(dst, creationDate string) {
 	}
 
 	if err := os.Chtimes(dst, t, t); err != nil {
-		log.Printf("filestore: chtimes %s failed: %v", dst, err)
+		log.Printf("ERROR filestore: chtimes %s failed: %v", dst, err)
 	}
 }
 
