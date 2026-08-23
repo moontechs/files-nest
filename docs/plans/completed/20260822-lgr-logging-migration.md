@@ -394,14 +394,14 @@ implementation time via `grep -n 'log\.Printf' internal/api/handlers.go`.
 
 ### Task 7: Update documentation and close out the plan
 
-- [ ] update `server/CLAUDE.md` if a new convention is worth capturing
+- [x] update `server/CLAUDE.md` if a new convention is worth capturing
       (e.g. "log level policy: DEBUG for happy-path, WARN/ERROR for
       problems, see ADR-0007") — only if genuinely useful for future
       contributors, not required
-- [ ] confirm `docs/adr/0007-lgr-via-stdlib-redirect.md` still accurately
+- [x] confirm `docs/adr/0007-lgr-via-stdlib-redirect.md` still accurately
       reflects what was built (it was written before implementation; amend
       only if implementation diverged)
-- [ ] move this plan to `docs/plans/completed/`
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 
