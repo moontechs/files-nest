@@ -25,7 +25,7 @@ func TestRequestLogMiddlewareLevels(t *testing.T) {
 		level  string
 	}{
 		{name: "success", status: http.StatusOK, level: "DEBUG "},
-		{name: "client error", status: http.StatusNotFound, level: "WARN "},
+		{name: "client error", status: http.StatusBadRequest, level: "WARN "},
 		{name: "server error", status: http.StatusInternalServerError, level: "ERROR "},
 	}
 

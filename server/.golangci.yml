@@ -50,6 +50,7 @@ linters:
             - github.com/dgryski/go-farm
             - github.com/dustin/go-humanize
             - github.com/go-logr
+            - github.com/go-pkgz/lgr
             - github.com/golang/mock
             - github.com/google
             - github.com/klauspost/compress

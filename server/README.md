@@ -121,12 +121,16 @@ The server is configured exclusively through environment variables.
 | `PORT`          | No       | `8080`      | HTTP listen port.                                |
 | `MAX_CONCURRENT_UPLOADS` | No | `4` | Max concurrent in-flight `PATCH .../data` (see below). |
 | `GC_ORPHANS_INTERVAL` | No | `48h` | Interval between background orphan-file cleanup cycles (see below). |
+| `LOG_LEVEL` | No | `info` | Logging verbosity: `info`, `debug`, or `trace`; invalid values warn and use `info`. |
 
 \* When both `BACKUP_USER` and `BACKUP_PASS` are empty, authentication is
 disabled. This is useful for local development but **must not** be used in
 production. If only one of the two is set, the server refuses to start
 (partial credentials are a misconfiguration that would otherwise accept an
 empty username or password as a valid match).
+
+`LOG_LEVEL=debug` includes request and other happy-path diagnostics. Use
+`trace` only when more verbose diagnostics are needed; `info` is the default.
 
 ### Concurrency Limit
 
