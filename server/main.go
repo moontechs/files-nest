@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/badger/v4"
+	"github.com/go-pkgz/lgr"
 	"github.com/moontechs/files-nest/server/internal/api"
 	"github.com/moontechs/files-nest/server/internal/orphans"
 	"github.com/moontechs/files-nest/server/internal/store"
@@ -35,13 +36,13 @@ var errPartialBackupCredentials = errors.New("BACKUP_USER and BACKUP_PASS must b
 func main() {
 	err := run()
 	if err != nil {
-		log.Printf("fatal error: %v", err)
+		log.Printf("ERROR fatal error: %v", err)
 		os.Exit(1)
 	}
 }
 
 func run() error {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	lgr.SetupStdLogger(logOptionsFromEnv(getEnv("LOG_LEVEL", "info"))...)
 
 	storagePath := getEnv("STORAGE_PATH", "./data")
 	port := getEnv("PORT", "8080")
@@ -54,7 +55,7 @@ func run() error {
 	// decision).
 	maxConcurrentUploads, err := strconv.Atoi(getEnv("MAX_CONCURRENT_UPLOADS", "4"))
 	if err != nil || maxConcurrentUploads <= 0 {
-		log.Printf("WARNING: invalid MAX_CONCURRENT_UPLOADS=%q (must be a positive integer), "+
+		log.Printf("WARN invalid MAX_CONCURRENT_UPLOADS=%q (must be a positive integer), "+
 			"falling back to default of 4", getEnv("MAX_CONCURRENT_UPLOADS", "4"))
 		maxConcurrentUploads = 4
 	}
@@ -66,7 +67,7 @@ func run() error {
 	// fallback-with-warning pattern.
 	gcOrphansInterval, err := time.ParseDuration(getEnv("GC_ORPHANS_INTERVAL", "48h"))
 	if err != nil || gcOrphansInterval <= 0 {
-		log.Printf("WARNING: invalid GC_ORPHANS_INTERVAL=%q (must be a positive duration like 48h), "+
+		log.Printf("WARN invalid GC_ORPHANS_INTERVAL=%q (must be a positive duration like 48h), "+
 			"falling back to default of 48h", getEnv("GC_ORPHANS_INTERVAL", "48h"))
 		gcOrphansInterval = 48 * time.Hour
 	}
@@ -100,7 +101,7 @@ func run() error {
 
 	err = recoverer.Recover()
 	if err != nil {
-		log.Printf("startup recovery completed with errors: %v", err)
+		log.Printf("ERROR startup recovery completed with errors: %v", err)
 	}
 
 	// Start the orphan-file cleanup goroutine only after crash recovery has
@@ -120,7 +121,7 @@ func run() error {
 	}
 	switch {
 	case authCfg.Username == "" && authCfg.Password == "":
-		log.Printf("WARNING: BACKUP_USER/BACKUP_PASS not set — HTTP Basic Auth is DISABLED. " +
+		log.Printf("WARN BACKUP_USER/BACKUP_PASS not set — HTTP Basic Auth is DISABLED. " +
 			"All upload routes are unauthenticated. Do NOT run like this in production.")
 	case authCfg.Username == "" || authCfg.Password == "":
 		// Partial credentials are a misconfiguration: the auth middleware only
@@ -163,7 +164,7 @@ func run() error {
 
 		err := server.Shutdown(shutdownCtx)
 		if err != nil {
-			log.Printf("server shutdown error: %v", err)
+			log.Printf("ERROR server shutdown error: %v", err)
 		}
 	}()
 
@@ -177,6 +178,24 @@ func run() error {
 	log.Println("server stopped")
 
 	return nil
+}
+
+// logOptionsFromEnv maps LOG_LEVEL ("info", "debug", "trace") to lgr
+// options. An unrecognized value falls back to "info" with a warning.
+func logOptionsFromEnv(level string) []lgr.Option {
+	opts := []lgr.Option{lgr.Msec, lgr.CallerFile}
+
+	switch level {
+	case "", "info":
+	case "debug":
+		opts = append(opts, lgr.Debug)
+	case "trace":
+		opts = append(opts, lgr.Trace)
+	default:
+		log.Printf("WARN invalid LOG_LEVEL=%q, falling back to info", level)
+	}
+
+	return opts
 }
 
 // runBadgerGC periodically runs BadgerDB value log GC to reclaim disk space.
@@ -199,7 +218,7 @@ func runBadgerGC(ctx context.Context, db BadgerGCer) {
 					// surface any other error so silent disk/GC failures are
 					// visible in logs.
 					if !errors.Is(err, badger.ErrNoRewrite) {
-						log.Printf("badger value log GC error: %v", err)
+						log.Printf("ERROR badger value log GC error: %v", err)
 					}
 				}
 			}
@@ -246,7 +265,7 @@ func runGCOrphans(ctx context.Context, db *store.Store, storagePath string, inte
 func gcOrphansCycle(db *store.Store, storagePath string, minAge time.Duration) {
 	result, err := orphans.Scan(db, storagePath)
 	if err != nil {
-		log.Printf("gc-orphans: scan failed: %v", err)
+		log.Printf("ERROR gc-orphans: scan failed: %v", err)
 		return // this cycle only; the ticker will try again next interval
 	}
 
@@ -257,7 +276,7 @@ func gcOrphansCycle(db *store.Store, storagePath string, minAge time.Duration) {
 	// regressed. Skip the delete and log loudly rather than risk mass
 	// deletion; the next cycle tries again from scratch.
 	if breaker := max(50, result.KnownComplete/5); len(candidates) > breaker {
-		log.Printf("gc-orphans: ERROR: %d candidates exceeds circuit breaker "+
+		log.Printf("WARN gc-orphans: %d candidates exceeds circuit breaker "+
 			"(%d, known-complete=%d) — skipping delete this cycle",
 			len(candidates), breaker, result.KnownComplete)
 		return
@@ -268,13 +287,13 @@ func gcOrphansCycle(db *store.Store, storagePath string, minAge time.Duration) {
 		log.Printf("gc-orphans: removed orphan %s", c.Path)
 	}
 	for _, e := range result.Errors {
-		log.Printf("gc-orphans: error: %v", e)
+		log.Printf("ERROR gc-orphans: error: %v", e)
 	}
 	if len(result.Errors) > 0 {
-		log.Printf("gc-orphans: %d scan errors this cycle (see above)", len(result.Errors))
+		log.Printf("ERROR gc-orphans: %d scan errors this cycle (see above)", len(result.Errors))
 	}
 	for _, e := range applied.Errors {
-		log.Printf("gc-orphans: error: %v", e)
+		log.Printf("ERROR gc-orphans: error: %v", e)
 	}
 }
 

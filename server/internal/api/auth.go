@@ -104,6 +104,6 @@ func writeUnauthorized(w http.ResponseWriter, message string) {
 	// types, but we still check the error rather than silently ignoring it.
 	err := json.NewEncoder(w).Encode(map[string]string{"error": message})
 	if err != nil {
-		log.Printf("writeUnauthorized encode error: %v", err)
+		log.Printf("ERROR writeUnauthorized encode error: %v", err)
 	}
 }

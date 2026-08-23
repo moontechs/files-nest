@@ -318,7 +318,7 @@ func (h *TUSHandler) TerminateOrCleanup(ctx context.Context, backendID string) e
 				return ErrNotFound
 			}
 
-			log.Printf("tusd: failed to remove info sidecar %s: %v", infoPath, err)
+			log.Printf("ERROR tusd: failed to remove info sidecar %s: %v", infoPath, err)
 		}
 
 		return ErrNotFound

@@ -45,7 +45,7 @@ func (l *ConcurrencyLimiter) Middleware(next http.Handler) http.Handler {
 		case l.slots <- struct{}{}:
 			defer func() { <-l.slots }()
 		default:
-			log.Printf("rejected upload: over concurrency limit (cap=%d)", l.Cap())
+			log.Printf("ERROR rejected upload: over concurrency limit (cap=%d)", l.Cap())
 			w.Header().Set("Retry-After", "1")
 			writeError(w, http.StatusServiceUnavailable, "too many concurrent uploads")
 			return

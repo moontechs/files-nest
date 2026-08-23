@@ -74,7 +74,7 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 		defer func() {
 			if rec := recover(); rec != nil {
 				log.Printf(
-					"panic recovered: %v (path=%s method=%s)\n%s",
+					"ERROR panic recovered: %v (path=%s method=%s)\n%s",
 					rec, strconv.Quote(r.URL.Path), strconv.Quote(r.Method), debug.Stack())
 				// Emit a JSON body with a JSON content type so clients can parse
 				// it consistently. http.Error would label this text/plain.
@@ -101,7 +101,14 @@ func requestLogMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(lrw, r)
 
 		duration := time.Since(start)
-		log.Printf("%s %s %d %s", strconv.Quote(r.Method), strconv.Quote(r.URL.Path), lrw.statusCode, duration)
+		level := "DEBUG "
+		switch {
+		case lrw.statusCode >= http.StatusInternalServerError:
+			level = "ERROR "
+		case lrw.statusCode >= http.StatusBadRequest:
+			level = "WARN "
+		}
+		log.Printf(level+"%s %s %d %s", strconv.Quote(r.Method), strconv.Quote(r.URL.Path), lrw.statusCode, duration)
 	})
 }
 

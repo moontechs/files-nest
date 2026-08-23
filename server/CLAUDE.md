@@ -36,5 +36,8 @@ All via `make` (run from `server/`):
   the avoid-lists there are deliberate.
 - New architectural decisions go in `../docs/adr/` as a new numbered file,
   not inline comments — check there first before re-deciding something.
+- Use the logging policy from ADR-0007: INFO for lifecycle events, DEBUG for
+  happy-path/per-request noise, and WARN/ERROR for genuine problems. Set
+  `LOG_LEVEL=info|debug|trace` to control verbosity.
 - Follow the golangci-lint config in this directory (`lint` target is
   zero-tolerance, not advisory).
