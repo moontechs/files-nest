@@ -264,27 +264,27 @@ implementation time via `grep -n 'log\.Printf' internal/api/handlers.go`.
 - Create: `server/main_internal_test.go` (or add to an existing internal
   test file in package `main` if one exists — check first)
 
-- [ ] `cd server && go get github.com/go-pkgz/lgr@latest && go mod tidy`
-- [ ] add `"github.com/go-pkgz/lgr"` import to `main.go`
-- [ ] implement `logOptionsFromEnv(level string) []lgr.Option` per Technical
+- [x] `cd server && go get github.com/go-pkgz/lgr@latest && go mod tidy`
+- [x] add `"github.com/go-pkgz/lgr"` import to `main.go`
+- [x] implement `logOptionsFromEnv(level string) []lgr.Option` per Technical
       Details above — the invalid-level warning is always emitted via plain
       stdlib formatting (see Technical Details for why), no ordering
       decision needed at implementation time
-- [ ] replace `log.SetFlags(log.LstdFlags | log.Lshortfile)` at line 44 with
+- [x] replace `log.SetFlags(log.LstdFlags | log.Lshortfile)` at line 44 with
       `lgr.SetupStdLogger(logOptionsFromEnv(getEnv("LOG_LEVEL", "info"))...)`
-- [ ] write table-driven test for `logOptionsFromEnv`: cases `""`→base only,
+- [x] write table-driven test for `logOptionsFromEnv`: cases `""`→base only,
       `"info"`→base only, `"debug"`→base+Debug, `"trace"`→base+Trace,
       `"bogus"`→base only. `lgr.Option` values aren't comparable directly, so
       assert behaviorally: apply the returned options to a fresh `lgr.New(...)`
       and check its resulting level-filtering behavior (e.g. does it emit a
       `"DEBUG "`-prefixed line or suppress it), not by inspecting the option
       slice itself
-- [ ] write a test specifically for the `"bogus"` case asserting the warning
+- [x] write a test specifically for the `"bogus"` case asserting the warning
       is actually logged: redirect `log.SetOutput` to a `bytes.Buffer` for the
       duration of the test (restore via `defer`), call
       `logOptionsFromEnv("bogus")`, assert the buffer contains
       `"invalid LOG_LEVEL"` — this assertion is required, not optional
-- [ ] run tests — must pass before task 2: `cd server && go test ./... -run TestLogOptionsFromEnv -v`
+- [x] run tests — must pass before task 2: `cd server && go test ./... -run TestLogOptionsFromEnv -v`
 
 ### Task 2: Fix WARNING landmines and gc-orphans level placement in main.go
 

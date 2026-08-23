@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/badger/v4"
+	"github.com/go-pkgz/lgr"
 	"github.com/moontechs/files-nest/server/internal/api"
 	"github.com/moontechs/files-nest/server/internal/orphans"
 	"github.com/moontechs/files-nest/server/internal/store"
@@ -41,7 +42,7 @@ func main() {
 }
 
 func run() error {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	lgr.SetupStdLogger(logOptionsFromEnv(getEnv("LOG_LEVEL", "info"))...)
 
 	storagePath := getEnv("STORAGE_PATH", "./data")
 	port := getEnv("PORT", "8080")
@@ -177,6 +178,24 @@ func run() error {
 	log.Println("server stopped")
 
 	return nil
+}
+
+// logOptionsFromEnv maps LOG_LEVEL ("info", "debug", "trace") to lgr
+// options. An unrecognized value falls back to "info" with a warning.
+func logOptionsFromEnv(level string) []lgr.Option {
+	opts := []lgr.Option{lgr.Msec, lgr.CallerFile}
+
+	switch level {
+	case "", "info":
+	case "debug":
+		opts = append(opts, lgr.Debug)
+	case "trace":
+		opts = append(opts, lgr.Trace)
+	default:
+		log.Printf("WARN invalid LOG_LEVEL=%q, falling back to info", level)
+	}
+
+	return opts
 }
 
 // runBadgerGC periodically runs BadgerDB value log GC to reclaim disk space.
