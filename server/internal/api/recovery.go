@@ -62,7 +62,7 @@ func (r *Recoverer) Recover() error {
 	// Phase 2: Check for uploading records whose tusd backend has gone missing.
 	err = r.recoverBackendLost()
 	if err != nil {
-		log.Printf("recovery: backend lost recovery error: %v", err)
+		log.Printf("ERROR recovery: backend lost recovery error: %v", err)
 	}
 
 	log.Printf("recovery: startup recovery complete")
@@ -103,7 +103,7 @@ func (r *Recoverer) recoverCompletionIntents() error {
 			return r.recoverIntent(intent)
 		})
 		if err != nil {
-			log.Printf("recovery: failed to recover intent %s: %v", intent.ID, err)
+			log.Printf("ERROR recovery: failed to recover intent %s: %v", intent.ID, err)
 			// Continue processing remaining intents.
 		}
 	}
@@ -136,7 +136,7 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 
 		err := os.Remove(intent.Src)
 		if err != nil {
-			log.Printf("recovery: intent %s: failed to remove source file after move: %v", intent.ID, err)
+			log.Printf("ERROR recovery: intent %s: failed to remove source file after move: %v", intent.ID, err)
 		}
 		// Fall through to complete the DB update.
 
@@ -160,7 +160,7 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 		// unchanged and keep the intent for manual inspection. Do not
 		// delete data or change status — an operator should investigate.
 		log.Printf(
-			"recovery: intent %s: neither src (%s) nor dst (%s) exists for upload record %s "+
+			"ERROR recovery: intent %s: neither src (%s) nor dst (%s) exists for upload record %s "+
 				"(backend %s); keeping intent for manual repair",
 			intent.ID, intent.Src, intent.Dst, intent.ID, intent.BackendID)
 
@@ -174,7 +174,7 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 		if errors.Is(err, store.ErrNotFound) {
 			log.Printf("recovery: intent %s: upload record not found, cleaning up", intent.ID)
 		} else {
-			log.Printf("recovery: intent %s: UpdateComplete failed: %v", intent.ID, err)
+			log.Printf("ERROR recovery: intent %s: UpdateComplete failed: %v", intent.ID, err)
 
 			return fmt.Errorf("update complete for %s: %w", intent.ID, err)
 		}
@@ -183,7 +183,7 @@ func (r *Recoverer) recoverIntent(intent *store.CompletionIntent) error {
 	// Delete the intent — the DB is now consistent.
 	err = r.store.DeleteCompletionIntent(intent.ID)
 	if err != nil {
-		log.Printf("recovery: intent %s: failed to delete completion intent: %v", intent.ID, err)
+		log.Printf("ERROR recovery: intent %s: failed to delete completion intent: %v", intent.ID, err)
 	}
 
 	// Best-effort cleanup of the tusd sidecar (.info file).
@@ -206,7 +206,7 @@ func (r *Recoverer) recoverAlreadyCompleteIntent(intent *store.CompletionIntent)
 
 	delErr := r.store.DeleteCompletionIntent(intent.ID)
 	if delErr != nil {
-		log.Printf("recovery: intent %s: failed to delete stale intent: %v", intent.ID, delErr)
+		log.Printf("ERROR recovery: intent %s: failed to delete stale intent: %v", intent.ID, delErr)
 	}
 
 	r.cleanupTusdBackend(intent)
@@ -224,7 +224,7 @@ func (r *Recoverer) cleanupTusdBackend(intent *store.CompletionIntent) {
 
 	err := r.backend.TerminateOrCleanup(context.Background(), intent.BackendID)
 	if err != nil && !errors.Is(err, uploadbackend.ErrNotFound) {
-		log.Printf("recovery: intent %s: failed to clean up tusd backend: %v", intent.ID, err)
+		log.Printf("ERROR recovery: intent %s: failed to clean up tusd backend: %v", intent.ID, err)
 	}
 }
 
@@ -285,19 +285,19 @@ func (r *Recoverer) recoverBackendLost() error {
 			// Check if the backend still exists by querying its info.
 			_, err = r.backend.GetInfo(context.Background(), rec.BackendID)
 			if errors.Is(err, uploadbackend.ErrNotFound) {
-				log.Printf("recovery: backend lost for upload %s (status %s, backend %s)",
+				log.Printf("WARN recovery: backend lost for upload %s (status %s, backend %s)",
 					rec.ID, status, rec.BackendID)
 
 				_, updateErr := r.store.UpdateStatus(rec.ID, store.StatusBackendLost)
 				if updateErr != nil {
-					log.Printf("recovery: failed to set backend_lost for %s: %v", rec.ID, updateErr)
+					log.Printf("ERROR recovery: failed to set backend_lost for %s: %v", rec.ID, updateErr)
 				}
 
 				lost++
 			} else if err != nil {
 				// Non-ErrNotFound error — log but don't change status (the
 				// backend might be temporarily unavailable).
-				log.Printf("recovery: backend check failed for %s: %v", rec.ID, err)
+				log.Printf("ERROR recovery: backend check failed for %s: %v", rec.ID, err)
 			}
 		}
 	}

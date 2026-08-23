@@ -174,7 +174,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 	err := json.NewEncoder(w).Encode(v)
 	if err != nil {
-		log.Printf("writeJSON encode error: %v", err)
+		log.Printf("ERROR writeJSON encode error: %v", err)
 	}
 }
 
@@ -225,7 +225,7 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	// Create the tusd upload.
 	backendID, err := h.backend.CreateUpload(r.Context(), tusdMeta)
 	if err != nil {
-		log.Printf("tusd CreateUpload failed for %s: %v", req.LocalIdentifier, err)
+		log.Printf("ERROR tusd CreateUpload failed for %s: %v", req.LocalIdentifier, err)
 		writeError(w, http.StatusInternalServerError, "failed to create upload")
 
 		return
@@ -251,11 +251,11 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	existing, created, err := h.store.PutUploadIfAbsent(upload)
 	if err != nil {
 		// Unknown DB error — terminate the tusd upload before returning.
-		log.Printf("PutUploadIfAbsent failed for %s: %v", req.LocalIdentifier, err)
+		log.Printf("ERROR PutUploadIfAbsent failed for %s: %v", req.LocalIdentifier, err)
 
 		termErr := h.backend.TerminateOrCleanup(r.Context(), backendID)
 		if termErr != nil {
-			log.Printf("failed to terminate tusd upload %s after DB error: %v", backendID, termErr)
+			log.Printf("ERROR failed to terminate tusd upload %s after DB error: %v", backendID, termErr)
 		}
 
 		writeError(w, http.StatusInternalServerError, "failed to save upload")
@@ -397,7 +397,7 @@ func (h *Handler) HandleListUploads(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Printf("ListByDateRange failed: %v", err)
+		log.Printf("ERROR ListByDateRange failed: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to list uploads")
 
 		return
@@ -505,7 +505,7 @@ func (h *Handler) HandleGetUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Printf("GetUpload failed for %s: %v", id, err)
+		log.Printf("ERROR GetUpload failed for %s: %v", id, err)
 		writeError(w, http.StatusInternalServerError, "failed to get upload")
 
 		return
@@ -559,7 +559,7 @@ func (h *Handler) HandleHeadUploadData(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Printf("GetUpload failed for %s: %v", id, err)
+		log.Printf("ERROR GetUpload failed for %s: %v", id, err)
 		writeError(w, http.StatusInternalServerError, "failed to get upload")
 
 		return
@@ -604,7 +604,7 @@ func (h *Handler) HandleHeadUploadData(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Printf("GetInfo failed for backend %s: %v", upload.BackendID, err)
+		log.Printf("ERROR GetInfo failed for backend %s: %v", upload.BackendID, err)
 		writeError(w, http.StatusInternalServerError, "failed to get upload info")
 
 		return
@@ -666,7 +666,7 @@ func (h *Handler) HandlePatchUploadData(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		log.Printf("GetUpload failed for %s: %v", id, err)
+		log.Printf("ERROR GetUpload failed for %s: %v", id, err)
 		writeError(w, http.StatusInternalServerError, "failed to get upload")
 
 		return
@@ -742,7 +742,7 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 			return
 		}
 
-		log.Printf("GetUpload failed for %s: %v", id, err)
+		log.Printf("ERROR GetUpload failed for %s: %v", id, err)
 		writeError(w, http.StatusInternalServerError, "failed to get upload")
 
 		return
@@ -767,7 +767,7 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 			return
 		}
 
-		log.Printf("IsComplete failed for backend %s: %v", upload.BackendID, err)
+		log.Printf("ERROR IsComplete failed for backend %s: %v", upload.BackendID, err)
 		writeError(w, http.StatusInternalServerError, "failed to check upload completion")
 
 		return
@@ -788,7 +788,7 @@ func (h *Handler) HandlePatchUploadStatus(w http.ResponseWriter, r *http.Request
 			return
 		}
 
-		log.Printf("FilePath failed for backend %s: %v", upload.BackendID, err)
+		log.Printf("ERROR FilePath failed for backend %s: %v", upload.BackendID, err)
 		writeError(w, http.StatusInternalServerError, "failed to get file path")
 
 		return
@@ -845,7 +845,7 @@ func (h *Handler) HandleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Printf("GetUpload failed for %s: %v", id, err)
+		log.Printf("ERROR GetUpload failed for %s: %v", id, err)
 		writeError(w, http.StatusInternalServerError, "failed to get upload")
 
 		return
@@ -863,7 +863,7 @@ func (h *Handler) HandleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 	// previous partial cleanup).
 	termErr := h.backend.TerminateOrCleanup(r.Context(), upload.BackendID)
 	if termErr != nil && !errors.Is(termErr, uploadbackend.ErrNotFound) {
-		log.Printf("failed to terminate tusd upload %s during delete: %v", upload.BackendID, termErr)
+		log.Printf("ERROR failed to terminate tusd upload %s during delete: %v", upload.BackendID, termErr)
 	}
 
 	// Remove the organized file from disk if the upload was completed.
@@ -872,14 +872,14 @@ func (h *Handler) HandleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 	if upload.OrganizedPath != "" {
 		removeErr := h.mover.RemoveOrganizedFile(upload.OrganizedPath)
 		if removeErr != nil {
-			log.Printf("failed to remove organized file %s for upload %s: %v", upload.OrganizedPath, upload.ID, removeErr)
+			log.Printf("ERROR failed to remove organized file %s for upload %s: %v", upload.OrganizedPath, upload.ID, removeErr)
 		}
 	}
 
 	// Update the DB record status to deleted.
 	_, err = h.store.UpdateStatus(upload.ID, store.StatusDeleted)
 	if err != nil {
-		log.Printf("failed to update status to deleted for %s: %v", upload.ID, err)
+		log.Printf("ERROR failed to update status to deleted for %s: %v", upload.ID, err)
 		writeError(w, http.StatusInternalServerError, "failed to delete upload")
 
 		return
@@ -908,14 +908,14 @@ func (h *Handler) handleBackendLost(w http.ResponseWriter, _ *http.Request, uplo
 	current, err := h.store.GetUpload(upload.ID)
 	if err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
-			log.Printf("failed to re-read upload %s before backend_lost: %v", upload.ID, err)
+			log.Printf("ERROR failed to re-read upload %s before backend_lost: %v", upload.ID, err)
 		}
 	} else {
 		switch current.Status {
 		case store.StatusUploading, store.StatusCompleting:
 			_, err = h.store.UpdateStatus(upload.ID, store.StatusBackendLost)
 			if err != nil {
-				log.Printf("failed to set backend_lost for %s: %v", upload.ID, err)
+				log.Printf("ERROR failed to set backend_lost for %s: %v", upload.ID, err)
 			}
 		case store.StatusComplete, store.StatusDeleted, store.StatusBackendLost:
 			// Preserve terminal state.
@@ -939,11 +939,11 @@ func (h *Handler) finalizeExistingUpload(
 	case store.StatusBackendLost, store.StatusDeleted:
 		reReg, err := h.store.ReRegister(existing.ID, backendID)
 		if err != nil {
-			log.Printf("ReRegister failed for %s: %v", existing.ID, err)
+			log.Printf("ERROR ReRegister failed for %s: %v", existing.ID, err)
 
 			termErr := h.backend.TerminateOrCleanup(r.Context(), backendID)
 			if termErr != nil {
-				log.Printf("failed to terminate tusd upload %s after re-register failure: %v", backendID, termErr)
+				log.Printf("ERROR failed to terminate tusd upload %s after re-register failure: %v", backendID, termErr)
 			}
 
 			writeError(w, http.StatusInternalServerError, "failed to re-register upload")
@@ -962,7 +962,7 @@ func (h *Handler) finalizeExistingUpload(
 
 	termErr := h.backend.TerminateOrCleanup(r.Context(), backendID)
 	if termErr != nil {
-		log.Printf("failed to terminate redundant tusd upload %s: %v", backendID, termErr)
+		log.Printf("ERROR failed to terminate redundant tusd upload %s: %v", backendID, termErr)
 	}
 
 	writeJSON(w, http.StatusOK, existingToResponse(existing))
@@ -1017,7 +1017,7 @@ func (h *Handler) moveCompletedFile(
 
 	existing, err := h.store.GetCompletionIntent(upload.ID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		log.Printf("failed to read existing completion intent for %s: %v", upload.ID, err)
+		log.Printf("ERROR failed to read existing completion intent for %s: %v", upload.ID, err)
 		writeError(w, http.StatusInternalServerError, "failed to prepare completion")
 
 		return plan, false
@@ -1028,7 +1028,7 @@ func (h *Handler) moveCompletedFile(
 
 		moveErr := h.mover.MoveToPlaned(srcPath, existingPlan, saveIntent)
 		if moveErr != nil {
-			log.Printf("completion move failed for %s: %v", upload.ID, moveErr)
+			log.Printf("ERROR completion move failed for %s: %v", upload.ID, moveErr)
 			writeError(w, http.StatusInternalServerError, "failed to move file")
 
 			return plan, false
@@ -1040,7 +1040,7 @@ func (h *Handler) moveCompletedFile(
 	planned, err := h.mover.PlanAndMove(
 		srcPath, upload.CreationDate, upload.CreatedAt, upload.Filename, upload.BackendID, saveIntent)
 	if err != nil {
-		log.Printf("completion move failed for %s: %v", upload.ID, err)
+		log.Printf("ERROR completion move failed for %s: %v", upload.ID, err)
 		writeError(w, http.StatusInternalServerError, "failed to move file")
 
 		return plan, false
@@ -1055,7 +1055,7 @@ func (h *Handler) moveCompletedFile(
 func (h *Handler) finalizeCompletion(w http.ResponseWriter, r *http.Request, upload *store.Upload, relPath string) {
 	_, err := h.store.UpdateComplete(upload.ID, relPath)
 	if err != nil {
-		log.Printf("failed to update status to complete for %s: %v", upload.ID, err)
+		log.Printf("ERROR failed to update status to complete for %s: %v", upload.ID, err)
 		writeError(w, http.StatusInternalServerError, "failed to complete upload")
 
 		return
@@ -1064,13 +1064,13 @@ func (h *Handler) finalizeCompletion(w http.ResponseWriter, r *http.Request, upl
 	// Delete the completion intent now that the DB is consistent.
 	delErr := h.store.DeleteCompletionIntent(upload.ID)
 	if delErr != nil {
-		log.Printf("failed to delete completion intent for %s: %v", upload.ID, delErr)
+		log.Printf("ERROR failed to delete completion intent for %s: %v", upload.ID, delErr)
 	}
 
 	// Best-effort cleanup of the tusd sidecar (.info file).
 	termErr := h.backend.TerminateOrCleanup(r.Context(), upload.BackendID)
 	if termErr != nil && !errors.Is(termErr, uploadbackend.ErrNotFound) {
-		log.Printf("failed to terminate tusd upload %s after completion: %v", upload.BackendID, termErr)
+		log.Printf("ERROR failed to terminate tusd upload %s after completion: %v", upload.BackendID, termErr)
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -1091,7 +1091,7 @@ func (h *Handler) forwardUploadData(
 			return
 		}
 
-		log.Printf("GetOffset failed for backend %s: %v", upload.BackendID, err)
+		log.Printf("ERROR GetOffset failed for backend %s: %v", upload.BackendID, err)
 		writeError(w, http.StatusInternalServerError, "failed to get upload offset")
 
 		return
@@ -1122,7 +1122,7 @@ func (h *Handler) forwardUploadData(
 			return
 		}
 
-		log.Printf("ForwardPatch failed for backend %s: %v", upload.BackendID, err)
+		log.Printf("ERROR ForwardPatch failed for backend %s: %v", upload.BackendID, err)
 		writeError(w, http.StatusInternalServerError, "failed to write upload data")
 
 		return
