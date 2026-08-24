@@ -51,3 +51,19 @@ public enum ServerClientError: Error, Sendable, Equatable {
         }
     }
 }
+
+extension ServerClientError {
+    var isRetryable: Bool {
+        switch self {
+        case .transport, .serviceUnavailable:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var retryAfter: Double? {
+        guard case .serviceUnavailable(let seconds) = self else { return nil }
+        return seconds.map { Double(max(0, $0)) }
+    }
+}

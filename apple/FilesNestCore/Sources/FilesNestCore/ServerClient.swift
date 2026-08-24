@@ -1,17 +1,42 @@
 import Foundation
 
 public struct ServerClient: Sendable {
+    public static let defaultMaxRetries = 15
+    static let maxBackoffDelay: Double = 60
+    enum RetryEvent: Sendable {
+        case waiting(id: UUID, retryAt: Date)
+        case finished(id: UUID)
+    }
+
     let baseURL: URL
     let credentials: any CredentialStore
     let session: URLSession
+    /// Maximum retries after the initial request. Kept under its original name so
+    /// existing callers can tune the policy while it now applies to every request.
     let maxPatchRetries: Int
+    private let retryObserver: (@Sendable (RetryEvent) -> Void)?
 
     public init(baseURL: URL, credentials: any CredentialStore,
-                session: URLSession? = nil, maxPatchRetries: Int = 5) {
+                session: URLSession? = nil, maxPatchRetries: Int = Self.defaultMaxRetries) {
         self.baseURL = baseURL
         self.credentials = credentials
         self.session = session ?? Self.makeNonPersistentSession()
         self.maxPatchRetries = maxPatchRetries
+        self.retryObserver = nil
+    }
+
+    private init(baseURL: URL, credentials: any CredentialStore, session: URLSession,
+                 maxPatchRetries: Int, retryObserver: @escaping @Sendable (RetryEvent) -> Void) {
+        self.baseURL = baseURL
+        self.credentials = credentials
+        self.session = session
+        self.maxPatchRetries = maxPatchRetries
+        self.retryObserver = retryObserver
+    }
+
+    func reportingRetries(to observer: @escaping @Sendable (RetryEvent) -> Void) -> ServerClient {
+        ServerClient(baseURL: baseURL, credentials: credentials, session: session,
+                     maxPatchRetries: maxPatchRetries, retryObserver: observer)
     }
 
     private static func makeNonPersistentSession() -> URLSession {
@@ -44,6 +69,51 @@ public struct ServerClient: Sendable {
 
     @discardableResult
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        var retry = 0
+        let retryID = UUID()
+        var reportedRetry = false
+        defer {
+            if reportedRetry { retryObserver?(.finished(id: retryID)) }
+        }
+        while true {
+            do {
+                return try await sendOnce(request)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as ServerClientError where error.isRetryable {
+                guard let delay = Self.nextRetryDelay(for: error, retry: &retry,
+                                                      maxRetries: maxPatchRetries) else { throw error }
+                reportedRetry = true
+                retryObserver?(.waiting(id: retryID, retryAt: Date().addingTimeInterval(delay)))
+                try await Task.sleep(for: .seconds(delay))
+            }
+        }
+    }
+
+    static func backoffDelay(forRetry retry: Int) -> Double {
+        // 1, 2, 4, 8, 16, 32, then one minute for the remaining retries.
+        min(pow(2, Double(retry)), maxBackoffDelay)
+    }
+
+    static func retryDelay(for error: ServerClientError, retry: Int) -> Double {
+        min(error.retryAfter ?? backoffDelay(forRetry: retry), maxBackoffDelay)
+    }
+
+    static func jittered(_ delay: Double) -> Double {
+        guard delay > 0 else { return 0 }
+        return min(delay * Double.random(in: 0.8...1.2), maxBackoffDelay)
+    }
+
+    private static func nextRetryDelay(for error: ServerClientError, retry: inout Int,
+                                       maxRetries: Int) -> Double? {
+        guard retry < maxRetries else { return nil }
+        let delay = jittered(retryDelay(for: error, retry: retry))
+        retry += 1
+        return delay
+    }
+
+    @discardableResult
+    private func sendOnce(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let data: Data
         let response: URLResponse
         do {
@@ -177,20 +247,7 @@ public struct ServerClient: Sendable {
     @discardableResult
     public func patchData(uploadID id: String, offset: Int64, data: Data,
                           finalLength: Int64?) async throws -> Int64 {
-        var attempt = 0
-        while true {
-            do {
-                return try await sendPatch(uploadID: id, offset: offset,
-                                           data: data, finalLength: finalLength)
-            } catch let ServerClientError.serviceUnavailable(retryAfter) {
-                guard attempt < maxPatchRetries else {
-                    throw ServerClientError.serviceUnavailable(retryAfter: retryAfter)
-                }
-                attempt += 1
-                try await Task.sleep(for: .seconds(retryAfter ?? 1))
-                // Loop: a 503 leaves the offset unchanged, so re-send the same PATCH.
-            }
-        }
+        try await sendPatch(uploadID: id, offset: offset, data: data, finalLength: finalLength)
     }
 
     private func sendPatch(uploadID id: String, offset: Int64, data: Data,
@@ -203,12 +260,37 @@ public struct ServerClient: Sendable {
             req.setValue(String(finalLength), forHTTPHeaderField: "Upload-Length")
         }
         req.httpBody = data
-        let (_, http) = try await send(req)
-        guard let offsetString = http.value(forHTTPHeaderField: "Upload-Offset"),
-              let newOffset = Int64(offsetString) else {
-            throw ServerClientError.decoding("missing Upload-Offset in PATCH response")
+        var retry = 0
+        let retryID = UUID()
+        var reportedRetry = false
+        defer {
+            if reportedRetry { retryObserver?(.finished(id: retryID)) }
         }
-        return newOffset
+        while true {
+            do {
+                let (_, http) = try await sendOnce(req)
+                guard let offsetString = http.value(forHTTPHeaderField: "Upload-Offset"),
+                      let newOffset = Int64(offsetString) else {
+                    throw ServerClientError.decoding("missing Upload-Offset in PATCH response")
+                }
+                return newOffset
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as ServerClientError where error.isRetryable {
+                if case .transport = error {
+                    // A lost response does not tell us whether the server appended this chunk.
+                    // Re-read its authoritative TUS offset before replaying a stateful PATCH.
+                    let serverOffset = try await self.offset(forUploadID: id).offset
+                    if serverOffset == offset + Int64(data.count) { return serverOffset }
+                    guard serverOffset == offset else { throw ServerClientError.offsetConflict }
+                }
+                guard let delay = Self.nextRetryDelay(for: error, retry: &retry,
+                                                      maxRetries: maxPatchRetries) else { throw error }
+                reportedRetry = true
+                retryObserver?(.waiting(id: retryID, retryAt: Date().addingTimeInterval(delay)))
+                try await Task.sleep(for: .seconds(delay))
+            }
+        }
     }
 
     // MARK: Status transition and deletion

@@ -18,6 +18,10 @@ public struct AssetUploader: Sendable {
         self.source = source
     }
 
+    func reportingRetries(with client: ServerClient) -> AssetUploader {
+        AssetUploader(client: client, source: source)
+    }
+
     public func upload(assetID: String, uploadID: String) async throws {
         let start = try await client.offset(forUploadID: uploadID)
         let state = LookAhead(client: client, uploadID: uploadID, startOffset: start.offset)

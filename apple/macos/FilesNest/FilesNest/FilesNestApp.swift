@@ -64,7 +64,9 @@ struct FilesNestApp: App {
                     let a = Assessment(backedUp: 0, pending: scan.count, resourceTotal: scan.count)
                     stateStore.saveAssessment(a); return a
                 }
-                let client = ServerClient(baseURL: url, credentials: credStore)
+                // Assessment is intentionally fail-fast: unlike an upload, it has no
+                // reconnect progress state to present while it waits.
+                let client = ServerClient(baseURL: url, credentials: credStore, maxPatchRetries: 0)
                 var records: [UploadRecord] = []
                 var cursor: String? = nil
                 repeat {

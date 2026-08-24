@@ -30,14 +30,17 @@ public struct SyncCoordinator: Sendable {
     }
 
     public func sync(range: SyncRange,
-                     onProgress: @Sendable (SyncProgress) -> Void = { _ in }) async throws -> SyncReport {
+                     onProgress: @escaping @Sendable (SyncProgress) -> Void = { _ in }) async throws -> SyncReport {
         state.saveLastSyncStarted(now())
+        let retries = RetryTracker(report: onProgress)
+        let client = client.reportingRetries(to: retries.handle)
+        let uploader = uploader.reportingRetries(with: client)
 
         let libraryResources = try await library.resources(in: range)
-        let serverRecords = try await pagedServerRecords()
+        let serverRecords = try await pagedServerRecords(client: client)
         let plan = SyncPlanner.plan(library: libraryResources, server: serverRecords, range: range)
 
-        let result = try await runUploads(plan.uploads, onProgress: onProgress)
+        let result = try await runUploads(plan.uploads, client: client, uploader: uploader, retries: retries)
         let uploaded = result.uploaded
         var failed = result.failed        // the deletes loop below still appends delete failures
         var deleted: [ResourceKey] = []
@@ -64,17 +67,20 @@ public struct SyncCoordinator: Sendable {
     /// rebuilt as a `.create` (idempotent server-side); every file still HEADs its
     /// offset, so half-done/done/new all resolve correctly.
     public func resume(resources: [AssetResource],
-                       onProgress: @Sendable (SyncProgress) -> Void = { _ in }) async throws -> SyncReport {
+                       onProgress: @escaping @Sendable (SyncProgress) -> Void = { _ in }) async throws -> SyncReport {
         state.saveLastSyncStarted(now())
+        let retries = RetryTracker(report: onProgress)
+        let client = client.reportingRetries(to: retries.handle)
+        let uploader = uploader.reportingRetries(with: client)
         let uploads = resources.map { PlannedUpload(resource: $0, mode: .create) }
-        let (uploaded, failed) = try await runUploads(uploads, onProgress: onProgress)
+        let (uploaded, failed) = try await runUploads(uploads, client: client, uploader: uploader, retries: retries)
         return SyncReport(uploaded: uploaded, deleted: [], failed: failed, skipped: 0)
     }
 
     /// Injected value wins (tests, future Settings UI). Otherwise discover the cap
     /// from GET /config, falling back to the default when the endpoint is absent
     /// (old server) or unreachable — config never fails a sync.
-    private func resolveCap() async throws -> Int {
+    private func resolveCap(client: ServerClient) async throws -> Int {
         if let injected = configuredConcurrency { return max(1, injected) }
         let discovered: Int
         do {
@@ -90,10 +96,10 @@ public struct SyncCoordinator: Sendable {
     /// Bounded sliding-window upload of `uploads`, persisting the not-yet-uploaded
     /// resources (throttled + on cancel) so a pause/quit/launch can resume without
     /// re-scanning. Ends by writing the final remaining (empty when all succeeded).
-    private func runUploads(_ uploads: [PlannedUpload],
-                            onProgress: @Sendable (SyncProgress) -> Void) async throws
+    private func runUploads(_ uploads: [PlannedUpload], client: ServerClient,
+                            uploader: AssetUploader, retries: RetryTracker) async throws
         -> (uploaded: [ResourceKey], failed: [FailedItem]) {
-        let cap = try await resolveCap()
+        let cap = try await resolveCap(client: client)
         // Captured up front: if the engine clears the list mid-run (sign-out, server change),
         // this run's later writes are dropped rather than resurrecting a superseded plan.
         let session = state.remainingUploadsSession()
@@ -116,12 +122,12 @@ public struct SyncCoordinator: Sendable {
         // up" count derived from it never credits a failed item.
         func emit() {
             let current = inFlightItems.last
-            onProgress(SyncProgress(completed: uploaded.count,
-                                    total: uploadTotal,
-                                    currentItemName: current?.name,
-                                    bytesRemaining: nil,
-                                    currentItemID: current?.key.localIdentifier,
-                                    inFlight: inFlightItems.count))
+            retries.update(SyncProgress(completed: uploaded.count,
+                                        total: uploadTotal,
+                                        currentItemName: current?.name,
+                                        bytesRemaining: nil,
+                                        currentItemID: current?.key.localIdentifier,
+                                        inFlight: inFlightItems.count))
         }
 
         do {
@@ -135,7 +141,7 @@ public struct SyncCoordinator: Sendable {
                     group.addTask {
                         try Task.checkCancellation()
                         do {
-                            try await execute(item)
+                            try await execute(item, client: client, uploader: uploader)
                             return .success(item.resource.key)
                         } catch is CancellationError {
                             throw CancellationError()
@@ -178,7 +184,7 @@ public struct SyncCoordinator: Sendable {
         return (uploaded, failed)
     }
 
-    private func pagedServerRecords() async throws -> [UploadRecord] {
+    private func pagedServerRecords(client: ServerClient) async throws -> [UploadRecord] {
         var records: [UploadRecord] = []
         var cursor: String? = nil
         repeat {
@@ -190,26 +196,29 @@ public struct SyncCoordinator: Sendable {
         return records
     }
 
-    private func execute(_ item: PlannedUpload) async throws {
+    private func execute(_ item: PlannedUpload, client: ServerClient, uploader: AssetUploader) async throws {
         let assetKey = item.resource.key.encoded
         switch item.mode {
         case .create:
-            let record = try await create(item.resource)
-            try await uploadWithRecovery(assetKey: assetKey, uploadID: record.id, resource: item.resource)
+            let record = try await create(item.resource, client: client)
+            try await uploadWithRecovery(assetKey: assetKey, uploadID: record.id, resource: item.resource,
+                                         client: client, uploader: uploader)
         case .resume(let uploadID):
-            try await uploadWithRecovery(assetKey: assetKey, uploadID: uploadID, resource: item.resource)
+            try await uploadWithRecovery(assetKey: assetKey, uploadID: uploadID, resource: item.resource,
+                                         client: client, uploader: uploader)
         case .recover:
-            try await recover(assetKey: assetKey, resource: item.resource)
+            try await recover(assetKey: assetKey, resource: item.resource, client: client, uploader: uploader)
         }
     }
 
     /// Upload, recovering ONCE from a mid-flight backend_lost (spec §6 step 5).
     private func uploadWithRecovery(assetKey: String, uploadID: String,
-                                    resource: AssetResource) async throws {
+                                    resource: AssetResource, client: ServerClient,
+                                    uploader: AssetUploader) async throws {
         do {
             try await uploader.upload(assetID: assetKey, uploadID: uploadID)
         } catch ServerClientError.backendLost {
-            try await recover(assetKey: assetKey, resource: resource)
+            try await recover(assetKey: assetKey, resource: resource, client: client, uploader: uploader)
         }
     }
 
@@ -220,17 +229,55 @@ public struct SyncCoordinator: Sendable {
     /// tombstone if recovery were interrupted — which the planner skips, stranding
     /// a still-present asset. A mid-recovery failure instead leaves a resumable
     /// `uploading` record. No further recovery on a second backend_lost.
-    private func recover(assetKey: String, resource: AssetResource) async throws {
-        let record = try await create(resource)
+    private func recover(assetKey: String, resource: AssetResource, client: ServerClient,
+                         uploader: AssetUploader) async throws {
+        let record = try await create(resource, client: client)
         try await uploader.upload(assetID: assetKey, uploadID: record.id)
     }
 
-    private func create(_ resource: AssetResource) async throws -> UploadRecord {
+    private func create(_ resource: AssetResource, client: ServerClient) async throws -> UploadRecord {
         try await client.createUpload(CreateUploadRequest(
             localIdentifier: resource.key.encoded,
             filename: resource.filename,
             creationDate: resource.creationDate,
             bundleID: resource.bundleID))
+    }
+}
+
+/// Collapses retry notifications from concurrent requests into one current UI snapshot.
+/// It is lock-based because URLSession may call request completions concurrently.
+private final class RetryTracker: @unchecked Sendable {
+    private let lock = NSLock()
+    private let report: @Sendable (SyncProgress) -> Void
+    private var progress = SyncProgress(completed: 0, total: 0, currentItemName: nil, bytesRemaining: nil)
+    private var waiting: [UUID: Date] = [:]
+
+    init(report: @escaping @Sendable (SyncProgress) -> Void) { self.report = report }
+
+    func update(_ progress: SyncProgress) {
+        lock.lock()
+        self.progress = progress
+        let snapshot = snapshotLocked()
+        lock.unlock()
+        report(snapshot)
+    }
+
+    func handle(_ event: ServerClient.RetryEvent) {
+        lock.lock()
+        switch event {
+        case .waiting(let id, let retryAt): waiting[id] = retryAt
+        case .finished(let id): waiting[id] = nil
+        }
+        let snapshot = snapshotLocked()
+        lock.unlock()
+        report(snapshot)
+    }
+
+    private func snapshotLocked() -> SyncProgress {
+        let retry = waiting.values.min().map { RetryProgress(retryAt: $0, waitingRequests: waiting.count) }
+        return SyncProgress(completed: progress.completed, total: progress.total,
+                            currentItemName: progress.currentItemName, bytesRemaining: progress.bytesRemaining,
+                            currentItemID: progress.currentItemID, inFlight: progress.inFlight, retry: retry)
     }
 }
 

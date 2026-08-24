@@ -28,12 +28,12 @@ import Foundation
 /// from other threads. It is never held across an `await`.
 public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     public typealias Perform =
-        @Sendable (SyncRange, @Sendable (SyncProgress) -> Void) async throws -> SyncReport
+        @Sendable (SyncRange, @escaping @Sendable (SyncProgress) -> Void) async throws -> SyncReport
 
     /// Re-drives a saved list of not-yet-uploaded resources (no enumeration, no diff),
     /// so Resume and a cold launch can start uploading without re-counting the library.
     public typealias Resume =
-        @Sendable ([AssetResource], @Sendable (SyncProgress) -> Void) async throws -> SyncReport
+        @Sendable ([AssetResource], @escaping @Sendable (SyncProgress) -> Void) async throws -> SyncReport
 
     private enum Command: Sendable {
         case start, pause, resume, syncNow
@@ -173,7 +173,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 setSummary(SyncSummary(backedUp: syncBaseBackedUp + p.completed,
                                        pending: currentSummary.pending, failed: currentSummary.failed,
                                        resourceTotal: currentSummary.resourceTotal))
-                setStatus(.syncing(sessionProgress(p)))
+                let display = sessionProgress(p)
+                setStatus(display.retry == nil ? .syncing(display) : .reconnecting(display))
             }
         case .finished(let gen, let report):
             if gen == generation { gen == resumeGeneration ? finishResumeUpload(report) : finishSync(report) }
@@ -196,7 +197,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
             switch currentStatus {
             case .watching, .error:
                 startIdleCount(range: incrementalRange(), autoSync: true)   // idle → incremental count, then sync if pending
-            case .syncing, .counting:
+            case .syncing, .reconnecting, .counting:
                 pendingLibraryChange = true               // coalesce; drained when the run finishes
             case .paused:
                 pendingLibraryChange = true               // honored on resume (never upload while paused)
@@ -368,7 +369,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                             currentItemName: p.currentItemName,
                             bytesRemaining: p.bytesRemaining,
                             currentItemID: p.currentItemID,
-                            inFlight: p.inFlight)
+                            inFlight: p.inFlight,
+                            retry: p.retry)
     }
 
     /// Fast-path: upload a saved list straight away (no count). A cold launch verifies the
@@ -525,7 +527,12 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
 
     private var currentStatus: SyncStatus { fanoutLock.lock(); defer { fanoutLock.unlock() }; return status }
     private var currentSummary: SyncSummary { fanoutLock.lock(); defer { fanoutLock.unlock() }; return summary }
-    private var isSyncingStatus: Bool { if case .syncing = currentStatus { return true }; return false }
+    private var isSyncingStatus: Bool {
+        switch currentStatus {
+        case .syncing, .reconnecting: return true
+        default: return false
+        }
+    }
     private var isCountingStatus: Bool { if case .counting = currentStatus { return true }; return false }
     private var isPausedStatus: Bool { if case .paused = currentStatus { return true }; return false }
 

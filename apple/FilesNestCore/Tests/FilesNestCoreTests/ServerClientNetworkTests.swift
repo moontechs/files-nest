@@ -26,7 +26,7 @@ struct ServerClientNetworkTests {
 
         let client = ServerClient(baseURL: URL(string: "https://\(host)")!,
                                   credentials: FakeCredentialStore(creds: nil),
-                                  session: MockURLProtocol.makeSession())
+                                  session: MockURLProtocol.makeSession(), maxPatchRetries: 0)
         await #expect(throws: ServerClientError.serviceUnavailable(retryAfter: 3)) {
             _ = try await client.getUpload(id: "ID1")
         }
@@ -41,7 +41,7 @@ struct ServerClientNetworkTests {
 
         let client = ServerClient(baseURL: URL(string: "https://\(host)")!,
                                   credentials: FakeCredentialStore(creds: nil),
-                                  session: MockURLProtocol.makeSession())
+                                  session: MockURLProtocol.makeSession(), maxPatchRetries: 0)
         await #expect(throws: ServerClientError.serviceUnavailable(retryAfter: nil)) {
             _ = try await client.getUpload(id: "ID1")
         }
@@ -68,6 +68,55 @@ struct ServerClientNetworkTests {
                                                    data: Data(count: 100), finalLength: nil)
         #expect(newOffset == 100)
         #expect(calls.count == 3)   // two 503s + one success
+    }
+
+    @Test func patchDataReconcilesOffsetAfterLostResponse() async throws {
+        let host = "sc-patch-lost-response.test"
+        let patchCalls = Counter503()
+        MockURLProtocol.setHandler(forHost: host) { req in
+            switch req.httpMethod {
+            case "PATCH":
+                if patchCalls.next() == 0 { throw URLError(.networkConnectionLost) }
+                return MockURLProtocol.respond(status: 204, headers: ["Upload-Offset": "100"],
+                                               for: req.url!)
+            case "HEAD":
+                return MockURLProtocol.respond(status: 200, headers: ["Upload-Offset": "100"],
+                                               for: req.url!)
+            default:
+                throw URLError(.badServerResponse)
+            }
+        }
+        defer { MockURLProtocol.removeHandler(forHost: host) }
+
+        let client = ServerClient(baseURL: URL(string: "https://\(host)")!,
+                                  credentials: FakeCredentialStore(creds: nil),
+                                  session: MockURLProtocol.makeSession(), maxPatchRetries: 1)
+        let newOffset = try await client.patchData(uploadID: "ID1", offset: 0,
+                                                   data: Data(count: 100), finalLength: nil)
+        #expect(newOffset == 100)
+        #expect(patchCalls.count == 1)
+    }
+
+    @Test func getUploadRetriesAfter503ThenSucceeds() async throws {
+        let host = "sc-get-retry.test"
+        let calls = Counter503()
+        MockURLProtocol.setHandler(forHost: host) { req in
+            if calls.next() == 0 {
+                return MockURLProtocol.respond(status: 503, headers: ["Retry-After": "0"],
+                                               body: Data(), for: req.url!)
+            }
+            return MockURLProtocol.respond(status: 200,
+                                           body: #"{"id":"ID1","local_identifier":"L","status":"uploading","backend_id":"b"}"#.data(using: .utf8)!,
+                                           for: req.url!)
+        }
+        defer { MockURLProtocol.removeHandler(forHost: host) }
+
+        let client = ServerClient(baseURL: URL(string: "https://\(host)")!,
+                                  credentials: FakeCredentialStore(creds: nil),
+                                  session: MockURLProtocol.makeSession(), maxPatchRetries: 1)
+        let record = try await client.getUpload(id: "ID1")
+        #expect(record.id == "ID1")
+        #expect(calls.count == 2)
     }
 
     @Test func patchDataFailsAfterExhaustingRetries() async throws {

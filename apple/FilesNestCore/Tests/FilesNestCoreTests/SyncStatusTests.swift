@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import FilesNestCore
 
 @Test func syncProgressInFlightDefaultsToZero() {
@@ -37,4 +38,12 @@ import Testing
     #expect(SyncStatus.syncing(SyncProgress(completed: 0, total: 1, currentItemName: nil,
                                             bytesRemaining: nil)).canResume == false)
     #expect(SyncStatus.watching(lastSync: nil).canResume == false)
+}
+
+@Test func reconnectingKeepsPauseAvailable() {
+    let retry = RetryProgress(retryAt: Date(), waitingRequests: 2)
+    let progress = SyncProgress(completed: 1, total: 3, currentItemName: "IMG.jpg",
+                                bytesRemaining: nil, retry: retry)
+    #expect(SyncStatus.reconnecting(progress).canPause == true)
+    #expect(SyncStatus.reconnecting(progress).canSyncNow == false)
 }

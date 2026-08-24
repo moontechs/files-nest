@@ -7,19 +7,32 @@ public struct SyncProgress: Sendable, Equatable {
     public let currentItemID: String?     // PHAsset local identifier, for the thumbnail
     public let bytesRemaining: Int64?
     public let inFlight: Int              // uploads currently in flight (concurrency)
+    public let retry: RetryProgress?      // reconnecting requests, if the server is unavailable
 
     public init(completed: Int, total: Int, currentItemName: String?,
-                bytesRemaining: Int64?, currentItemID: String? = nil, inFlight: Int = 0) {
+                bytesRemaining: Int64?, currentItemID: String? = nil, inFlight: Int = 0,
+                retry: RetryProgress? = nil) {
         self.completed = completed
         self.total = total
         self.currentItemName = currentItemName
         self.currentItemID = currentItemID
         self.bytesRemaining = bytesRemaining
         self.inFlight = inFlight
+        self.retry = retry
     }
 
     /// 0.0…1.0; 0 when `total == 0`. Drives the panel's progress ring.
     public var fraction: Double { total > 0 ? Double(completed) / Double(total) : 0 }
+}
+
+public struct RetryProgress: Sendable, Equatable {
+    public let retryAt: Date
+    public let waitingRequests: Int
+
+    public init(retryAt: Date, waitingRequests: Int) {
+        self.retryAt = retryAt
+        self.waitingRequests = waitingRequests
+    }
 }
 
 /// Why a count is running, so the panel can say what it is doing. A count that follows a
@@ -35,6 +48,7 @@ public enum SyncStatus: Sendable, Equatable {
     case counting(done: Int, total: Int, purpose: CountPurpose = .survey)  // scan in progress (determinate)
     case watching(lastSync: Date?)        // idle, monitoring for new items
     case syncing(SyncProgress)
+    case reconnecting(SyncProgress)
     case paused(pending: Int)
     case error(message: String)
 }
@@ -49,7 +63,7 @@ public extension SyncStatus {
     var canSyncNow: Bool {
         switch self {
         case .watching, .error:                     return true
-        case .syncing, .paused, .counting, .signedOut: return false
+        case .syncing, .reconnecting, .paused, .counting, .signedOut: return false
         }
     }
 
@@ -58,7 +72,7 @@ public extension SyncStatus {
     /// carries the remaining of a RUN, so pausing a count would report "0 pending".
     var canPause: Bool {
         switch self {
-        case .syncing, .watching, .error: return true
+        case .syncing, .reconnecting, .watching, .error: return true
         case .paused, .counting, .signedOut: return false
         }
     }

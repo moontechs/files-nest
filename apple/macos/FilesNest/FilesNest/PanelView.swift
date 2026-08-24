@@ -44,7 +44,7 @@ struct PanelView: View {
         VStack(spacing: 0) {
             panelHeader
             hero
-            if case let .syncing(p) = model.status, p.total > 0 { currentItem(p) }
+            if let p = activeProgress, p.total > 0 { currentItem(p) }
             tiles
             actions
             Divider()
@@ -151,7 +151,7 @@ struct PanelView: View {
     private var pendingText: String {
         guard !isSignedOut else { return "—" }
         switch model.status {
-        case .syncing, .paused: return "\(pending)"                 // exact for the active run
+        case .syncing, .reconnecting, .paused: return "\(pending)"  // exact for the active run
         default: return model.summary.pending.map { "\($0)" } ?? "—"   // exact at-rest count, or — until first assess
         }
     }
@@ -206,7 +206,7 @@ struct PanelView: View {
     private var isError: Bool { if case .error = model.status { return true }; return false }
     private var pending: Int {
         switch model.status {
-        case .syncing(let p): return max(0, p.total - p.completed)
+        case .syncing(let p), .reconnecting(let p): return max(0, p.total - p.completed)
         case .paused(let n): return n              // remaining work while paused
         default: return model.summary.pending ?? 0 // at rest: exact assessed count (0 until first count)
         }
@@ -216,7 +216,7 @@ struct PanelView: View {
     /// Enumeration in progress with no known total yet: `.syncing` or `.counting` at total 0.
     private var showsIndeterminateSpinner: Bool {
         switch model.status {
-        case .syncing(let p): return p.total == 0
+        case .syncing(let p), .reconnecting(let p): return p.total == 0
         case .counting(_, let total, _): return total == 0
         default: return false
         }
@@ -224,7 +224,7 @@ struct PanelView: View {
 
     private var ringFraction: CGFloat {
         switch model.status {
-        case .syncing(let p): return CGFloat(p.fraction)
+        case .syncing(let p), .reconnecting(let p): return CGFloat(p.fraction)
         case .counting(let done, let total, _): return total > 0 ? CGFloat(done) / CGFloat(total) : 0
         case .watching: return 1
         default: return 0
@@ -232,7 +232,7 @@ struct PanelView: View {
     }
     private var ringColor: Color {
         switch model.status {
-        case .syncing, .counting: return .blue
+        case .syncing, .reconnecting, .counting: return .blue
         case .paused: return .orange
         case .error: return .red
         default: return .green
@@ -240,7 +240,7 @@ struct PanelView: View {
     }
     private var stateIcon: String {
         switch model.status {
-        case .syncing, .counting: return "arrow.triangle.2.circlepath"
+        case .syncing, .reconnecting, .counting: return "arrow.triangle.2.circlepath"
         case .paused: return "pause.fill"
         case .error: return "exclamationmark"
         case .signedOut: return "server.rack"
@@ -254,6 +254,7 @@ struct PanelView: View {
         case .counting(_, _, let purpose): return purpose == .verify ? "Verifying" : "Checking"
         case .watching: return "Protected"
         case .syncing: return "Backing up"
+        case .reconnecting: return "Reconnecting"
         case .paused: return "Paused"
         case .error: return "Attention needed"
         }
@@ -269,6 +270,7 @@ struct PanelView: View {
             return purpose == .verify ? "Verifying backup…" : "Counting…"
         case .watching: return "Up to date"
         case .syncing: return "Syncing…"
+        case .reconnecting: return "Reconnecting…"
         case .paused: return "Paused"
         case .error: return "Backup needs attention"
         }
@@ -283,9 +285,21 @@ struct PanelView: View {
         case .syncing(let p):
             if p.total == 0 { return "Scanning library…" }
             return "\(p.completed) of \(p.total)"
+        case .reconnecting(let p):
+            guard let retry = p.retry else { return "Waiting for the server…" }
+            let seconds = max(0, Int(ceil(retry.retryAt.timeIntervalSinceNow)))
+            let requests = retry.waitingRequests == 1 ? "request" : "requests"
+            return "Retrying in \(seconds)s · \(retry.waitingRequests) \(requests) waiting"
         case .paused(let n): return "\(n) items waiting"
         case .error:
             return "Check that your server is online and the address is correct, then retry."
+        }
+    }
+
+    private var activeProgress: SyncProgress? {
+        switch model.status {
+        case .syncing(let progress), .reconnecting(let progress): return progress
+        default: return nil
         }
     }
 }

@@ -15,6 +15,18 @@ struct FakeCredentialStore: CredentialStore {
     #expect(client.session.configuration.requestCachePolicy == .reloadIgnoringLocalCacheData)
 }
 
+@Test func retryPolicyUsesFifteenRetriesAndCapsAtOneMinute() {
+    #expect(ServerClient.defaultMaxRetries == 15)
+    #expect(ServerClient.backoffDelay(forRetry: 0) == 1)
+    #expect(ServerClient.backoffDelay(forRetry: 5) == 32)
+    #expect(ServerClient.backoffDelay(forRetry: 6) == 60)
+    #expect(ServerClient.backoffDelay(forRetry: 14) == 60)
+    #expect(ServerClient.retryDelay(for: .serviceUnavailable(retryAfter: 120), retry: 0) == 60)
+    for _ in 0..<100 {
+        #expect(ServerClient.jittered(60) <= ServerClient.maxBackoffDelay)
+    }
+}
+
 @Test func fakeCredentialStoreReturnsValue() async throws {
     let store = FakeCredentialStore(creds: .init(username: "u", password: "p"))
     #expect(try await store.basicCredentials() == .init(username: "u", password: "p"))
