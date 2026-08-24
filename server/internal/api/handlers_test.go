@@ -2249,9 +2249,12 @@ func TestHandlePatchUploadStatus_MoveFailurePreservesUploading(t *testing.T) {
 	// $storagePath/organized/2024/03/15/IMG_0001.jpg
 	// If we create a file at $storagePath/organized, MkdirAll will fail
 	// trying to create organized/2024/03/15.
+	// uploadbackend.New (called from setupHandler) already creates
+	// organized/ as an empty directory, so it must be removed before a file
+	// can take its place.
 	organizedRoot := filepath.Join(h.StoragePath(), "organized")
-	if err := os.MkdirAll(filepath.Dir(organizedRoot), 0o750); err != nil {
-		t.Fatalf("MkdirAll for organized root: %v", err)
+	if err := os.RemoveAll(organizedRoot); err != nil {
+		t.Fatalf("RemoveAll for organized root: %v", err)
 	}
 	// Write a file in place of the organized directory to force MkdirAll to fail.
 	if err := os.WriteFile(organizedRoot, []byte("not-a-directory"), 0o600); err != nil {

@@ -19,7 +19,7 @@ import (
 	"github.com/tus/tusd/v2/pkg/memorylocker"
 )
 
-// dirPerm is the permission mode used when creating the incoming/ directory.
+// dirPerm is the permission mode used when creating storage-root directories.
 const dirPerm = 0o750
 
 // Internal sentinel errors for tusd adapter operations. These are wrapped at
@@ -83,13 +83,26 @@ type TUSHandler struct {
 
 // New creates a new TUSHandler with storage rooted at the given path.
 // The incoming/ subdirectory holds the tusd binary files and .info sidecars.
-// The directory is created if it does not exist.
+// organized/ (where filestore.Mover moves completed uploads) is otherwise
+// only ever created on demand when the first file lands there, which would
+// leave it missing — and gc-orphans' scan of organized/ failing fatally —
+// on a fresh install with no completed uploads yet. Both directories are
+// created here if they do not exist, since this is the one place in
+// startup that already creates a storage-root subdirectory and checks the
+// error.
 func New(storagePath string) (*TUSHandler, error) {
 	incomingPath := filepath.Join(storagePath, "incoming")
 
 	err := os.MkdirAll(incomingPath, dirPerm)
 	if err != nil {
 		return nil, fmt.Errorf("create incoming dir %s: %w", incomingPath, err)
+	}
+
+	organizedPath := filepath.Join(storagePath, "organized")
+
+	err = os.MkdirAll(organizedPath, dirPerm)
+	if err != nil {
+		return nil, fmt.Errorf("create organized dir %s: %w", organizedPath, err)
 	}
 
 	fileStore := filestore.New(incomingPath)
