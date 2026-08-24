@@ -204,6 +204,16 @@ struct PanelView: View {
     private var isPaused: Bool { if case .paused = model.status { return true }; return false }
     private var isSignedOut: Bool { if case .signedOut = model.status { return true }; return false }
     private var isError: Bool { if case .error = model.status { return true }; return false }
+    /// Green is a claim about the backup, not merely that the engine is idle. A missing
+    /// assessment, retained failure, or known pending resource must never read as protected.
+    private var isBackupCurrent: Bool {
+        guard case .watching = model.status else { return false }
+        return model.summary.pending == 0 && model.summary.failed.isEmpty
+    }
+    private var needsBackupAttention: Bool {
+        guard case .watching = model.status else { return false }
+        return !isBackupCurrent
+    }
     private var pending: Int {
         switch model.status {
         case .syncing(let p), .reconnecting(let p): return max(0, p.total - p.completed)
@@ -235,7 +245,8 @@ struct PanelView: View {
         case .syncing, .reconnecting, .counting: return .blue
         case .paused: return .orange
         case .error: return .red
-        default: return .green
+        case .watching: return isBackupCurrent ? .green : .orange
+        case .signedOut: return .green
         }
     }
     private var stateIcon: String {
@@ -244,7 +255,7 @@ struct PanelView: View {
         case .paused: return "pause.fill"
         case .error: return "exclamationmark"
         case .signedOut: return "server.rack"
-        case .watching: return "checkmark"
+        case .watching: return isBackupCurrent ? "checkmark" : "exclamationmark"
         }
     }
 
@@ -252,7 +263,7 @@ struct PanelView: View {
         switch model.status {
         case .signedOut: return "Needs setup"
         case .counting(_, _, let purpose): return purpose == .verify ? "Verifying" : "Checking"
-        case .watching: return "Protected"
+        case .watching: return isBackupCurrent ? "Protected" : "Needs attention"
         case .syncing: return "Backing up"
         case .reconnecting: return "Reconnecting"
         case .paused: return "Paused"
@@ -268,7 +279,7 @@ struct PanelView: View {
             // A verify pass follows a completed upload; saying "Counting…" again there reads
             // as "it started over", which is exactly what the resume work set out to avoid.
             return purpose == .verify ? "Verifying backup…" : "Counting…"
-        case .watching: return "Up to date"
+        case .watching: return isBackupCurrent ? "Backup is current" : "Backup needs attention"
         case .syncing: return "Syncing…"
         case .reconnecting: return "Reconnecting…"
         case .paused: return "Paused"
@@ -281,7 +292,18 @@ struct PanelView: View {
         case .counting(let done, let total, let purpose):
             let scope = purpose == .verify ? "Checking for changes" : "Scanning library"
             return total > 0 ? "\(scope) · \(done.formatted()) of \(total.formatted())" : "\(scope)…"
-        case .watching(let last): return last.map { "Last sync \($0.formatted(.relative(presentation: .named)))" } ?? "Watching for new items"
+        case .watching(let last):
+            if needsBackupAttention {
+                if let pending = model.summary.pending, pending > 0 {
+                    return "\(pending.formatted()) items are waiting to be backed up"
+                }
+                if !model.summary.failed.isEmpty {
+                    return "Some items could not be backed up"
+                }
+                return "Backup status has not been confirmed"
+            }
+            return last.map { "Last sync \($0.formatted(.relative(presentation: .named)))" }
+                ?? "No items are waiting to be backed up"
         case .syncing(let p):
             if p.total == 0 { return "Scanning library…" }
             return "\(p.completed) of \(p.total)"

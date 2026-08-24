@@ -15,7 +15,10 @@ public struct ConnectionProbe: Sendable {
     public func probe(baseURL: URL, credentials: BasicCredentials) async -> ConnectionResult {
         let client = ServerClient(baseURL: baseURL,
                                   credentials: StaticCredentialStore(credentials),
-                                  session: session)
+                                  session: session,
+                                  // An explicit user action must report the current
+                                  // connection state, not wait through upload retries.
+                                  maxPatchRetries: 0)
         do {
             _ = try await client.listUploads(cursor: nil)
             return .ok

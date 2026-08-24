@@ -108,13 +108,13 @@ import Foundation
         #expect(sum.backedUp == 2)             // skipped(2) + uploaded(0)
     }
 
-    @Test func assessFailureFallsBackToWatching() async {
+    @Test func assessFailureNeedsAttention() async {
         struct Boom: Error {}
         let engine = LiveSyncEngine(credentials: creds(true), state: InMemorySyncStateStore(),
                                     perform: { _, _ in self.emptyReport() },
                                     assess: { _, _ in throw Boom() })
         await engine.start()
-        #expect(isWatching(await awaitStatus(engine, isWatching)))
+        #expect(isError(await awaitStatus(engine, isError)))
         #expect(await awaitSummary(engine) { _ in true } == .empty)   // no cache → stays empty
     }
 

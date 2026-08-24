@@ -186,6 +186,11 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
             if gen == generation {
                 assessChild = nil
                 if let a { setSummary(SyncSummary(backedUp: a.backedUp, pending: a.pending, failed: currentSummary.failed, resourceTotal: a.resourceTotal)) }
+                guard a != nil else {
+                    autoSyncRange = nil
+                    setStatus(.error(message: "Couldn't check the backup server."))
+                    return
+                }
                 setStatus(.watching(lastSync: lastSync))
                 let range = autoSyncRange
                 autoSyncRange = nil
@@ -458,7 +463,8 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
 
     /// Runs `assess` OFF the consumer (PhotoKit scan + server diff; must not block the command
     /// queue). Reports scan progress via `.counting` and the result via `.assessFinished`, both
-    /// generation-gated. `nil` result = the scan failed → the handler settles to `.watching`.
+    /// generation-gated. `nil` result = the scan failed → an actionable error, retaining any
+    /// cached summary as last-known data rather than presenting it as current.
     /// Bump the generation and start an off-consumer count. If `autoSync` and the count finds
     /// pending work, `.assessFinished` chains into a sync (count-then-upload).
     private func startIdleCount(range: SyncRange, autoSync: Bool, purpose: CountPurpose = .survey) {
