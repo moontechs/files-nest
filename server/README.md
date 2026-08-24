@@ -8,46 +8,30 @@ metadata in an embedded BadgerDB database.
 This is the **backend** component. A macOS client app (`files-nest-mac`)
 streams photo/video data directly from iCloud to this server.
 
+## Contents
+
+- [Architecture](#architecture)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [API Reference](#api-reference)
+- [Data Model](#data-model)
+- [Startup Recovery](#startup-recovery)
+- [Docker Usage](#docker-usage)
+- [TUS Protocol Details](#tus-protocol-details)
+- [Development](#development)
+- [Invariants](#invariants)
+
 ---
 
 ## Architecture
 
-```
-┌─────────────┐   TUS 1.0 protocol    ┌─────────────────────────────┐
-│ macOS app   │ ◄───────────────────► │ Go server (single binary)   │
-│ (stateless) │   HTTP Basic Auth     │                             │
-└─────────────┘                       │  ┌───────────────────────┐  │
-                                      │  │ API handlers          │  │
-                                      │  │ (internal/api)        │  │
-                                      │  └──────┬────────────────┘  │
-                                      │         │                   │
-                                      │  ┌──────▼────────────────┐  │
-                                      │  │ uploadbackend adapter │  │
-                                      │  │ (internal/upload-     │  │
-                                      │  │  backend)             │  │
-                                      │  │   ┌───────────────┐   │  │
-                                      │  │   │ embedded tusd  │   │  │
-                                      │  │   │ (v2.10.0)      │   │  │
-                                      │  │   └───────┬───────┘   │  │
-                                      │  └───────────┼────────────┘  │
-                                      │              │              │
-                                      │  ┌──────────▼─────────────┐ │
-                                      │  │ BadgerDB (internal/    │ │
-                                      │  │ store)                 │ │
-                                      │  │  - upload records      │ │
-                                      │  │  - indexes             │ │
-                                      │  │  - completion intents  │ │
-                                      │  └────────────────────────┘ │
-                                      └─────────────────────────────┘
-                                                  │
-                                          ┌───────▼────────┐
-                                          │   Filesystem    │
-                                          │  $STORAGE_PATH │
-                                          │  ├── db/       │
-                                          │  ├── incoming/ │
-                                          │  └── organized/│
-                                          └────────────────┘
-```
+The macOS app talks TUS 1.0 over HTTP Basic Auth to a single Go server
+binary. Inside the server, `internal/api` handlers sit in front of an
+`internal/uploadbackend` adapter that wraps an embedded tusd (v2.10.0)
+instance, and `internal/store` persists upload records, indexes, and
+completion intents in an embedded BadgerDB. Completed files land on the
+filesystem under `$STORAGE_PATH`, split into `db/`, `incoming/`, and
+`organized/` (see [Storage Layout](#storage-layout)).
 
 ### Key Design Decisions
 
@@ -168,22 +152,15 @@ Cleanup is fully automatic — there is no manual trigger and no dry-run mode.
 
 ### Storage Layout
 
-```
-$STORAGE_PATH/
-├── db/                      ← BadgerDB database (upload records, indexes, intents)
-├── incoming/                ← tusd upload directory (partial + .info sidecars)
-└── organized/               ← Completed files organized by date
-    └── YYYY/
-        └── MM/
-            └── DD/
-                ├── IMG_1234.jpg
-                └── IMG_0001_<backend_id>.jpg  ← collision dedup suffix
-```
+Everything lives under `$STORAGE_PATH`:
 
-The `incoming/` directory holds in-progress TUS uploads. The `.info` sidecar
-files carry metadata; the binary files contain the uploaded data. Once an
-upload is complete, the file is moved from `incoming/` to `organized/` and
-the `.info` sidecar is cleaned up.
+- `db/` — BadgerDB database (upload records, indexes, completion intents).
+- `incoming/` — tusd's working directory: in-progress uploads as a partial
+  binary file plus a `.info` metadata sidecar. Once an upload completes, the
+  file is moved to `organized/` and the `.info` sidecar is cleaned up.
+- `organized/YYYY/MM/DD/` — completed files, named by their original
+  filename (e.g. `IMG_1234.jpg`), with `_<backend_id>` appended on a
+  collision (e.g. `IMG_0001_<backend_id>.jpg`).
 
 ---
 
@@ -493,16 +470,10 @@ removal is silently skipped.
 ### Safe Server IDs
 
 The server uses deterministic, path-safe IDs derived from the original
-PhotoKit `localIdentifier`. The derivation uses SHA-256 + base64url encoding
-to produce a compact, fixed-length identifier safe for use in URL paths,
-filesystem paths, and BadgerDB keys.
-
-```
-localIdentifier: "ABC123-DEF456/ABC123-DEF456/L0/001"
-          ↓ SHA-256
-          ↓ base64url encoding
-safe ID:        "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8g9h0a1b2c3d4e5f6a7b8c9d0e1"
-```
+PhotoKit `localIdentifier` by SHA-256 hashing it and base64url-encoding the
+digest, producing a compact, fixed-length identifier safe for use in URL
+paths, filesystem paths, and BadgerDB keys — e.g. `"ABC123-DEF456/ABC123-
+DEF456/L0/001"` becomes `"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8g9h0a1b2c3d4e5f6a7b8c9d0e1"`.
 
 The original `localIdentifier` is preserved in the `local_identifier` field
 of the upload record and is searchable via the `LocalIdentifierIndex`.
@@ -527,18 +498,11 @@ of the upload record and is searchable via the `LocalIdentifierIndex`.
 
 ### Status Lifecycle
 
-```
-uploading ──── PATCH /status complete ──→ complete
-    │
-    └── 409 from tusd backend ──→ backend_lost
-                                      │
-                              POST /uploads (re-register)
-                                      │
-                                      ↓
-                                  uploading
-
-uploading / complete / backend_lost ── DELETE /uploads/:id ──→ deleted
-```
+A record starts `uploading`, and `PATCH /status {"status":"complete"}` moves
+it to `complete`. If the tusd backend returns 409 (e.g. after a server
+restart wiped its state), the record moves to `backend_lost`; a subsequent
+`POST /uploads` re-registers it back to `uploading`. `DELETE /uploads/:id`
+moves any of `uploading` / `complete` / `backend_lost` to `deleted`.
 
 - **uploading**: Upload in progress. The client can send PATCH /data chunks.
 - **complete**: File has been moved to the organized tree. No further data
@@ -698,43 +662,21 @@ is returned.
 
 ### Project Structure
 
-```
-server/
-├── main.go                           ← Entry point, wiring, shutdown
-├── go.mod / go.sum                   ← Dependencies
-├── Dockerfile                        ← Multi-stage Docker build
-├── docker-compose.yml                ← Server + Caddy
-├── Caddyfile                          ← Caddy reverse proxy config
-└── internal/
-    ├── api/                          ← HTTP handlers, middleware, routing
-    │   ├── handlers.go               ← All endpoint implementations
-    │   ├── handlers_test.go           ← Integration tests
-    │   ├── router.go                 ← Route registration, middleware
-    │   ├── auth.go                   ← HTTP Basic Auth middleware
-    │   ├── auth_test.go
-    │   ├── ids.go                    ← Safe ID derivation, filename sanitization
-    │   ├── ids_test.go
-    │   ├── locks.go                  ← Per-upload in-memory locking
-    │   ├── locks_test.go
-    │   ├── recovery.go               ← Startup crash recovery
-    │   └── recovery_test.go
-    ├── store/                        ← BadgerDB persistence layer
-    │   ├── store.go                  ← BadgerDB open/close
-    │   ├── store_test.go
-    │   ├── uploads.go                ← Upload CRUD, status updates, pagination
-    │   ├── uploads_test.go
-    │   ├── index.go                  ← Index registry, date/status/local/backend indexes
-    │   ├── completion.go             ← Completion intent CRUD
-    │   └── completion_test.go
-    ├── uploadbackend/                ← tusd adapter (narrow interface)
-    │   ├── tushandler.go             ← Wraps embedded tusd v2
-    │   ├── tushandler_test.go
-    │   ├── tusd_api_test.go          ← tusd API verification spike tests
-    │   └── errors.go                 ← Sentinel errors (ErrNotFound, etc.)
-    └── filestore/                    ← File organization and moving
-        ├── mover.go                  ← Path planning, file moves, collision handling
-        └── mover_test.go
-```
+- `main.go` — entry point, wiring, shutdown.
+- `internal/api/` — HTTP handlers (`handlers.go`), routing/middleware
+  (`router.go`), HTTP Basic Auth (`auth.go`), safe ID derivation and filename
+  sanitization (`ids.go`), per-upload in-memory locking (`locks.go`), and
+  startup crash recovery (`recovery.go`), each with a matching `_test.go`.
+- `internal/store/` — the BadgerDB persistence layer: open/close
+  (`store.go`), upload CRUD/status/pagination (`uploads.go`), secondary
+  indexes (`index.go`), and completion-intent CRUD (`completion.go`).
+- `internal/uploadbackend/` — the narrow tusd adapter (`tushandler.go`) and
+  its sentinel errors (`errors.go`).
+- `internal/filestore/` — path planning, file moves, and collision handling
+  (`mover.go`).
+
+See `CLAUDE.md` in this directory for the same layout kept current alongside
+`internal/orphans`.
 
 ### Running Tests
 
@@ -991,19 +933,9 @@ your stack uses different names.
 #### Architecture
 
 The e2e stack uses a separate Compose file and Caddyfile to avoid conflicts
-with the production deployment:
-
-```
-┌─────────────────────┐  :18080 (host)  ┌──────────────────────┐
-│  go test -tags=e2e  │ ◄─────────────► │  Caddy (e2e)  :80    │
-│  (HTTP client)      │                 │  plain HTTP, no TLS  │
-└─────────────────────┘                 └──────────┬───────────┘
-                                                   │ reverse_proxy
-                                          ┌────────▼───────────┐
-                                          │  Go server  :8080  │
-                                          │  (same Dockerfile) │
-                                          └────────────────────┘
-```
+with the production deployment: `go test -tags=e2e` talks plain HTTP to
+Caddy on `127.0.0.1:${E2E_HTTP_PORT:-18080}`, which reverse-proxies to the Go
+server on `:8080` — both containers built from the same production images.
 
 - **Caddy** binds to `127.0.0.1:${E2E_HTTP_PORT:-18080}` (host) → `:80` (container).
 - **Server** is built from the same `Dockerfile` as production.
