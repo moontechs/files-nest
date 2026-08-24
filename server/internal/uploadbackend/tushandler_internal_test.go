@@ -23,10 +23,10 @@ import (
 
 func TestExtractTusdError(t *testing.T) {
 	tests := []struct {
-		name       string
-		status     int
-		sentinel   error
-		body       string
+		name     string
+		status   int
+		sentinel error
+		body     string
 	}{
 		{
 			name:     "not implemented",

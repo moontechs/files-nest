@@ -17,6 +17,7 @@ import (
 	"github.com/tus/tusd/v2/pkg/filestore"
 	"github.com/tus/tusd/v2/pkg/handler"
 	"github.com/tus/tusd/v2/pkg/memorylocker"
+	xslog "golang.org/x/exp/slog"
 )
 
 // dirPerm is the permission mode used when creating storage-root directories.
@@ -115,6 +116,7 @@ func New(storagePath string) (*TUSHandler, error) {
 	unrouted, err := handler.NewUnroutedHandler(handler.Config{
 		StoreComposer: composer,
 		BasePath:      "/",
+		Logger:        xslog.New(newQuietDeleteHandler(xslog.Default().Handler())),
 		// Disable notifications — we handle completion ourselves.
 		NotifyCompleteUploads:   false,
 		NotifyTerminatedUploads: false,
@@ -338,6 +340,75 @@ func (h *TUSHandler) TerminateOrCleanup(ctx context.Context, backendID string) e
 	default:
 		return extractTusdError(rec.ResponseRecorder)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Logging
+// ---------------------------------------------------------------------------
+
+// quietDeleteHandler wraps tusd's default slog handler and downgrades the
+// "ResponseOutgoing" line for a DELETE that got a 404 from INFO to DEBUG.
+// TerminateOrCleanup always probes tusd with a real DELETE first; once the
+// completion flow has already moved the binary file out of tusd's store,
+// that probe is guaranteed to 404 — expected, not an error — so it
+// shouldn't read like one at the default log level.
+type quietDeleteHandler struct {
+	xslog.Handler
+
+	method string
+}
+
+func newQuietDeleteHandler(h xslog.Handler) *quietDeleteHandler {
+	return &quietDeleteHandler{Handler: h, method: ""}
+}
+
+// WithAttrs implements xslog.Handler; the return type is fixed by that
+// interface.
+//
+//nolint:ireturn
+func (h *quietDeleteHandler) WithAttrs(attrs []xslog.Attr) xslog.Handler {
+	method := h.method
+
+	for _, a := range attrs {
+		if a.Key == "method" {
+			method = a.Value.String()
+		}
+	}
+
+	return &quietDeleteHandler{Handler: h.Handler.WithAttrs(attrs), method: method}
+}
+
+// WithGroup implements xslog.Handler; the return type is fixed by that
+// interface.
+//
+//nolint:ireturn
+func (h *quietDeleteHandler) WithGroup(name string) xslog.Handler {
+	return &quietDeleteHandler{Handler: h.Handler.WithGroup(name), method: h.method}
+}
+
+func (h *quietDeleteHandler) Handle(ctx context.Context, r xslog.Record) error {
+	if r.Message == "ResponseOutgoing" && h.method == http.MethodDelete {
+		var status int64
+
+		r.Attrs(func(a xslog.Attr) bool {
+			if a.Key == "status" {
+				status = a.Value.Int64()
+			}
+
+			return true
+		})
+
+		if status == http.StatusNotFound {
+			if !h.Enabled(ctx, xslog.LevelDebug) {
+				return nil
+			}
+
+			r.Level = xslog.LevelDebug
+		}
+	}
+
+	//nolint:wrapcheck // pass through tusd's own handler error verbatim, nothing to add
+	return h.Handler.Handle(ctx, r)
 }
 
 // ---------------------------------------------------------------------------
