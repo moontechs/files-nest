@@ -169,13 +169,13 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 **Files:**
 - Modify: `apple/macos/FilesNest/FilesNest/PanelView.swift`
 
-- [ ] remove `showingSettings` `@State`, the `SettingsView` branch of the dashboard `ZStack`, and its slide transition — `PanelView` goes back to being just the dashboard (leave `showingFailed`/`FailedItemsView` untouched, it's unrelated)
-- [ ] add `@Environment(\.openSettings) private var openSettings` to `PanelView`
-- [ ] footer "Settings…" button calls `SettingsPresenter.open(openSettings)`
-- [ ] sign-out CTA ("Set Up FilesNest") calls `SettingsPresenter.open(openSettings)`
-- [ ] error-state "Settings" button calls `SettingsPresenter.open(openSettings)`
-- [ ] add a `⌘,`-shortcut to the *existing* footer "Settings…" button itself (`.keyboardShortcut(",", modifiers: .command)`) rather than adding a second, visually separate "Settings…" control — the shortcut only needs to be reachable while the `MenuBarExtra` menu is open, and reusing the existing button avoids two same-labeled controls in one small panel
-- [ ] manual verification only — covered in Task 11
+- [x] remove `showingSettings` `@State`, the `SettingsView` branch of the dashboard `ZStack`, and its slide transition — `PanelView` goes back to being just the dashboard (leave `showingFailed`/`FailedItemsView` untouched, it's unrelated)
+- [x] add `@Environment(\.openSettings) private var openSettings` to `PanelView`
+- [x] footer "Settings…" button calls `SettingsPresenter.open(openSettings)`
+- [x] sign-out CTA ("Set Up FilesNest") calls `SettingsPresenter.open(openSettings)`
+- [x] error-state "Settings" button calls `SettingsPresenter.open(openSettings)`
+- [x] add a `⌘,`-shortcut to the *existing* footer "Settings…" button itself (`.keyboardShortcut(",", modifiers: .command)`) rather than adding a second, visually separate "Settings…" control — the shortcut only needs to be reachable while the `MenuBarExtra` menu is open, and reusing the existing button avoids two same-labeled controls in one small panel
+- [x] manual verification only (skipped - not automatable; covered in Task 11)
 
 ### Task 8: Destination-aware panel messaging
 

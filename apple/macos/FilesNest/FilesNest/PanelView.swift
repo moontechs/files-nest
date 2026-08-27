@@ -5,23 +5,17 @@ struct PanelView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: SettingsModel
     let thumbnails: ThumbnailLoader
-    @State private var showingSettings = false
+    @Environment(\.openSettings) private var openSettings
     @State private var showingFailed = false
 
     var body: some View {
         ZStack {
-            // Keep the dashboard alive while a detail screen is visible. In particular, a
-            // PhotoKit count can continue reporting progress without the dashboard being
-            // reconstructed when the user goes to Settings and back.
             dashboard
-                .opacity(showingSettings || showingFailed ? 0 : 1)
-                .allowsHitTesting(!showingSettings && !showingFailed)
-                .accessibilityHidden(showingSettings || showingFailed)
+                .opacity(showingFailed ? 0 : 1)
+                .allowsHitTesting(!showingFailed)
+                .accessibilityHidden(showingFailed)
 
-            if showingSettings {
-                SettingsView(model: settings)
-                    .transition(.move(edge: .trailing))
-            } else if showingFailed {
+            if showingFailed {
                 FailedItemsView(items: model.summary.failed,
                                 thumbnails: thumbnails,
                                 onDone: { withAnimation(slide) { showingFailed = false } },
@@ -34,7 +28,6 @@ struct PanelView: View {
         }
         .frame(width: 320)
         .clipped()
-        .animation(slide, value: showingSettings)
         .animation(slide, value: showingFailed)
     }
 
@@ -167,7 +160,7 @@ struct PanelView: View {
     private var actions: some View {
         VStack(spacing: 0) {
             if isSignedOut {
-                Button("Set Up FilesNest") { showingSettings = true }
+                Button("Set Up FilesNest") { SettingsPresenter.open(openSettings) }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -175,7 +168,7 @@ struct PanelView: View {
                 HStack(spacing: 8) {
                     Button("Retry") { model.syncNow() }
                         .buttonStyle(.borderedProminent)
-                    Button("Settings") { showingSettings = true }
+                    Button("Settings") { SettingsPresenter.open(openSettings) }
                 }
             } else {
                 HStack(spacing: 8) {
@@ -192,7 +185,8 @@ struct PanelView: View {
 
     private var footer: some View {
         HStack {
-            Button("Settings…") { showingSettings = true }
+            Button("Settings…") { SettingsPresenter.open(openSettings) }
+                .keyboardShortcut(",", modifiers: .command)
             Spacer()
             Button("Quit") { NSApp.terminate(nil) }
         }
