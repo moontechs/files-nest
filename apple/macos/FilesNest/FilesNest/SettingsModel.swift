@@ -85,7 +85,9 @@ final class SettingsModel: ObservableObject {
         guard let url = URL(string: serverURL),
               !serverURL.isEmpty,
               url.scheme != nil,
-              url.host != nil else {
+              url.host != nil,
+              url.user == nil,
+              url.password == nil else {
             saveError = "Enter a valid server URL."
             return
         }

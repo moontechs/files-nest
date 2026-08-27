@@ -42,6 +42,25 @@ struct SettingsModelTests {
         #expect(!model.isConnecting)
     }
 
+    @Test func connectWithCredentialsEmbeddedInURLDoesNotPersistThem() async {
+        let urlStore = TestURLStore(savedURL: URL(string: "https://previous.example"))
+        let credentials = TestCredentialStore(saved: .init(username: "old", password: "old-secret"))
+        let model = SettingsModel(urlStore: urlStore,
+                                  credStore: credentials,
+                                  probe: TestProbe(result: .ok),
+                                  destinationStore: TestDestinationStore())
+        model.serverURL = "https://alice:embedded-secret@nest.example"
+        model.username = "alice"
+        model.password = "separate-secret"
+
+        await model.connect()
+
+        #expect(model.saveError == "Enter a valid server URL.")
+        #expect(model.testResult == nil)
+        #expect(urlStore.savedURL == URL(string: "https://previous.example"))
+        #expect(credentials.saved == BasicCredentials(username: "old", password: "old-secret"))
+    }
+
     @Test func connectPersistsOnlyAfterASuccessfulProbe() async {
         let urlStore = TestURLStore(savedURL: URL(string: "https://previous.example"))
         let credentials = TestCredentialStore(saved: .init(username: "old", password: "old-secret"))
