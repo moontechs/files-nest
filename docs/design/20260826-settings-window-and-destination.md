@@ -1,7 +1,7 @@
 # Design: Settings as a Separate Window + Sync Destination Choice
 
 **Date:** 2026-08-26
-**Status:** Proposed
+**Status:** Implemented
 **Packages:** `apple/macos/FilesNest` (window scene, views) and `apple/FilesNestCore` (new `SyncDestination` seam)
 **Supersedes:** `docs/design/20260726-menubar-shell.md` §5.1 — that spec chose in-panel,
 AirBuddy-style Settings ("no separate `Settings {}` window scene") because Settings

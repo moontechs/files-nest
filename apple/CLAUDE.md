@@ -40,3 +40,8 @@ FilesNest.xcodeproj -scheme FilesNest test` if you need a non-interactive run.
   `YYYYMMDD-name.md` file, matching the existing ones — check there first for
   prior design decisions before re-deciding something (e.g. resume/persisted
   plan, upload concurrency).
+- For menu-bar-only macOS apps, a standalone `Settings {}` scene can be opened
+  through a view's `openSettings` environment action. Use a hidden anchor
+  `Window` so the action resolves reliably while the app uses `.accessory`
+  activation policy; `SettingsPresenter` temporarily switches to `.regular`
+  before opening and restores `.accessory` when the Settings view disappears.

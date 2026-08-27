@@ -230,10 +230,10 @@ Manual-verification checklist to run in this task:
 
 ### Task 12: Update documentation
 
-- [ ] update `apple/CLAUDE.md` if this work established a new pattern worth recording (e.g. the `SettingsPresenter` activation-policy-toggle approach, if future menu-bar-only windows will need the same trick)
-- [ ] add a short "Sync destination" entry to `CONTEXT.md` defining `SyncDestination`/"destination" as domain vocabulary (a `Sync to: Server | Local Folder` choice, exactly one active at a time) — commit to this now rather than deferring it, since `apple/CLAUDE.md` requires new domain vocabulary to live there
-- [ ] move `docs/design/20260826-settings-window-and-destination.md`'s status from "Proposed" to "Implemented" (or equivalent) once this plan completes
-- [ ] move this plan file to `docs/plans/completed/`
+- [x] update `apple/CLAUDE.md` with the `SettingsPresenter` activation-policy-toggle pattern for future menu-bar-only windows
+- [x] add a short "Sync destination" entry to `CONTEXT.md` defining `SyncDestination`/"destination" as domain vocabulary (a `Sync to: Server | Local Folder` choice, exactly one active at a time)
+- [x] move `docs/design/20260826-settings-window-and-destination.md`'s status from "Proposed" to "Implemented"
+- [x] move this plan file to `docs/plans/completed/`
 
 ## Post-Completion
 

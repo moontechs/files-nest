@@ -19,3 +19,8 @@ _Avoid_: Stale file, leftover file
 **Completion intent**:
 A durable record written before an in-progress upload's file is moved into `organized/`, used by startup recovery to detect and finish/roll back a move interrupted by a crash. Reconciles DB-side state against files — the opposite direction from orphan detection, which reconciles files against DB-side state.
 _Avoid_: Move record, pending move
+
+**Sync destination**:
+The selected place to send backups: `SyncDestination.server` (a FilesNest
+Server) or `SyncDestination.localFolder` (a local folder). Exactly one
+destination is active at a time, chosen by the Settings “Sync to” picker.
