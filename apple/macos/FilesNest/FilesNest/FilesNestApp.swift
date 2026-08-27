@@ -111,6 +111,15 @@ struct FilesNestApp: App {
     }
 
     var body: some Scene {
+        Window("", id: "settings-anchor") {
+            SettingsAnchorView()
+        }
+        .windowStyle(.hiddenTitleBar)
+
+        Settings {
+            SettingsView(model: settings)
+        }
+
         MenuBarExtra("FilesNest", systemImage: "arrow.triangle.2.circlepath") {
             PanelView(model: model, settings: settings, thumbnails: thumbnails).task { model.begin() }
         }

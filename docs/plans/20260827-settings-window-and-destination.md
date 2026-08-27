@@ -156,13 +156,13 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 - Modify: `apple/macos/FilesNest/FilesNest/FilesNestApp.swift`
 - Modify: `apple/macos/FilesNest/FilesNest/SettingsView.swift`
 
-- [ ] add `SettingsPresenter`: `@MainActor enum SettingsPresenter { static func open(_ openSettings: OpenSettingsAction) { NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true); openSettings() } }`
-- [ ] add `SettingsAnchorView`, an otherwise-empty `View` (`Color.clear` or similar, no visible content) — this replaces a bare `EmptyView()` specifically so it has a body capable of holding `@Environment(\.openSettings)` and a `.task`, which Task 9 needs for first-launch auto-open (a bare `EmptyView` can't host either)
-- [ ] in `FilesNestApp.body`, add `Window("", id: "settings-anchor") { SettingsAnchorView() }.windowStyle(.hiddenTitleBar)` (render-tree context for `openSettings()` to resolve against, since this app is `.accessory`-policy with no other window that's guaranteed present at launch)
-- [ ] add `Settings { SettingsView(model: settings) }` scene
-- [ ] reuse the single `UserDefaultsSyncDestinationStore` instance Task 3 already constructed in `FilesNestApp.init` — this task does not construct another one
-- [ ] add `.onDisappear { NSApp.setActivationPolicy(.accessory) }` to `SettingsView`'s root as the first attempt at restoring accessory policy on close. **This is not confirmed to be race-free** — whether `.onDisappear` reliably fires only after the window is fully gone (vs. firing early on a rapid open/close, leaving the Dock icon stuck) is unverified until manual testing in Task 11; if it proves flaky there, the fallback is an explicit `NSWindowDelegate.windowWillClose` on the resolved `NSWindow`. Do not treat this bullet as closing the race — treat it as the first thing to try.
-- [ ] manual verification only for this task — Dock icon appear/disappear timing and the close-detection race are UI-runtime behaviors outside both test targets' reach; covered in Task 11's checklist
+- [x] add `SettingsPresenter`: `@MainActor enum SettingsPresenter { static func open(_ openSettings: OpenSettingsAction) { NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true); openSettings() } }`
+- [x] add `SettingsAnchorView`, an otherwise-empty `View` (`Color.clear` or similar, no visible content) — this replaces a bare `EmptyView()` specifically so it has a body capable of holding `@Environment(\.openSettings)` and a `.task`, which Task 9 needs for first-launch auto-open (a bare `EmptyView` can't host either)
+- [x] in `FilesNestApp.body`, add `Window("", id: "settings-anchor") { SettingsAnchorView() }.windowStyle(.hiddenTitleBar)` (render-tree context for `openSettings()` to resolve against, since this app is `.accessory`-policy with no other window that's guaranteed present at launch)
+- [x] add `Settings { SettingsView(model: settings) }` scene
+- [x] reuse the single `UserDefaultsSyncDestinationStore` instance Task 3 already constructed in `FilesNestApp.init` — this task does not construct another one
+- [x] add `.onDisappear { NSApp.setActivationPolicy(.accessory) }` to `SettingsView`'s root as the first attempt at restoring accessory policy on close. **This is not confirmed to be race-free** — whether `.onDisappear` reliably fires only after the window is fully gone (vs. firing early on a rapid open/close, leaving the Dock icon stuck) is unverified until manual testing in Task 11; if it proves flaky there, the fallback is an explicit `NSWindowDelegate.windowWillClose` on the resolved `NSWindow`. Do not treat this bullet as closing the race — treat it as the first thing to try.
+- [x] manual verification only for this task (skipped - not automatable; covered in Task 11)
 
 ### Task 7: Route all Settings-opening call sites through `SettingsPresenter`
 
