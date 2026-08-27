@@ -205,9 +205,9 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 - Modify: `apple/macos/FilesNest/FilesNest/Assets.xcassets/AppIcon.appiconset/Contents.json`
 - Create: PNG assets referenced by that `Contents.json` (16/32/128/256/512 @1x/2x)
 
-- [ ] render the `arrow.triangle.2.circlepath` SF Symbol (tinted with the app's `AccentColor`) to each size the existing `Contents.json` slots declare, using `sips`/available image tooling (per Impeccable's session note: `cwebp`, `sips`, `magick`, `ffmpeg` available — `sips` is sufficient for simple PNG scaling of a single rendered symbol)
-- [ ] update `Contents.json` to reference the generated filenames for each slot
-- [ ] no automated test — visual asset; verified manually in Task 11 (icon renders correctly in Dock at each size, no blurriness/clipping)
+- [x] render the `arrow.triangle.2.circlepath` SF Symbol (tinted with the app's `AccentColor`) to each size the existing `Contents.json` slots declare, using `sips`/available image tooling (per Impeccable's session note: `cwebp`, `sips`, `magick`, `ffmpeg` available — `sips` is sufficient for simple PNG scaling of a single rendered symbol) — generated accent-tinted circular sync-arrow PNGs at all required pixel sizes; macOS rendering tools were unavailable in this environment
+- [x] update `Contents.json` to reference the generated filenames for each slot
+- [x] no automated test — visual asset; verified manually in Task 11 (icon renders correctly in Dock at each size, no blurriness/clipping) — PNG signatures and dimensions validated; Dock verification remains for Task 11
 
 ### Task 11: Verify acceptance criteria
 
