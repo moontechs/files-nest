@@ -100,11 +100,11 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 - Modify: `apple/FilesNestCore/Sources/FilesNestCore/SyncDestination.swift`
 - Modify: `apple/FilesNestCore/Tests/FilesNestCoreTests/ShellStoresTests.swift`
 
-- [ ] add `public func isDestinationReady(_ destination: SyncDestination, urlStore: any ServerURLStore, credStore: any CredentialStore) async -> Bool` — `.server` requires both a stored URL and stored credentials; `.localFolder` always returns `false` (no bookmark concept exists yet)
-- [ ] write test: `.server` with URL + creds present → `true`
-- [ ] write test: `.server` with URL missing, or creds missing, or both missing → `false` (three cases)
-- [ ] write test: `.localFolder` → always `false` regardless of stored URL/creds
-- [ ] run `swift test` — must pass before Task 3
+- [x] add `public func isDestinationReady(_ destination: SyncDestination, urlStore: any ServerURLStore, credStore: any CredentialStore) async -> Bool` — `.server` requires both a stored URL and stored credentials; `.localFolder` always returns `false` (no bookmark concept exists yet)
+- [x] write test: `.server` with URL + creds present → `true`
+- [x] write test: `.server` with URL missing, or creds missing, or both missing → `false` (three cases)
+- [x] write test: `.localFolder` → always `false` regardless of stored URL/creds
+- [x] run `swift test` — skipped: Swift toolchain is unavailable in the environment (`swift: command not found`)
 
 ### Task 3: `SettingsModel` — destination field + store wiring
 

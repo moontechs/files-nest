@@ -10,6 +10,20 @@ public protocol SyncDestinationStore: Sendable {
     func save(_ destination: SyncDestination)
 }
 
+public func isDestinationReady(
+    _ destination: SyncDestination,
+    urlStore: any ServerURLStore,
+    credStore: any CredentialStore
+) async -> Bool {
+    guard destination == .server, urlStore.load() != nil else { return false }
+
+    do {
+        return try await credStore.basicCredentials() != nil
+    } catch {
+        return false
+    }
+}
+
 public final class UserDefaultsSyncDestinationStore: SyncDestinationStore, @unchecked Sendable {
     private let defaults: UserDefaults
     private let key = "com.filesnest.syncDestination"
