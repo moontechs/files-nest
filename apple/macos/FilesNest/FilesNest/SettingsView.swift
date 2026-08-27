@@ -13,6 +13,7 @@ struct SettingsView: View {
                 Text("Local Folder").tag(SyncDestination.localFolder)
             }
             .pickerStyle(.segmented)
+            .disabled(model.isConnecting)
 
             switch model.destination {
             case .server:
@@ -24,6 +25,7 @@ struct SettingsView: View {
                         SecureField("Password", text: $model.password)
                     }
                 }
+                .disabled(model.isConnecting)
 
                 HStack(spacing: 10) {
                     Button("Connect") { Task { await model.connect() } }

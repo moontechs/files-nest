@@ -91,14 +91,14 @@ final class SettingsModel: ObservableObject {
             saveError = "Enter a valid server URL."
             return
         }
+        let credentials = BasicCredentials(username: username, password: password)
         isConnecting = true
         defer { isConnecting = false }
-        let result = await probe.probe(baseURL: url,
-                                       credentials: .init(username: username, password: password))
+        let result = await probe.probe(baseURL: url, credentials: credentials)
         testResult = result
         guard result == .ok else { return }
         do {
-            try credStore.save(.init(username: username, password: password))
+            try credStore.save(credentials)
         } catch {
             saveError = "Couldn't save credentials to the keychain: \(error)"
             return

@@ -93,6 +93,26 @@ struct SettingsModelTests {
         #expect(model.testResult == .unauthorized)
     }
 
+    @Test func successfulConnectPersistsTheCredentialsItProbed() async {
+        let urlStore = TestURLStore()
+        let credentials = TestCredentialStore()
+        let probe = MutatingProbe(result: .ok)
+        let model = SettingsModel(urlStore: urlStore, credStore: credentials,
+                                  probe: probe, destinationStore: TestDestinationStore())
+        model.serverURL = "https://nest.example"
+        model.username = "verified-user"
+        model.password = "verified-password"
+
+        probe.onProbe = {
+            model.username = "unverified-user"
+            model.password = "unverified-password"
+        }
+        await model.connect()
+
+        #expect(urlStore.savedURL == URL(string: "https://nest.example"))
+        #expect(credentials.saved == BasicCredentials(username: "verified-user", password: "verified-password"))
+    }
+
     @Test func keychainFailureDoesNotPersistURL() async {
         let urlStore = TestURLStore()
         let model = SettingsModel(urlStore: urlStore, credStore: TestCredentialStore(shouldFailSaving: true),
@@ -187,6 +207,18 @@ private final class DelayedProbe: ConnectionProbing, @unchecked Sendable {
         calls += 1
         lock.unlock()
         try? await Task.sleep(for: .milliseconds(50))
+        return result
+    }
+}
+
+private final class MutatingProbe: ConnectionProbing, @unchecked Sendable {
+    let result: ConnectionResult
+    var onProbe: (() -> Void)?
+
+    init(result: ConnectionResult) { self.result = result }
+
+    func probe(baseURL: URL, credentials: BasicCredentials) async -> ConnectionResult {
+        onProbe?()
         return result
     }
 }
