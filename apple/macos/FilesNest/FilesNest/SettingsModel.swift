@@ -14,7 +14,7 @@ final class SettingsModel: ObservableObject {
         }
     }
     @Published var testResult: ConnectionResult?
-    @Published var isTesting = false
+    @Published var isConnecting = false
     @Published var saveError: String?
 
     private let urlStore: any ServerURLStore
@@ -66,33 +66,29 @@ final class SettingsModel: ObservableObject {
         hasDraftEdits = true
     }
 
-    func test() async {
-        guard let url = URL(string: serverURL), !serverURL.isEmpty else {
-            testResult = .unreachable("Invalid URL"); return
-        }
-        isTesting = true; defer { isTesting = false }
-        testResult = await probe.probe(baseURL: url,
-                                       credentials: .init(username: username, password: password))
-    }
-
-    /// Persists URL + credentials. Returns `false` (and sets `saveError`) if the
-    /// credential write fails, so the caller can keep Settings open and show why —
-    /// a silently swallowed keychain error previously left the app stuck signed-out.
-    @discardableResult
-    func save() -> Bool {
-        guard let url = URL(string: serverURL), !serverURL.isEmpty else {
+    func connect() async {
+        guard !isConnecting else { return }
+        guard let url = URL(string: serverURL),
+              !serverURL.isEmpty,
+              url.scheme != nil,
+              url.host != nil else {
             saveError = "Enter a valid server URL."
-            return false
+            return
         }
+        isConnecting = true
+        defer { isConnecting = false }
+        let result = await probe.probe(baseURL: url,
+                                       credentials: .init(username: username, password: password))
+        testResult = result
+        guard result == .ok else { return }
         do {
             try credStore.save(.init(username: username, password: password))
         } catch {
             saveError = "Couldn't save credentials to the keychain: \(error)"
-            return false
+            return
         }
         urlStore.save(url)
         saveError = nil
         onSaved?()
-        return true
     }
 }

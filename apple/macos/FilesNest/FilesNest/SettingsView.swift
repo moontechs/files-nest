@@ -29,9 +29,9 @@ struct SettingsView: View {
             }
 
             HStack(spacing: 10) {
-                Button("Test Connection") { Task { await model.test() } }
-                    .disabled(model.isTesting || !model.hasCredentials)
-                if model.isTesting { ProgressView().controlSize(.small) }
+                Button("Connect") { Task { await model.connect() } }
+                    .disabled(model.isConnecting || !model.hasCredentials)
+                if model.isConnecting { ProgressView().controlSize(.small) }
                 testPill
             }
 
@@ -47,7 +47,6 @@ struct SettingsView: View {
             }
             HStack {
                 Spacer()
-                Button("Save & Connect") { if model.save() { onDone() } }
                     .buttonStyle(.borderedProminent).disabled(!model.hasCredentials)
             }
         }

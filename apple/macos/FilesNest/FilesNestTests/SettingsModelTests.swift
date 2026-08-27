@@ -26,6 +26,18 @@ struct SettingsModelTests {
 
         #expect(destinationStore.saved == [.localFolder])
     }
+
+    @Test func connectWithInvalidURLDoesNotProbe() async {
+        let model = SettingsModel(urlStore: TestURLStore(),
+                                  credStore: KeychainStore(),
+                                  probe: ConnectionProbe(),
+                                  destinationStore: TestDestinationStore())
+        model.serverURL = "not a URL"
+        await model.connect()
+
+        #expect(model.saveError == "Enter a valid server URL.")
+        #expect(!model.isConnecting)
+    }
 }
 
 private final class TestDestinationStore: SyncDestinationStore, @unchecked Sendable {
