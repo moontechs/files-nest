@@ -58,6 +58,26 @@ struct ShellStoresTests {
         #expect(configuration?.credentials == credentials)
     }
 
+    @Test func configuredServerDestinationReadsURLAfterCredentials() async {
+        let suite = UserDefaults(suiteName: "shell.\(UUID().uuidString)")!
+        let destinationStore = UserDefaultsSyncDestinationStore(defaults: suite)
+        let urlStore = UserDefaultsServerURLStore(defaults: suite)
+        let oldURL = URL(string: "https://old.home.example")!
+        let newURL = URL(string: "https://new.home.example")!
+        urlStore.save(oldURL)
+
+        let configuration = await configuredServerDestination(
+            destinationStore: destinationStore,
+            urlStore: urlStore,
+            credStore: URLUpdatingCredentialStore(
+                credentials: BasicCredentials(username: "new-user", password: "new-password"),
+                updateURL: { urlStore.save(newURL) }
+            )
+        )
+
+        #expect(configuration?.url == newURL)
+    }
+
     @Test func syncDestinationDefaultsToServer() {
         let suite = UserDefaults(suiteName: "shell.\(UUID().uuidString)")!
         let store = UserDefaultsSyncDestinationStore(defaults: suite)
@@ -99,5 +119,15 @@ struct ShellStoresTests {
         let creds = BasicCredentials(username: "u", password: "p")
         #expect(try await StaticCredentialStore(creds).basicCredentials() == creds)
         #expect(try await StaticCredentialStore(nil).basicCredentials() == nil)
+    }
+}
+
+private struct URLUpdatingCredentialStore: CredentialStore {
+    let credentials: BasicCredentials
+    let updateURL: @Sendable () -> Void
+
+    func basicCredentials() async throws -> BasicCredentials? {
+        updateURL()
+        return credentials
     }
 }

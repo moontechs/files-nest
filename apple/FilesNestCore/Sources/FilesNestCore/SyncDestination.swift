@@ -15,19 +15,22 @@ public struct ServerDestinationConfiguration: Sendable {
     public let credentials: BasicCredentials
 }
 
-/// Reads one usable server configuration. The destination is checked before and after
-/// the credential read so a switch to an unavailable destination cannot yield a server
-/// configuration while the Keychain call is suspended.
+/// Reads one usable server configuration. The URL is read only after the credential
+/// lookup completes, so an in-progress Settings update cannot pair newly saved
+/// credentials with the URL that preceded them. The destination is checked before and
+/// after the credential read so a switch to an unavailable destination cannot yield a
+/// server configuration while the Keychain call is suspended.
 public func configuredServerDestination(
     destinationStore: any SyncDestinationStore,
     urlStore: any ServerURLStore,
     credStore: any CredentialStore
 ) async -> ServerDestinationConfiguration? {
-    guard destinationStore.load() == .server, let url = urlStore.load() else { return nil }
+    guard destinationStore.load() == .server else { return nil }
 
     do {
         guard let credentials = try await credStore.basicCredentials(),
-              destinationStore.load() == .server else { return nil }
+              destinationStore.load() == .server,
+              let url = urlStore.load() else { return nil }
         return ServerDestinationConfiguration(url: url, credentials: credentials)
     } catch {
         return nil
