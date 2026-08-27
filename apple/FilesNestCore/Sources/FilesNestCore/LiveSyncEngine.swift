@@ -53,6 +53,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     private let resume: Resume?
     private let assess: (@Sendable (_ range: SyncRange, _ progress: AssessProgress) async throws -> Assessment)?
     private let cachedAssessment: (@Sendable () -> Assessment?)?
+    private let isReady: @Sendable () async -> Bool
     private let now: @Sendable () -> Date
 
     // Consumer-only state (mutated exclusively by the single consumer task).
@@ -98,6 +99,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 resume: Resume? = nil,
                 assess: (@Sendable (_ range: SyncRange, _ progress: AssessProgress) async throws -> Assessment)? = nil,
                 cachedAssessment: (@Sendable () -> Assessment?)? = nil,
+                isReady: @escaping @Sendable () async -> Bool = { true },
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.credentials = credentials
         self.state = state
@@ -105,6 +107,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         self.resume = resume
         self.assess = assess
         self.cachedAssessment = cachedAssessment
+        self.isReady = isReady
         self.now = now
 
         let (stream, continuation) = AsyncStream.makeStream(of: Command.self)
@@ -243,6 +246,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     /// the config may repoint the app (e.g. new server), so old-config work must stop — and
     /// re-establish the incremental anchor via a forced `.all`.
     private func doReconcile() async {
+        guard await isReady() else { resetToSignedOut(); return }
         let creds = try? await credentials.basicCredentials()
         guard creds != nil else { resetToSignedOut(); return }
         signedIn = true
@@ -267,6 +271,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     }
 
     private func doStart() async {
+        guard await isReady() else { resetToSignedOut(); return }
         let creds = try? await credentials.basicCredentials()
         guard creds != nil else { resetToSignedOut(); return }
         signedIn = true

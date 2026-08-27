@@ -10,6 +10,30 @@ public protocol SyncDestinationStore: Sendable {
     func save(_ destination: SyncDestination)
 }
 
+public struct ServerDestinationConfiguration: Sendable {
+    public let url: URL
+    public let credentials: BasicCredentials
+}
+
+/// Reads one usable server configuration. The destination is checked before and after
+/// the credential read so a switch to an unavailable destination cannot yield a server
+/// configuration while the Keychain call is suspended.
+public func configuredServerDestination(
+    destinationStore: any SyncDestinationStore,
+    urlStore: any ServerURLStore,
+    credStore: any CredentialStore
+) async -> ServerDestinationConfiguration? {
+    guard destinationStore.load() == .server, let url = urlStore.load() else { return nil }
+
+    do {
+        guard let credentials = try await credStore.basicCredentials(),
+              destinationStore.load() == .server else { return nil }
+        return ServerDestinationConfiguration(url: url, credentials: credentials)
+    } catch {
+        return nil
+    }
+}
+
 public func isDestinationReady(
     _ destination: SyncDestination,
     urlStore: any ServerURLStore,

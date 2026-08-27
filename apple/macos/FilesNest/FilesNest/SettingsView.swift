@@ -54,7 +54,7 @@ struct SettingsView: View {
             }
         }
         .padding(16).frame(width: 360)
-        .onDisappear { NSApp.setActivationPolicy(.accessory) }
+        .background(SettingsWindowCloseObserver())
         .task { await model.load() }
     }
 

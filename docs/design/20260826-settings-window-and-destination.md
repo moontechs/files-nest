@@ -31,11 +31,6 @@ var body: some Scene {
     }
     .menuBarExtraStyle(.window)
 
-    // Render-tree/window context `openSettings()` needs to reliably find and
-    // focus the Settings window from an .accessory app — see caveat below.
-    Window("", id: "settings-anchor") { EmptyView() }
-        .windowStyle(.hiddenTitleBar)
-
     Settings {
         SettingsView(model: settings)
     }
@@ -52,17 +47,15 @@ reimplements what `Settings {}` already does.
 **Caveat — `.accessory` apps don't get this for free.** An `.accessory`-policy app
 (no Dock icon, no traditional app menu bar) makes `openSettings()`/⌘, unreliable on
 their own — well-documented (Apple Feedback FB10184971; confirmed by multiple 2025
-writeups on `MenuBarExtra` + `Settings {}`). Three things compensate:
-1. The hidden `Window` scene above gives SwiftUI a render-tree/window context to
-   resolve `openSettings()` against — without it, the call can silently no-op.
-2. Toggle `NSApp.setActivationPolicy(.regular)` immediately before opening Settings
+writeups on `MenuBarExtra` + `Settings {}`). Two things compensate:
+1. Toggle `NSApp.setActivationPolicy(.regular)` immediately before opening Settings
    (any entry point), and back to `.accessory` when the Settings window closes
-   (`NSWindowDelegate.windowWillClose` or `.onDisappear`). macOS only reliably
+   (via `NSWindow.willCloseNotification`). macOS only reliably
    orders/focuses windows for Dock-icon apps — this is what makes the window
    actually come forward and stay reachable, at the cost of a Dock icon flickering
    in for as long as Settings is open. Accepted: the app is already "not only a
    tray app" per this proposal's premise.
-3. A **locally**-bound `⌘,` on a "Settings…" menu item inside the `MenuBarExtra`'s
+2. A **locally**-bound `⌘,` on a "Settings…" menu item inside the `MenuBarExtra`'s
    own menu content, calling `openSettings()` — the reliable path while the panel
    menu itself is open. System-wide ⌘, is not guaranteed to reach an accessory app
    and is not relied on as the only entry point.
@@ -74,9 +67,9 @@ writeups on `MenuBarExtra` + `Settings {}`). Three things compensate:
   toggle + `openSettings()`, instead of toggling local state.
 - `SettingsView.onDone` goes away — a window closes via the standard close button/⌘W,
   it doesn't navigate "back" to something.
-- First-launch auto-open (menubar-shell.md §5.3) calls the same open-Settings helper
-  once from `AppModel`/`FilesNestApp` when there are no saved credentials at launch,
-  instead of setting `showingSettings = true`.
+- First-launch auto-open (menubar-shell.md §5.3) calls the Settings window's standard
+  AppKit action once from `FilesNestApp` when the destination is not ready, instead
+  of creating a blank anchor window or setting `showingSettings = true`.
 
 `SettingsModel` is unaffected — it already survives independently of the panel's view
 lifecycle (`hasLoadedInitialValues` guard), and a window follows the same
@@ -152,8 +145,9 @@ it doesn't need a sidebar or `TabView` pane structure for two items. The Local F
 segment is selectable now (not disabled) — a disabled segment reads as permanently
 unavailable, where the goal is "coming soon." `SettingsModel` gains a published
 `destination: SyncDestination` bound to the picker and persisted via
-`SyncDestinationStore`; nothing else about it changes. Selecting Local Folder does not
-touch the active (server) sync engine — there's nothing to switch to yet.
+`SyncDestinationStore`. Local Folder has no engine yet, so selecting it makes the
+current server-backed engine unavailable; the panel keeps local resources pending until
+the user switches back to a ready Server destination.
 
 **Why model this now instead of waiting for the folder-sync ticket:** so the folder
 ticket adds a destination and a form, not a picker, a form, *and* a Settings
@@ -163,7 +157,8 @@ other change here is purely "move existing Settings to a window."
 ## 4. Scope
 
 **In (this ticket):**
-- `Settings {}` scene + hidden anchor `Window` scene replace in-panel `showingSettings`.
+- `Settings {}` scene replaces in-panel `showingSettings`; launch-time setup uses the
+  standard Settings-window action without an anchor `Window`.
 - A shared open-Settings helper (activation-policy toggle + `openSettings()`) used by
   `PanelView`'s footer/CTA/error buttons, the first-launch auto-open, and a locally
   `⌘,`-bound "Settings…" item inside the `MenuBarExtra` menu.
@@ -202,8 +197,8 @@ other change here is purely "move existing Settings to a window."
    once folder sync exists, does the server engine pause, or do both run assessed
    independently? Deferred to the folder-sync ticket — out of scope here since
    `.localFolder` has no engine yet.
-2. **System-wide ⌘, reliability.** Whether the hidden anchor `Window` + activation-policy
-   toggle make a genuinely global ⌘, (i.e. while the menu is closed and no FilesNest
-   window has focus) work, or only the locally-bound menu-item shortcut is dependable
-   — resolve empirically during implementation; the design doesn't depend on the
-   global case working.
+2. **System-wide ⌘, reliability.** Whether the activation-policy toggle makes a
+   genuinely global ⌘, (i.e. while the menu is closed and no FilesNest window has
+   focus) work, or only the locally-bound menu-item shortcut is dependable — resolve
+   empirically during implementation; the design doesn't depend on the global case
+   working.

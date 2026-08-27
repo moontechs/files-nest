@@ -41,7 +41,8 @@ FilesNest.xcodeproj -scheme FilesNest test` if you need a non-interactive run.
   prior design decisions before re-deciding something (e.g. resume/persisted
   plan, upload concurrency).
 - For menu-bar-only macOS apps, a standalone `Settings {}` scene can be opened
-  through a view's `openSettings` environment action. Use a hidden anchor
-  `Window` so the action resolves reliably while the app uses `.accessory`
-  activation policy; `SettingsPresenter` temporarily switches to `.regular`
-  before opening and restores `.accessory` when the Settings view disappears.
+  through a view's `openSettings` environment action. For launch-time opening,
+  where no view environment exists, use the standard `showSettingsWindow:` action
+  rather than creating a blank anchor window. `SettingsPresenter` temporarily
+  switches to `.regular` before opening and restores `.accessory` from the
+  Settings window's close notification.

@@ -2,6 +2,18 @@ import SwiftUI
 import Combine
 import FilesNestCore
 
+protocol CredentialSavingStore: CredentialStore {
+    func save(_ credentials: BasicCredentials) throws
+}
+
+extension KeychainStore: CredentialSavingStore {}
+
+protocol ConnectionProbing: Sendable {
+    func probe(baseURL: URL, credentials: BasicCredentials) async -> ConnectionResult
+}
+
+extension ConnectionProbe: ConnectionProbing {}
+
 @MainActor
 final class SettingsModel: ObservableObject {
     @Published var serverURL = "" { didSet { markDraftAsEdited() } }
@@ -9,8 +21,10 @@ final class SettingsModel: ObservableObject {
     @Published var password = "" { didSet { markDraftAsEdited() } }
     @Published var destination: SyncDestination = .server {
         didSet {
+            guard destination != oldValue else { return }
             destinationStore.save(destination)
             markDraftAsEdited()
+            onSaved?()
         }
     }
     @Published var testResult: ConnectionResult?
@@ -18,15 +32,15 @@ final class SettingsModel: ObservableObject {
     @Published var saveError: String?
 
     private let urlStore: any ServerURLStore
-    private let credStore: KeychainStore
-    private let probe: ConnectionProbe
+    private let credStore: any CredentialSavingStore
+    private let probe: any ConnectionProbing
     private let destinationStore: any SyncDestinationStore
     private var hasLoadedInitialValues = false
     private var hasDraftEdits = false
     private var isApplyingInitialValues = false
     var onSaved: (() -> Void)?
 
-    init(urlStore: any ServerURLStore, credStore: KeychainStore, probe: ConnectionProbe,
+    init(urlStore: any ServerURLStore, credStore: any CredentialSavingStore, probe: any ConnectionProbing,
          destinationStore: any SyncDestinationStore) {
         self.urlStore = urlStore
         self.credStore = credStore

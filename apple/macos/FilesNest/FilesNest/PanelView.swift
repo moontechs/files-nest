@@ -3,7 +3,6 @@ import FilesNestCore
 
 struct PanelView: View {
     @ObservedObject var model: AppModel
-    @ObservedObject var settings: SettingsModel
     let thumbnails: ThumbnailLoader
     let destinationStore: any SyncDestinationStore
     @Environment(\.openSettings) private var openSettings

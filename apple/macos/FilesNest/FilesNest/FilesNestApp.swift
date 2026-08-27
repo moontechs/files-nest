@@ -27,13 +27,20 @@ struct FilesNestApp: App {
         let engine = LiveSyncEngine(
             credentials: credStore,
             state: stateStore,
+            isReady: {
+                await configuredServerDestination(destinationStore: destinationStore,
+                                                   urlStore: urlStore,
+                                                   credStore: credStore) != nil
+            },
             perform: { range, onProgress in
                 // Read URL + creds at sync time so a Settings change takes effect.
-                guard await isDestinationReady(destinationStore.load(), urlStore: urlStore, credStore: credStore),
-                      let url = urlStore.load() else {
+                guard let server = await configuredServerDestination(destinationStore: destinationStore,
+                                                                      urlStore: urlStore,
+                                                                      credStore: credStore) else {
                     throw NotSignedInError()
                 }
-                let client   = ServerClient(baseURL: url, credentials: credStore)
+                let client   = ServerClient(baseURL: server.url,
+                                            credentials: StaticCredentialStore(server.credentials))
                 let uploader = AssetUploader(client: client, source: PhotosAssetDataSource())
                 let coordinator = SyncCoordinator(client: client,
                                                   library: library,   // shares the launch count's cached scan
@@ -45,11 +52,13 @@ struct FilesNestApp: App {
                 // Re-drive the persisted not-yet-uploaded list: no scan, no diff, so a launch or
                 // Resume starts backing up immediately. Cold launches verify afterwards; an
                 // unchanged Pause resumes its known plan without another full library scan.
-                guard await isDestinationReady(destinationStore.load(), urlStore: urlStore, credStore: credStore),
-                      let url = urlStore.load() else {
+                guard let server = await configuredServerDestination(destinationStore: destinationStore,
+                                                                      urlStore: urlStore,
+                                                                      credStore: credStore) else {
                     throw NotSignedInError()
                 }
-                let client   = ServerClient(baseURL: url, credentials: credStore)
+                let client   = ServerClient(baseURL: server.url,
+                                            credentials: StaticCredentialStore(server.credentials))
                 let uploader = AssetUploader(client: client, source: PhotosAssetDataSource())
                 let coordinator = SyncCoordinator(client: client,
                                                   library: library,
@@ -62,15 +71,18 @@ struct FilesNestApp: App {
                 // Pending via SyncPlanner. `.all` on launch/restart; `.modifiedSince` on a change.
                 // Cached so a warm launch is instant.
                 let scan = try await library.resources(in: range, onProgress: progress.report)
-                guard await isDestinationReady(destinationStore.load(), urlStore: urlStore, credStore: credStore),
-                      let url = urlStore.load() else {
+                guard let server = await configuredServerDestination(destinationStore: destinationStore,
+                                                                      urlStore: urlStore,
+                                                                      credStore: credStore) else {
                     // Signed out: no server to diff against — everything local is pending.
                     let a = Assessment(backedUp: 0, pending: scan.count, resourceTotal: scan.count)
                     stateStore.saveAssessment(a); return a
                 }
                 // Assessment is intentionally fail-fast: unlike an upload, it has no
                 // reconnect progress state to present while it waits.
-                let client = ServerClient(baseURL: url, credentials: credStore, maxPatchRetries: 0)
+                let client = ServerClient(baseURL: server.url,
+                                          credentials: StaticCredentialStore(server.credentials),
+                                          maxPatchRetries: 0)
                 var records: [UploadRecord] = []
                 var cursor: String? = nil
                 repeat {
@@ -104,7 +116,13 @@ struct FilesNestApp: App {
         // Start the engine at launch — reconcile credentials and run launch catch-up — so it
         // does not depend on the menu-bar panel ever being opened. The panel only subscribes to
         // the engine's streams (AppModel.begin).
-        Task { await engine.start() }
+        Task {
+            await engine.start()
+            guard await configuredServerDestination(destinationStore: destinationStore,
+                                                     urlStore: urlStore,
+                                                     credStore: credStore) == nil else { return }
+            await MainActor.run { SettingsPresenter.open() }
+        }
 
         let appModel = AppModel(engine: engine)
         let settingsModel = SettingsModel(urlStore: urlStore,
@@ -117,20 +135,12 @@ struct FilesNestApp: App {
     }
 
     var body: some Scene {
-        Window("", id: "settings-anchor") {
-            SettingsAnchorView(urlStore: urlStore,
-                               credStore: credStore,
-                               destinationStore: destinationStore)
-        }
-        .windowStyle(.hiddenTitleBar)
-
         Settings {
             SettingsView(model: settings)
         }
 
         MenuBarExtra("FilesNest", systemImage: "arrow.triangle.2.circlepath") {
             PanelView(model: model,
-                      settings: settings,
                       thumbnails: thumbnails,
                       destinationStore: destinationStore).task { model.begin() }
         }

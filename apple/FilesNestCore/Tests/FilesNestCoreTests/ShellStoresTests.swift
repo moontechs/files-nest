@@ -41,6 +41,23 @@ struct ShellStoresTests {
         #expect(await !isDestinationReady(.localFolder, urlStore: urlStore, credStore: credStore))
     }
 
+    @Test func configuredServerDestinationReturnsOneURLAndCredentialSnapshot() async {
+        let suite = UserDefaults(suiteName: "shell.\(UUID().uuidString)")!
+        let destinationStore = UserDefaultsSyncDestinationStore(defaults: suite)
+        let urlStore = UserDefaultsServerURLStore(defaults: suite)
+        let credentials = BasicCredentials(username: "u", password: "p")
+        urlStore.save(URL(string: "https://nest.home.example")!)
+
+        let configuration = await configuredServerDestination(
+            destinationStore: destinationStore,
+            urlStore: urlStore,
+            credStore: StaticCredentialStore(credentials)
+        )
+
+        #expect(configuration?.url == URL(string: "https://nest.home.example"))
+        #expect(configuration?.credentials == credentials)
+    }
+
     @Test func syncDestinationDefaultsToServer() {
         let suite = UserDefaults(suiteName: "shell.\(UUID().uuidString)")!
         let store = UserDefaultsSyncDestinationStore(defaults: suite)

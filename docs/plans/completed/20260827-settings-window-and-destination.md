@@ -92,7 +92,7 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 - [x] add `UserDefaultsSyncDestinationStore` (key `"com.filesnest.syncDestination"`), mirroring `UserDefaultsServerURLStore`'s shape exactly — `load()` returns `.server` when the key is unset or holds an unrecognized raw value
 - [x] write test: fresh `UserDefaults` suite → `load()` returns `.server`
 - [x] write test: `save(.localFolder)` then `load()` → `.localFolder`; round-trip back to `.server`
-- [x] run `swift test` from `apple/FilesNestCore/` — blocked: Swift toolchain is unavailable in the environment (`swift: command not found`)
+- [ ] run `swift test` from `apple/FilesNestCore/` — blocked: Swift toolchain is unavailable in the environment (`swift: command not found`)
 
 ### Task 2: Add `isDestinationReady`
 
@@ -104,7 +104,7 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 - [x] write test: `.server` with URL + creds present → `true`
 - [x] write test: `.server` with URL missing, or creds missing, or both missing → `false` (three cases)
 - [x] write test: `.localFolder` → always `false` regardless of stored URL/creds
-- [x] run `swift test` — skipped: Swift toolchain is unavailable in the environment (`swift: command not found`)
+- [ ] run `swift test` — skipped: Swift toolchain is unavailable in the environment (`swift: command not found`)
 
 ### Task 3: `SettingsModel` — destination field + store wiring
 
@@ -120,7 +120,7 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 - [x] construct **one** `UserDefaultsSyncDestinationStore` in `FilesNestApp.init`'s composition root, alongside `urlStore`/`credStore`/`stateStore`, and update the existing `SettingsModel(urlStore:credStore:probe:)` call site to also pass it — in this task, not later, so the app target still compiles after this task instead of breaking until Task 6. This is the single instance every later task (6, 8, 9) reuses — never construct a second one.
 - [x] write test (in new `FilesNestTests/SettingsModelTests.swift`, `@testable import FilesNest`): `SettingsModel` constructed with a fake store pre-loaded to `.localFolder` → `destination` reflects `.localFolder` immediately after `init`, before `load()` runs
 - [x] write test: setting `destination = .localFolder` calls `destinationStore.save(.localFolder)` (spy/fake store)
-- [x] run `xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest test` — skipped: Xcode toolchain is unavailable in the environment (`xcodebuild: command not found`)
+- [ ] run `xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest test` — skipped: Xcode toolchain is unavailable in the environment (`xcodebuild: command not found`)
 
 ### Task 4: `SettingsModel` — replace `test()`/`save()` with `connect()`
 
@@ -132,7 +132,7 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 - [x] add `func connect() async` — guard `!isConnecting` at entry and return immediately if already `true`; probe typed values; persist only after `.ok`; report probe failures without persisting; surface keychain save failures
 - [x] remove the old standalone `save()` method (superseded by `connect()`)
 - [x] write tests for successful, failed, invalid, keychain-error, and concurrent-connect cases (the app test target is unavailable in this environment)
-- [x] run `xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest test` — skipped: Xcode toolchain is unavailable in the environment (`xcodebuild: command not found`)
+- [ ] run `xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest test` — skipped: Xcode toolchain is unavailable in the environment (`xcodebuild: command not found`)
 
 ### Task 5: `SettingsView` — destination picker + Connect button
 
@@ -152,17 +152,16 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 
 **Files:**
 - Create: `apple/macos/FilesNest/FilesNest/SettingsPresenter.swift`
-- Create: `apple/macos/FilesNest/FilesNest/SettingsAnchorView.swift`
+- Create: `apple/macos/FilesNest/FilesNest/SettingsWindowCloseObserver.swift`
 - Modify: `apple/macos/FilesNest/FilesNest/FilesNestApp.swift`
 - Modify: `apple/macos/FilesNest/FilesNest/SettingsView.swift`
 
-- [x] add `SettingsPresenter`: `@MainActor enum SettingsPresenter { static func open(_ openSettings: OpenSettingsAction) { NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true); openSettings() } }`
-- [x] add `SettingsAnchorView`, an otherwise-empty `View` (`Color.clear` or similar, no visible content) — this replaces a bare `EmptyView()` specifically so it has a body capable of holding `@Environment(\.openSettings)` and a `.task`, which Task 9 needs for first-launch auto-open (a bare `EmptyView` can't host either)
-- [x] in `FilesNestApp.body`, add `Window("", id: "settings-anchor") { SettingsAnchorView() }.windowStyle(.hiddenTitleBar)` (render-tree context for `openSettings()` to resolve against, since this app is `.accessory`-policy with no other window that's guaranteed present at launch)
+- [x] add `SettingsPresenter`: `@MainActor enum SettingsPresenter { static func open(_ openSettings: OpenSettingsAction) { NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true); openSettings() } }`, plus a launch-time overload that invokes the standard Settings-window action outside a view environment
+- [x] remove the blank anchor window after verification showed `.hiddenTitleBar` does not hide a `Window` scene; first-launch opening uses the launch-time presenter overload instead
 - [x] add `Settings { SettingsView(model: settings) }` scene
 - [x] reuse the single `UserDefaultsSyncDestinationStore` instance Task 3 already constructed in `FilesNestApp.init` — this task does not construct another one
-- [x] add `.onDisappear { NSApp.setActivationPolicy(.accessory) }` to `SettingsView`'s root as the first attempt at restoring accessory policy on close. **This is not confirmed to be race-free** — whether `.onDisappear` reliably fires only after the window is fully gone (vs. firing early on a rapid open/close, leaving the Dock icon stuck) is unverified until manual testing in Task 11; if it proves flaky there, the fallback is an explicit `NSWindowDelegate.windowWillClose` on the resolved `NSWindow`. Do not treat this bullet as closing the race — treat it as the first thing to try.
-- [x] manual verification only for this task (skipped - not automatable; covered in Task 11)
+- [x] restore `.accessory` from an `NSWindow.willCloseNotification` observer attached to the Settings window, so activation-policy ownership follows the actual window lifecycle rather than a SwiftUI view disappearance.
+- [ ] manual verification only for this task (skipped - not automatable; covered in Task 11)
 
 ### Task 7: Route all Settings-opening call sites through `SettingsPresenter`
 
@@ -175,7 +174,7 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 - [x] sign-out CTA ("Set Up FilesNest") calls `SettingsPresenter.open(openSettings)`
 - [x] error-state "Settings" button calls `SettingsPresenter.open(openSettings)`
 - [x] add a `⌘,`-shortcut to the *existing* footer "Settings…" button itself (`.keyboardShortcut(",", modifiers: .command)`) rather than adding a second, visually separate "Settings…" control — the shortcut only needs to be reachable while the `MenuBarExtra` menu is open, and reusing the existing button avoids two same-labeled controls in one small panel
-- [x] manual verification only (skipped - not automatable; covered in Task 11)
+- [ ] manual verification only (skipped - not automatable; covered in Task 11)
 
 ### Task 8: Destination-aware panel messaging
 
@@ -185,7 +184,7 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 
 - [x] pass the single `SyncDestinationStore` instance (Task 3) directly into `PanelView`'s `init`, the same way `thumbnails: ThumbnailLoader` is already passed in — not through `AppModel`. `PanelView`'s subtitle computed property calls `destinationStore.load()` fresh each time it's evaluated, so it can't go stale while the panel is open; no new `@Published` plumbing or reactivity design needed.
 - [x] `PanelView`'s `.signedOut` subtitle branches on `destinationStore.load()`: `.server` → "Connect your server in Settings"; `.localFolder` → "Local folder sync isn't available yet — set it up in Settings" (no new `SyncStatus` case)
-- [x] manual verification for the panel-message behavior (skipped - not automatable; covered in Task 11)
+- [ ] manual verification for the panel-message behavior (skipped - not automatable; covered in Task 11)
 
 ### Task 9: Sync-engine destination gating + first-launch auto-open
 
@@ -195,9 +194,9 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 
 - [x] replace the inline `guard url != nil, creds != nil` checks in `perform` and `resume` with `isDestinationReady(_:urlStore:credStore:)` from Task 2, still throwing `NotSignedInError` when it's `false` — behavior for `.server` is unchanged, `.localFolder` now correctly always refuses instead of silently having no concept of destinations
 - [x] in `assess`, replace its inline `guard` with the same `isDestinationReady(...)` call, but **keep its current graceful-fallback behavior** on `false` — `assess` does not throw; it must keep returning `Assessment(backedUp: 0, pending: scan.count, resourceTotal: scan.count)` exactly as it does today, so the panel still shows a coherent "everything pending" state for an unready destination instead of surfacing an error
-- [x] **first-launch auto-open is new behavior, not a replacement** — nothing in the current code opens Settings automatically today (`PanelView`'s sign-out state only shows a "Set Up FilesNest" button the user must click; verified by reading `AppModel`/`PanelView` — no auto-open exists). Implement it in `SettingsAnchorView` (Task 6), the one view guaranteed to exist at launch on an `.accessory`-policy app with no other window: add `@Environment(\.openSettings) private var openSettings` and a `.task` that runs once (guard a local `@State`/instance flag so re-entering the task, if it ever reruns, doesn't reopen the window), checks `await isDestinationReady(destinationStore.load(), urlStore: urlStore, credStore: credStore)`, and calls `SettingsPresenter.open(openSettings)` if `false`. `FilesNestApp.init`/`AppModel` cannot do this themselves — `openSettings` is only resolvable from inside a View's environment, and `AppModel`/`init` run outside any view's lifecycle.
+- [x] **first-launch auto-open is new behavior, not a replacement** — nothing in the prior code opened Settings automatically today (`PanelView`'s sign-out state only showed a "Set Up FilesNest" button the user had to click). Start the engine in `FilesNestApp.init`, then, when the destination is not ready, call `SettingsPresenter.open()` through the standard Settings-window action. This avoids a blank anchor `Window` while preserving automatic setup on first launch.
 - [x] write test (Core): none needed beyond Task 2's `isDestinationReady` coverage — this task only wires existing tested logic into the app target
-- [x] manual verification for the auto-open and signed-out-assessment behavior — skipped (not automatable; covered in Task 11), including explicitly re-confirming a signed-out/not-ready `assess()` still shows "pending" counts rather than an error state
+- [ ] manual verification for the auto-open and signed-out-assessment behavior — skipped (not automatable; covered in Task 11), including explicitly re-confirming a signed-out/not-ready `assess()` still shows "pending" counts rather than an error state
 
 ### Task 10: Placeholder AppIcon
 
@@ -213,9 +212,9 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 
 - [x] verify every item in `docs/design/20260826-settings-window-and-destination.md` §4 "In (this ticket)" scope is implemented (static audit completed)
 - [x] verify the explicit non-goals were **not** implemented: no `NSOpenPanel`, no security-scoped bookmark, no disk-writing engine, no new `SyncStatus` case, no changes to `KeychainStore`/`ServerClient`/`SyncCoordinator` (static source audit completed)
-- [x] run full Core test suite: `swift test` from `apple/FilesNestCore/` — skipped: Swift toolchain is unavailable in the environment (`swift: command not found`)
-- [x] run app-target test target: `xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest test` — skipped: Xcode toolchain is unavailable in the environment (`xcodebuild: command not found`)
-- [x] work through the full manual-verification checklist below on a real build (skipped: macOS/Xcode runtime is unavailable in the environment; deferred to real-device QA)
+- [ ] run full Core test suite: `swift test` from `apple/FilesNestCore/` — skipped: Swift toolchain is unavailable in the environment (`swift: command not found`)
+- [ ] run app-target test target: `xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest test` — skipped: Xcode toolchain is unavailable in the environment (`xcodebuild: command not found`)
+- [ ] work through the full manual-verification checklist below on a real build (skipped: macOS/Xcode runtime is unavailable in the environment; deferred to real-device QA)
 
 Manual-verification checklist to run in this task:
 - Connect with valid creds → pill shows Connected, values persist across relaunch.
