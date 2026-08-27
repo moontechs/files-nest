@@ -8,6 +8,7 @@ struct FilesNestApp: App {
     @StateObject private var settings: SettingsModel
     private let thumbnails = ThumbnailLoader()
     private let watcher: PhotoLibraryWatcher
+    private let destinationStore: any SyncDestinationStore
 
     init() {
         let defaults   = UserDefaults.standard
@@ -94,6 +95,7 @@ struct FilesNestApp: App {
         let watcher = PhotoLibraryWatcher(library: library, engine: engine)
         watcher.startObserving()
         self.watcher = watcher
+        self.destinationStore = destinationStore
 
         // Start the engine at launch — reconcile credentials and run launch catch-up — so it
         // does not depend on the menu-bar panel ever being opened. The panel only subscribes to
@@ -121,7 +123,10 @@ struct FilesNestApp: App {
         }
 
         MenuBarExtra("FilesNest", systemImage: "arrow.triangle.2.circlepath") {
-            PanelView(model: model, settings: settings, thumbnails: thumbnails).task { model.begin() }
+            PanelView(model: model,
+                      settings: settings,
+                      thumbnails: thumbnails,
+                      destinationStore: destinationStore).task { model.begin() }
         }
         .menuBarExtraStyle(.window)
     }

@@ -183,9 +183,9 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 - Modify: `apple/macos/FilesNest/FilesNest/PanelView.swift`
 - Modify: `apple/macos/FilesNest/FilesNest/FilesNestApp.swift`
 
-- [ ] pass the single `SyncDestinationStore` instance (Task 3) directly into `PanelView`'s `init`, the same way `thumbnails: ThumbnailLoader` is already passed in — not through `AppModel`. `PanelView`'s subtitle computed property calls `destinationStore.load()` fresh each time it's evaluated, so it can't go stale while the panel is open; no new `@Published` plumbing or reactivity design needed.
-- [ ] `PanelView`'s `.signedOut` subtitle branches on `destinationStore.load()`: `.server` → "Connect your server in Settings"; `.localFolder` → "Local folder sync isn't available yet — set it up in Settings" (no new `SyncStatus` case)
-- [ ] manual verification for the panel-message behavior — covered in Task 11
+- [x] pass the single `SyncDestinationStore` instance (Task 3) directly into `PanelView`'s `init`, the same way `thumbnails: ThumbnailLoader` is already passed in — not through `AppModel`. `PanelView`'s subtitle computed property calls `destinationStore.load()` fresh each time it's evaluated, so it can't go stale while the panel is open; no new `@Published` plumbing or reactivity design needed.
+- [x] `PanelView`'s `.signedOut` subtitle branches on `destinationStore.load()`: `.server` → "Connect your server in Settings"; `.localFolder` → "Local folder sync isn't available yet — set it up in Settings" (no new `SyncStatus` case)
+- [x] manual verification for the panel-message behavior (skipped - not automatable; covered in Task 11)
 
 ### Task 9: Sync-engine destination gating + first-launch auto-open
 

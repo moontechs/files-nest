@@ -5,6 +5,7 @@ struct PanelView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: SettingsModel
     let thumbnails: ThumbnailLoader
+    let destinationStore: any SyncDestinationStore
     @Environment(\.openSettings) private var openSettings
     @State private var showingFailed = false
 
@@ -282,7 +283,11 @@ struct PanelView: View {
     }
     private var subtitle: String {
         switch model.status {
-        case .signedOut: return "Connect your own FilesNest server to begin"
+        case .signedOut:
+            switch destinationStore.load() {
+            case .server: return "Connect your server in Settings"
+            case .localFolder: return "Local folder sync isn't available yet — set it up in Settings"
+            }
         case .counting(let done, let total, let purpose):
             let scope = purpose == .verify ? "Checking for changes" : "Scanning library"
             return total > 0 ? "\(scope) · \(done.formatted()) of \(total.formatted())" : "\(scope)…"
