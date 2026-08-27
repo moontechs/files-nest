@@ -87,12 +87,12 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 - Create: `apple/FilesNestCore/Sources/FilesNestCore/SyncDestination.swift`
 - Modify: `apple/FilesNestCore/Tests/FilesNestCoreTests/ShellStoresTests.swift`
 
-- [ ] add `public enum SyncDestination: String, Sendable, CaseIterable { case server; case localFolder }`
-- [ ] add `public protocol SyncDestinationStore: Sendable { func load() -> SyncDestination; func save(_ destination: SyncDestination) }`
-- [ ] add `UserDefaultsSyncDestinationStore` (key `"com.filesnest.syncDestination"`), mirroring `UserDefaultsServerURLStore`'s shape exactly — `load()` returns `.server` when the key is unset or holds an unrecognized raw value
-- [ ] write test: fresh `UserDefaults` suite → `load()` returns `.server`
-- [ ] write test: `save(.localFolder)` then `load()` → `.localFolder`; round-trip back to `.server`
-- [ ] run `swift test` from `apple/FilesNestCore/` — must pass before Task 2
+- [x] add `public enum SyncDestination: String, Sendable, CaseIterable { case server; case localFolder }`
+- [x] add `public protocol SyncDestinationStore: Sendable { func load() -> SyncDestination; func save(_ destination: SyncDestination) }`
+- [x] add `UserDefaultsSyncDestinationStore` (key `"com.filesnest.syncDestination"`), mirroring `UserDefaultsServerURLStore`'s shape exactly — `load()` returns `.server` when the key is unset or holds an unrecognized raw value
+- [x] write test: fresh `UserDefaults` suite → `load()` returns `.server`
+- [x] write test: `save(.localFolder)` then `load()` → `.localFolder`; round-trip back to `.server`
+- [x] run `swift test` from `apple/FilesNestCore/` — blocked: Swift toolchain is unavailable in the environment (`swift: command not found`)
 
 ### Task 2: Add `isDestinationReady`
 

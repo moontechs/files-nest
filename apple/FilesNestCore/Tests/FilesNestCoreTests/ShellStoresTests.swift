@@ -3,6 +3,28 @@ import Foundation
 @testable import FilesNestCore
 
 struct ShellStoresTests {
+    @Test func syncDestinationDefaultsToServer() {
+        let suite = UserDefaults(suiteName: "shell.\(UUID().uuidString)")!
+        let store = UserDefaultsSyncDestinationStore(defaults: suite)
+        #expect(store.load() == .server)
+    }
+
+    @Test func syncDestinationRoundTrips() {
+        let suite = UserDefaults(suiteName: "shell.\(UUID().uuidString)")!
+        let store = UserDefaultsSyncDestinationStore(defaults: suite)
+        store.save(.localFolder)
+        #expect(store.load() == .localFolder)
+        store.save(.server)
+        #expect(store.load() == .server)
+    }
+
+    @Test func syncDestinationDefaultsToServerForUnknownStoredValue() {
+        let suite = UserDefaults(suiteName: "shell.\(UUID().uuidString)")!
+        suite.set("unknown", forKey: "com.filesnest.syncDestination")
+        let store = UserDefaultsSyncDestinationStore(defaults: suite)
+        #expect(store.load() == .server)
+    }
+
     @Test func serverURLRoundTrips() {
         let suite = UserDefaults(suiteName: "shell.\(UUID().uuidString)")!
         let store = UserDefaultsServerURLStore(defaults: suite)
