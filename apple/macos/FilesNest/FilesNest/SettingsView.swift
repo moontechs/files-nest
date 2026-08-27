@@ -4,35 +4,42 @@ import ServiceManagement
 
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
-    /// Return to the dashboard (this view lives inside the menu-bar panel, not a window).
-    var onDone: () -> Void
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Button { onDone() } label: { Label("Back", systemImage: "chevron.left") }
-                    .buttonStyle(.link)
-                Spacer()
+            Picker("Sync to", selection: $model.destination) {
+                Text("FilesNest Server").tag(SyncDestination.server)
+                Text("Local Folder").tag(SyncDestination.localFolder)
             }
-            Text("Connect your server").font(.title3.weight(.semibold))
-            Text("FilesNest keeps your password in your Mac keychain.")
-                .font(.caption).foregroundStyle(.secondary)
+            .pickerStyle(.segmented)
 
-            Form {
-                Section("FilesNest server") {
-                    TextField("Server URL", text: $model.serverURL)
-                        .textContentType(.URL).autocorrectionDisabled()
-                    TextField("Username", text: $model.username).autocorrectionDisabled()
-                    SecureField("Password", text: $model.password)
+            switch model.destination {
+            case .server:
+                Form {
+                    Section("FilesNest server") {
+                        TextField("Server URL", text: $model.serverURL)
+                            .textContentType(.URL).autocorrectionDisabled()
+                        TextField("Username", text: $model.username).autocorrectionDisabled()
+                        SecureField("Password", text: $model.password)
+                    }
                 }
-            }
 
-            HStack(spacing: 10) {
-                Button("Connect") { Task { await model.connect() } }
-                    .disabled(model.isConnecting || !model.hasCredentials)
-                if model.isConnecting { ProgressView().controlSize(.small) }
-                testPill
+                HStack(spacing: 10) {
+                    Button("Connect") { Task { await model.connect() } }
+                        .disabled(model.isConnecting || !model.hasCredentials || model.serverURL.isEmpty)
+                    if model.isConnecting { ProgressView().controlSize(.small) }
+                    connectionPill
+                }
+            case .localFolder:
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Local folder sync is coming soon",
+                          systemImage: "externaldrive.badge.timemachine")
+                    Text("Choose FilesNest Server to connect and sync your Photos library.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 12)
             }
 
             Toggle("Launch at login", isOn: $launchAtLogin)
@@ -45,16 +52,12 @@ struct SettingsView: View {
                 Label(saveError, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption).foregroundStyle(.red).lineLimit(2)
             }
-            HStack {
-                Spacer()
-                    .buttonStyle(.borderedProminent).disabled(!model.hasCredentials)
-            }
         }
-        .padding(16).frame(width: 320)
+        .padding(16).frame(width: 360)
         .task { await model.load() }
     }
 
-    @ViewBuilder private var testPill: some View {
+    @ViewBuilder private var connectionPill: some View {
         switch model.testResult {
         case .ok: Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
         case .unauthorized:

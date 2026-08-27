@@ -19,7 +19,7 @@ struct PanelView: View {
                 .accessibilityHidden(showingSettings || showingFailed)
 
             if showingSettings {
-                SettingsView(model: settings, onDone: { withAnimation(slide) { showingSettings = false } })
+                SettingsView(model: settings)
                     .transition(.move(edge: .trailing))
             } else if showingFailed {
                 FailedItemsView(items: model.summary.failed,

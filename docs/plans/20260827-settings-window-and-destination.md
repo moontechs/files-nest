@@ -139,14 +139,14 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 **Files:**
 - Modify: `apple/macos/FilesNest/FilesNest/SettingsView.swift`
 
-- [ ] remove the "Connect your server" title and "FilesNest keeps your password…" subtitle text (no replacement copy — confirmed)
-- [ ] add `Picker("Sync to", selection: $model.destination).pickerStyle(.segmented)` with tags `Text("FilesNest Server").tag(SyncDestination.server)` / `Text("Local Folder").tag(SyncDestination.localFolder)`
-- [ ] switch on `model.destination`: `.server` renders the existing form (Server URL/Username/Password + connection-result pill) with a single `Button("Connect") { Task { await model.connect() } }` (`.disabled` when `isConnecting` or any required field is empty; shows `ProgressView` while `isConnecting`) replacing the old "Test Connection" + "Save & Connect" pair
-- [ ] `.localFolder` renders a placeholder pane: `Label("Local folder sync is coming soon", systemImage: "externaldrive.badge.timemachine")` + one caption line, no fields
-- [ ] keep "Launch at login" toggle below the destination-specific area, unchanged (live-apply, no button), applying regardless of `destination`
-- [ ] remove `onDone`/the Back button entirely — the view no longer navigates "back," it's a real window
-- [ ] grow `.frame(width: 320)` → `.frame(width: 360)`
-- [ ] no new Core logic here — manual verification only (covered in Task 11); this task's "tests" are the Task 3/4 model tests already covering `destination`/`connect()`'s behavior
+- [x] remove the "Connect your server" title and "FilesNest keeps your password…" subtitle text (no replacement copy — confirmed)
+- [x] add `Picker("Sync to", selection: $model.destination).pickerStyle(.segmented)` with tags `Text("FilesNest Server").tag(SyncDestination.server)` / `Text("Local Folder").tag(SyncDestination.localFolder)`
+- [x] switch on `model.destination`: `.server` renders the existing form (Server URL/Username/Password + connection-result pill) with a single `Button("Connect") { Task { await model.connect() } }` (`.disabled` when `isConnecting` or any required field is empty; shows `ProgressView` while `isConnecting`) replacing the old "Test Connection" + "Save & Connect" pair
+- [x] `.localFolder` renders a placeholder pane: `Label("Local folder sync is coming soon", systemImage: "externaldrive.badge.timemachine")` + one caption line, no fields
+- [x] keep "Launch at login" toggle below the destination-specific area, unchanged (live-apply, no button), applying regardless of `destination`
+- [x] remove `onDone`/the Back button entirely — the view no longer navigates "back," it's a real window
+- [x] grow `.frame(width: 320)` → `.frame(width: 360)`
+- [x] no new Core logic here — manual verification only (covered in Task 11); this task's "tests" are the Task 3/4 model tests already covering `destination`/`connect()`'s behavior
 
 ### Task 6: Settings window scene, hidden anchor, activation-policy toggle
 
