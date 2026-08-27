@@ -7,6 +7,12 @@ final class SettingsModel: ObservableObject {
     @Published var serverURL = "" { didSet { markDraftAsEdited() } }
     @Published var username = "" { didSet { markDraftAsEdited() } }
     @Published var password = "" { didSet { markDraftAsEdited() } }
+    @Published var destination: SyncDestination = .server {
+        didSet {
+            destinationStore.save(destination)
+            markDraftAsEdited()
+        }
+    }
     @Published var testResult: ConnectionResult?
     @Published var isTesting = false
     @Published var saveError: String?
@@ -14,15 +20,19 @@ final class SettingsModel: ObservableObject {
     private let urlStore: any ServerURLStore
     private let credStore: KeychainStore
     private let probe: ConnectionProbe
+    private let destinationStore: any SyncDestinationStore
     private var hasLoadedInitialValues = false
     private var hasDraftEdits = false
     private var isApplyingInitialValues = false
     var onSaved: (() -> Void)?
 
-    init(urlStore: any ServerURLStore, credStore: KeychainStore, probe: ConnectionProbe) {
+    init(urlStore: any ServerURLStore, credStore: KeychainStore, probe: ConnectionProbe,
+         destinationStore: any SyncDestinationStore) {
         self.urlStore = urlStore
         self.credStore = credStore
         self.probe = probe
+        self.destinationStore = destinationStore
+        self.destination = destinationStore.load()
     }
 
     var hasCredentials: Bool { !username.isEmpty && !password.isEmpty }
@@ -36,11 +46,13 @@ final class SettingsModel: ObservableObject {
 
         let savedURL = urlStore.load()?.absoluteString
         let savedCredentials = try? await credStore.basicCredentials()
+        let savedDestination = destinationStore.load()
 
         // Keychain access awaits. If the user starts typing before it completes,
         // do not overwrite their draft with the older persisted configuration.
         guard !hasDraftEdits else { return }
         isApplyingInitialValues = true
+        destination = savedDestination
         if let savedURL { serverURL = savedURL }
         if let savedCredentials {
             username = savedCredentials.username

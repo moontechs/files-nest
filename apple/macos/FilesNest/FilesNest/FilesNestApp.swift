@@ -14,6 +14,7 @@ struct FilesNestApp: App {
         let urlStore   = UserDefaultsServerURLStore(defaults: defaults)
         let credStore  = KeychainStore()
         let stateStore = UserDefaultsSyncStateStore(defaults: defaults)
+        let destinationStore = UserDefaultsSyncDestinationStore(defaults: defaults)
         // Shared, TTL-memoized scan so a Sync Now right after the launch count reuses that
         // scan instead of paying a second full enumeration. (Observer-invalidated later.)
         // Change-based invalidation (via PhotoLibraryWatcher) is the primary freshness
@@ -101,8 +102,9 @@ struct FilesNestApp: App {
 
         let appModel = AppModel(engine: engine)
         let settingsModel = SettingsModel(urlStore: urlStore,
-                                          credStore: KeychainStore(),
-                                          probe: ConnectionProbe())
+                                          credStore: credStore,
+                                          probe: ConnectionProbe(),
+                                          destinationStore: destinationStore)
         settingsModel.onSaved = { appModel.restart() }
         _model = StateObject(wrappedValue: appModel)
         _settings = StateObject(wrappedValue: settingsModel)

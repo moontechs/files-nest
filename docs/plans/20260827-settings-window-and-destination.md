@@ -113,14 +113,14 @@ Full design record: `docs/design/20260826-settings-window-and-destination.md`
 - Modify: `apple/macos/FilesNest/FilesNest/FilesNestApp.swift`
 - Create: `apple/macos/FilesNest/FilesNestTests/SettingsModelTests.swift`
 
-- [ ] add `@Published var destination: SyncDestination = .server { didSet { markDraftAsEdited() } }` (explicit `= .server` default — a non-optional enum has no implicit default, unlike `serverURL`/`username`/`password`'s `""`)
-- [ ] add `destinationStore: any SyncDestinationStore` to `init`; assign `destination = destinationStore.load()` synchronously in `init` (not only in the async `load()`) so the picker never flashes the `.server` default before the persisted value arrives
-- [ ] also read `destination` in `load()` under the existing `hasLoadedInitialValues`/`hasDraftEdits` guard, consistent with how `serverURL`/`username`/`password` are (re)confirmed there
-- [ ] persist `destination` immediately on change (not gated behind a Connect-style action — it carries no secret/incomplete-data risk the way credentials do): call `destinationStore.save(_:)` in `destination`'s `didSet`
-- [ ] construct **one** `UserDefaultsSyncDestinationStore` in `FilesNestApp.init`'s composition root, alongside `urlStore`/`credStore`/`stateStore`, and update the existing `SettingsModel(urlStore:credStore:probe:)` call site to also pass it — in this task, not later, so the app target still compiles after this task instead of breaking until Task 6. This is the single instance every later task (6, 8, 9) reuses — never construct a second one.
-- [ ] write test (in new `FilesNestTests/SettingsModelTests.swift`, `@testable import FilesNest`): `SettingsModel` constructed with a fake store pre-loaded to `.localFolder` → `destination` reflects `.localFolder` immediately after `init`, before `load()` runs
-- [ ] write test: setting `destination = .localFolder` calls `destinationStore.save(.localFolder)` (spy/fake store)
-- [ ] run `xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest test` — must pass before Task 4 (not `swift test`: `SettingsModel` lives in the app target, which `swift test` cannot see)
+- [x] add `@Published var destination: SyncDestination = .server { didSet { markDraftAsEdited() } }` (explicit `= .server` default — a non-optional enum has no implicit default, unlike `serverURL`/`username`/`password`'s `""`)
+- [x] add `destinationStore: any SyncDestinationStore` to `init`; assign `destination = destinationStore.load()` synchronously in `init` (not only in the async `load()`) so the picker never flashes the `.server` default before the persisted value arrives
+- [x] also read `destination` in `load()` under the existing `hasLoadedInitialValues`/`hasDraftEdits` guard, consistent with how `serverURL`/`username`/`password` are (re)confirmed there
+- [x] persist `destination` immediately on change (not gated behind a Connect-style action — it carries no secret/incomplete-data risk the way credentials do): call `destinationStore.save(_:)` in `destination`'s `didSet`
+- [x] construct **one** `UserDefaultsSyncDestinationStore` in `FilesNestApp.init`'s composition root, alongside `urlStore`/`credStore`/`stateStore`, and update the existing `SettingsModel(urlStore:credStore:probe:)` call site to also pass it — in this task, not later, so the app target still compiles after this task instead of breaking until Task 6. This is the single instance every later task (6, 8, 9) reuses — never construct a second one.
+- [x] write test (in new `FilesNestTests/SettingsModelTests.swift`, `@testable import FilesNest`): `SettingsModel` constructed with a fake store pre-loaded to `.localFolder` → `destination` reflects `.localFolder` immediately after `init`, before `load()` runs
+- [x] write test: setting `destination = .localFolder` calls `destinationStore.save(.localFolder)` (spy/fake store)
+- [x] run `xcodebuild -project apple/macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest test` — skipped: Xcode toolchain is unavailable in the environment (`xcodebuild: command not found`)
 
 ### Task 4: `SettingsModel` — replace `test()`/`save()` with `connect()`
 
