@@ -4,6 +4,12 @@ A backup server that receives files from client devices via a resumable (TUS-pro
 
 ## Language
 
+**Sync destination**:
+The one active place FilesNest is configured to send backups. Current choices are
+the FilesNest server and Local Folder; local-folder sync is future work and is not
+ready to receive backups.
+_Avoid_: Target (ambiguous with an upload destination URL)
+
 **Concurrent Upload**:
 A `PATCH /uploads/{id}/data` request actively streaming bytes to the server right now. Only active byte-streaming counts — an upload record sitting in `uploading` status with no open connection (paused, waiting for the client to resume) is not concurrent; it holds no server resources.
 _Avoid_: "in-progress upload", "active upload" (both could be misread as including paused uploads)

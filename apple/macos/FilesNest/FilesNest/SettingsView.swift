@@ -1,38 +1,27 @@
+import AppKit
 import SwiftUI
 import FilesNestCore
 import ServiceManagement
 
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
-    /// Return to the dashboard (this view lives inside the menu-bar panel, not a window).
-    var onDone: () -> Void
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Button { onDone() } label: { Label("Back", systemImage: "chevron.left") }
-                    .buttonStyle(.link)
-                Spacer()
+            Picker("Sync to", selection: $model.destination) {
+                Text("FilesNest Server").tag(SyncDestination.server)
+                Text("Local Folder").tag(SyncDestination.localFolder)
             }
-            Text("Connect your server").font(.title3.weight(.semibold))
-            Text("FilesNest keeps your password in your Mac keychain.")
-                .font(.caption).foregroundStyle(.secondary)
+            .pickerStyle(.segmented)
 
-            Form {
-                Section("FilesNest server") {
-                    TextField("Server URL", text: $model.serverURL)
-                        .textContentType(.URL).autocorrectionDisabled()
-                    TextField("Username", text: $model.username).autocorrectionDisabled()
-                    SecureField("Password", text: $model.password)
+            Group {
+                switch model.destination {
+                case .server:
+                    serverSettings
+                case .localFolder:
+                    localFolderPlaceholder
                 }
-            }
-
-            HStack(spacing: 10) {
-                Button("Test Connection") { Task { await model.test() } }
-                    .disabled(model.isTesting || !model.hasCredentials)
-                if model.isTesting { ProgressView().controlSize(.small) }
-                testPill
             }
 
             Toggle("Launch at login", isOn: $launchAtLogin)
@@ -40,19 +29,48 @@ struct SettingsView: View {
                     try? on ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()
                 }
 
-            Divider()
+        }
+        .padding(16).frame(width: 360)
+        .task { await model.load() }
+        .onDisappear { NSApp.setActivationPolicy(.accessory) }
+    }
+
+    private var serverSettings: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Form {
+                Section("FilesNest server") {
+                    TextField("Server URL", text: $model.serverURL)
+                        .textContentType(.URL)
+                        .autocorrectionDisabled()
+                    TextField("Username", text: $model.username).autocorrectionDisabled()
+                    SecureField("Password", text: $model.password)
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button("Connect") { Task { await model.connect() } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isConnecting || !model.canConnect)
+                if model.isConnecting { ProgressView().controlSize(.small) }
+                testPill
+            }
+
             if let saveError = model.saveError {
                 Label(saveError, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption).foregroundStyle(.red).lineLimit(2)
             }
-            HStack {
-                Spacer()
-                Button("Save & Connect") { if model.save() { onDone() } }
-                    .buttonStyle(.borderedProminent).disabled(!model.hasCredentials)
-            }
         }
-        .padding(16).frame(width: 320)
-        .task { await model.load() }
+    }
+
+    private var localFolderPlaceholder: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Local folder sync is coming soon", systemImage: "externaldrive.badge.timemachine")
+                .font(.headline)
+            Text("You’ll be able to back up directly to a folder or connected drive.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
     }
 
     @ViewBuilder private var testPill: some View {

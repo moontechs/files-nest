@@ -40,3 +40,6 @@ FilesNest.xcodeproj -scheme FilesNest test` if you need a non-interactive run.
   `YYYYMMDD-name.md` file, matching the existing ones — check there first for
   prior design decisions before re-deciding something (e.g. resume/persisted
   plan, upload concurrency).
+- For a Settings window launched from the menu-bar app, use `SettingsPresenter`:
+  it temporarily activates the app as `.regular` before opening Settings and restores
+  `.accessory` when the Settings view closes.

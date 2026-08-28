@@ -8,11 +8,15 @@ struct FilesNestApp: App {
     @StateObject private var settings: SettingsModel
     private let thumbnails = ThumbnailLoader()
     private let watcher: PhotoLibraryWatcher
+    private let destinationStore: any SyncDestinationStore
+    private let urlStore: any ServerURLStore
+    private let credStore: any CredentialSavingStore
 
     init() {
         let defaults   = UserDefaults.standard
         let urlStore   = UserDefaultsServerURLStore(defaults: defaults)
-        let credStore  = KeychainStore()
+        let credStore  = CachingCredentialStore(wrapping: KeychainStore())
+        let destinationStore = UserDefaultsSyncDestinationStore(defaults: defaults)
         let stateStore = UserDefaultsSyncStateStore(defaults: defaults)
         // Shared, TTL-memoized scan so a Sync Now right after the launch count reuses that
         // scan instead of paying a second full enumeration. (Observer-invalidated later.)
@@ -25,8 +29,9 @@ struct FilesNestApp: App {
             state: stateStore,
             perform: { range, onProgress in
                 // Read URL + creds at sync time so a Settings change takes effect.
-                guard let url = urlStore.load(),
-                      (try await credStore.basicCredentials()) != nil else {
+                guard await isDestinationReady(destinationStore.load(), urlStore: urlStore,
+                                               credStore: credStore),
+                      let url = urlStore.load() else {
                     throw NotSignedInError()
                 }
                 let client   = ServerClient(baseURL: url, credentials: credStore)
@@ -41,8 +46,9 @@ struct FilesNestApp: App {
                 // Re-drive the persisted not-yet-uploaded list: no scan, no diff, so a launch or
                 // Resume starts backing up immediately. Cold launches verify afterwards; an
                 // unchanged Pause resumes its known plan without another full library scan.
-                guard let url = urlStore.load(),
-                      (try await credStore.basicCredentials()) != nil else {
+                guard await isDestinationReady(destinationStore.load(), urlStore: urlStore,
+                                               credStore: credStore),
+                      let url = urlStore.load() else {
                     throw NotSignedInError()
                 }
                 let client   = ServerClient(baseURL: url, credentials: credStore)
@@ -58,8 +64,9 @@ struct FilesNestApp: App {
                 // Pending via SyncPlanner. `.all` on launch/restart; `.modifiedSince` on a change.
                 // Cached so a warm launch is instant.
                 let scan = try await library.resources(in: range, onProgress: progress.report)
-                guard let url = urlStore.load(),
-                      (try await credStore.basicCredentials()) != nil else {
+                guard await isDestinationReady(destinationStore.load(), urlStore: urlStore,
+                                               credStore: credStore),
+                      let url = urlStore.load() else {
                     // Signed out: no server to diff against — everything local is pending.
                     let a = Assessment(backedUp: 0, pending: scan.count, resourceTotal: scan.count)
                     stateStore.saveAssessment(a); return a
@@ -86,7 +93,11 @@ struct FilesNestApp: App {
                 stateStore.saveAssessment(a)
                 return a
             },
-            cachedAssessment: { stateStore.loadAssessment() })
+            cachedAssessment: { stateStore.loadAssessment() },
+            isReady: {
+                await isDestinationReady(destinationStore.load(), urlStore: urlStore,
+                                         credStore: credStore)
+            })
 
         // Continuously watch the photo library: on a debounced change, invalidate the cached
         // scan and nudge the engine to count + back up (auto-sync scheduler).
@@ -101,18 +112,33 @@ struct FilesNestApp: App {
 
         let appModel = AppModel(engine: engine)
         let settingsModel = SettingsModel(urlStore: urlStore,
-                                          credStore: KeychainStore(),
+                                          credStore: credStore,
+                                          destinationStore: destinationStore,
                                           probe: ConnectionProbe())
         settingsModel.onSaved = { appModel.restart() }
+        self.destinationStore = destinationStore
+        self.urlStore = urlStore
+        self.credStore = credStore
         _model = StateObject(wrappedValue: appModel)
         _settings = StateObject(wrappedValue: settingsModel)
     }
 
     var body: some Scene {
         MenuBarExtra("FilesNest", systemImage: "arrow.triangle.2.circlepath") {
-            PanelView(model: model, settings: settings, thumbnails: thumbnails).task { model.begin() }
+            PanelView(model: model, destinationStore: destinationStore, thumbnails: thumbnails)
+                .task { model.begin() }
         }
         .menuBarExtraStyle(.window)
+
+        Window("", id: "settings-anchor") {
+            SettingsAnchorView(destinationStore: destinationStore, urlStore: urlStore,
+                               credStore: credStore)
+        }
+        .windowStyle(.hiddenTitleBar)
+
+        Settings {
+            SettingsView(model: settings)
+        }
     }
 }
 

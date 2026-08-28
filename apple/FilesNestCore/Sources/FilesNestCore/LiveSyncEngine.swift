@@ -35,6 +35,10 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     public typealias Resume =
         @Sendable ([AssetResource], @escaping @Sendable (SyncProgress) -> Void) async throws -> SyncReport
 
+    /// Determines whether the active sync destination is fully configured.
+    /// Defaults to the historical credential-only check for existing callers.
+    public typealias Readiness = @Sendable () async -> Bool
+
     private enum Command: Sendable {
         case start, pause, resume, syncNow
         case libraryChanged
@@ -48,6 +52,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     }
 
     private let credentials: any CredentialStore
+    private let isReady: Readiness
     private let state: any SyncStateStore
     private let perform: Perform
     private let resume: Resume?
@@ -98,8 +103,10 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 resume: Resume? = nil,
                 assess: (@Sendable (_ range: SyncRange, _ progress: AssessProgress) async throws -> Assessment)? = nil,
                 cachedAssessment: (@Sendable () -> Assessment?)? = nil,
+                isReady: Readiness? = nil,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.credentials = credentials
+        self.isReady = isReady ?? { (try? await credentials.basicCredentials()) != nil }
         self.state = state
         self.perform = perform
         self.resume = resume
@@ -243,8 +250,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     /// the config may repoint the app (e.g. new server), so old-config work must stop — and
     /// re-establish the incremental anchor via a forced `.all`.
     private func doReconcile() async {
-        let creds = try? await credentials.basicCredentials()
-        guard creds != nil else { resetToSignedOut(); return }
+        guard await isReady() else { resetToSignedOut(); return }
         signedIn = true
         syncChild?.cancel(); syncChild = nil        // stop old-config work
         assessChild?.cancel(); assessChild = nil
@@ -267,8 +273,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     }
 
     private func doStart() async {
-        let creds = try? await credentials.basicCredentials()
-        guard creds != nil else { resetToSignedOut(); return }
+        guard await isReady() else { resetToSignedOut(); return }
         signedIn = true
         // While a sync or count is running, leave it (and its generation) intact — bumping would
         // orphan the in-flight child. Only reconcile here when idle; the count refreshes the

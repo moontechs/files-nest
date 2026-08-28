@@ -38,6 +38,18 @@ import Foundation
         #expect(await awaitStatus(engine) { $0 == .signedOut } == .signedOut)
     }
 
+    @Test func startWithCredentialsButUnreadyDestinationIsSignedOut() async {
+        let engine = LiveSyncEngine(
+            credentials: creds(true),
+            state: InMemorySyncStateStore(),
+            perform: { _, _ in self.emptyReport() },
+            isReady: { false })
+
+        await engine.start(); await engine.settle()
+
+        #expect(await awaitStatus(engine) { $0 == .signedOut } == .signedOut)
+    }
+
     @Test func startWithCredentialsIsWatchingWithStoredLastSync() async {
         let state = InMemorySyncStateStore()
         let d = Date(timeIntervalSince1970: 1_700_000_000)

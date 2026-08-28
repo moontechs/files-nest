@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import os
 @testable import FilesNestCore
 
 struct ShellStoresTests {
@@ -23,4 +24,59 @@ struct ShellStoresTests {
         #expect(try await StaticCredentialStore(creds).basicCredentials() == creds)
         #expect(try await StaticCredentialStore(nil).basicCredentials() == nil)
     }
+
+    @Test func syncDestinationDefaultsToServerAndRoundTrips() {
+        let suite = UserDefaults(suiteName: "destination.\(UUID().uuidString)")!
+        let store = UserDefaultsSyncDestinationStore(defaults: suite)
+        #expect(store.load() == .server)
+        store.save(.localFolder)
+        #expect(store.load() == .localFolder)
+        store.save(.server)
+        #expect(store.load() == .server)
+    }
+
+    @Test func destinationReadinessRequiresServerURLAndCredentials() async {
+        let suite = UserDefaults(suiteName: "destination.\(UUID().uuidString)")!
+        let urlStore = UserDefaultsServerURLStore(defaults: suite)
+        let credentials = BasicCredentials(username: "u", password: "p")
+
+        #expect(!(await isDestinationReady(.server, urlStore: urlStore,
+                                           credStore: StaticCredentialStore(credentials))))
+        urlStore.save(URL(string: "https://nest.home.example")!)
+        #expect(await isDestinationReady(.server, urlStore: urlStore,
+                                         credStore: StaticCredentialStore(credentials)))
+        #expect(!(await isDestinationReady(.server, urlStore: urlStore,
+                                           credStore: StaticCredentialStore(nil))))
+        #expect(!(await isDestinationReady(.localFolder, urlStore: urlStore,
+                                           credStore: StaticCredentialStore(credentials))))
+    }
+
+    @Test func cachingCredentialStoreCoalescesConcurrentReads() async throws {
+        let wrapped = DelayedCredentialStore(
+            credentials: BasicCredentials(username: "u", password: "p"))
+        let store = CachingCredentialStore(wrapping: wrapped)
+
+        async let first = store.basicCredentials()
+        async let second = store.basicCredentials()
+        let firstResult = try await first
+        let secondResult = try await second
+        #expect(firstResult == secondResult)
+        #expect(wrapped.readCount == 1)
+    }
+}
+
+private final class DelayedCredentialStore: CredentialSavingStore, @unchecked Sendable {
+    private let count = OSAllocatedUnfairLock(initialState: 0)
+    private let credentials: BasicCredentials
+    var readCount: Int { count.withLock { $0 } }
+
+    init(credentials: BasicCredentials) { self.credentials = credentials }
+
+    func basicCredentials() async throws -> BasicCredentials? {
+        count.withLock { $0 += 1 }
+        try await Task.sleep(for: .milliseconds(20))
+        return credentials
+    }
+
+    func save(_ credentials: BasicCredentials) throws {}
 }

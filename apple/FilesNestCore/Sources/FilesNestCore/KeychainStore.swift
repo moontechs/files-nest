@@ -43,7 +43,7 @@ public enum KeychainStoreError: Error, Equatable {
 
 /// `CredentialStore` conformance backed by the data-protection Keychain.
 /// Stores exactly one Basic Auth credential, addressed by `service` + `account`.
-public struct KeychainStore: CredentialStore {
+public struct KeychainStore: CredentialSavingStore {
     private let service: String
     private let account: String
     private let backend: KeychainBackend
