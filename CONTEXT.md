@@ -15,7 +15,7 @@ A `PATCH /uploads/{id}/data` request actively streaming bytes to the server righ
 _Avoid_: "in-progress upload", "active upload" (both could be misread as including paused uploads)
 
 **Organized path**:
-The on-disk location of a completed upload, under `organized/YYYY/MM/DD/<filename>`. Stored on the upload record as `OrganizedPath`, set only when a record reaches `complete` status.
+The on-disk location of a completed upload, date-organized as `YYYY/MM/DD/<filename>_<id>` (the `<id>` suffix, a stable per-resource identifier, is always appended — not just on filename collision). On the server this sits under `organized/` within `$STORAGE_PATH` and is stored on the upload record as `OrganizedPath`, set only when a record reaches `complete` status. On a Local Folder sync destination, the same `YYYY/MM/DD/<filename>_<id>` shape sits directly under the chosen folder — there is no server-side `organized/` segment or upload record to attach it to, since there is no staging step (`incoming/`) to separate it from. Both destinations compute `<id>` identically (a hash of the resource key), so the same asset produces the same filename regardless of destination. Planned in `docs/plans/20260829-server-unify-organized-filename-suffix.md` and `docs/plans/20260829-apple-local-folder-sync.md`; not yet implemented as of this entry.
 _Avoid_: File path, storage path
 
 **Orphan file**:
