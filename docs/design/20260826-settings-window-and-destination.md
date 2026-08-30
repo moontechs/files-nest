@@ -91,12 +91,12 @@ tinted with the app's `AccentColor`, so the transient Dock icon and the permanen
 menu-bar icon read as one identity. Explicitly a placeholder — replace with real
 branding whenever that work happens, independent of this ticket.
 
-## 3. Sync destination (future-proofing only — this doc doesn't implement it)
+## 3. Sync destination
 
 Two destinations are planned:
 - **Server** — current behavior (`ServerClient` + TUS upload), fully implemented.
-- **Local folder** — sync to a connected drive/mounted volume. **Not built. Separate
-  ticket.**
+- **Local folder** — sync to a connected drive/mounted volume. Implemented by the
+  companion local-folder sync ticket.
 
 Exactly one is active at a time, chosen in Settings. Model that now so Settings has
 the right shape without building the folder side:
@@ -178,11 +178,8 @@ other change here is purely "move existing Settings to a window."
   the destination-specific area.
 
 **Out (future, separate ticket):**
-- Local folder sync itself — picking a folder (`NSOpenPanel`/security-scoped
-  bookmark), a `SyncEngine`/`AssetUploader` implementation that writes to disk
-  instead of `ServerClient`, and whatever `SyncCoordinator` changes that implies.
-  This doc only reserves the picker and the enum case so that ticket doesn't also
-  have to touch Settings' shape.
+- Further local-folder enhancements beyond the implemented folder picker,
+  security-scoped bookmark flow, and local-folder sync coordinator.
 
 ## 5. Testing strategy
 
@@ -198,13 +195,13 @@ other change here is purely "move existing Settings to a window."
 
 ## 6. Open items
 
-1. **Destination switch mid-flight.** If a user switches `.server` → `.localFolder`
-   once folder sync exists, does the server engine pause, or do both run assessed
-   independently? Deferred to the folder-sync ticket — out of scope here since
-   `.localFolder` has no engine yet.
+1. **Destination switch mid-flight — resolved.** Destination changes call the
+   existing reconciliation hook immediately. `LiveSyncEngine` cancels the
+   in-flight run, and the next reconciliation constructs the coordinator for
+   the newly selected destination. Server and local-folder runs therefore do
+   not continue concurrently or share an in-flight operation.
 2. **System-wide ⌘, reliability.** Whether the hidden anchor `Window` + activation-policy
    toggle make a genuinely global ⌘, (i.e. while the menu is closed and no FilesNest
    window has focus) work, or only the locally-bound menu-item shortcut is dependable
    — resolve empirically during implementation; the design doesn't depend on the
    global case working.
-

@@ -526,14 +526,14 @@ branching inside those closures' bodies, not touch this plumbing again.
       Swift/Xcode toolchains
 
 ### Task 10: [Final] Update documentation
-- [ ] Update `docs/design/20260826-settings-window-and-destination.md`'s
+- [x] Update `docs/design/20260826-settings-window-and-destination.md`'s
       "Open items" §1 (destination switch mid-flight) — mark it resolved per
       this plan's Technical Details (independent per-destination tracking,
       switching cancels the old destination's in-flight run)
-- [ ] Update `apple/CLAUDE.md` if this introduces a new pattern worth
+- [x] Update `apple/CLAUDE.md` if this introduces a new pattern worth
       documenting (e.g. the no-shared-protocol convention now has two real
       examples instead of zero)
-- [ ] Move this plan to `docs/plans/completed/`
+- [x] Move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 
