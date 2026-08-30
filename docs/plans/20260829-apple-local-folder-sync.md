@@ -179,7 +179,12 @@ non-nil AND resolves to an existing, writable directory.
 
 - [ ] Implement `func safeID(_ input: String) -> String` using `CryptoKit.SHA256`
       + `Data.base64URLEncodedString()` (no padding) — a small local
-      base64url helper if `Foundation`/`CryptoKit` don't expose one directly
+      base64url helper if `Foundation`/`CryptoKit` don't expose one directly.
+      Encode the input via `input.data(using: .utf8)!` with NO Unicode
+      normalization step (no `.precomposedStringWithCanonicalMapping` or
+      similar) — Go's `[]byte(string)` hashes raw UTF-8 bytes unnormalized,
+      so an implicit Swift-side normalization would silently diverge from
+      the Go output for any non-ASCII `localIdentifier`
 - [ ] Write tests asserting these exact ground-truth vectors (computed and
       verified against the actual Go `SafeID` function during planning —
       same literal vectors are asserted in the companion server plan's
@@ -188,6 +193,10 @@ non-nil AND resolves to an existing, writable directory.
       - `"AAAA-BBBB-CCCC-DDDD#photo"` → `"QEzizTsZbhLknu3BxIqchpZg6BiVPEM7p8HYKhmIpCc"`
       - `"AAAA-BBBB-CCCC-DDDD#pairedVideo"` → `"FlwSC0rmUccfKH1nEq9BAo3lHk_SeclzxNeV9Sp_-kw"`
       - `""` → `"47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU"`
+      - `"AAAA-BBBB-CCCC-DDDD-café#photo"` → `"8h9r2pPlYMjO0ke3F01cPwtzADNQkhqD2k72i46TAEk"`
+        (non-ASCII vector — the one case where a Unicode-normalization bug
+        would actually produce a wrong hash instead of coincidentally
+        matching; catches the divergence risk noted above)
 - [ ] Write tests for edge cases: empty string, strings with `#` (the
       `resourceKey` separator), unicode filenames
 - [ ] Run `swift test` — must pass before task 2
@@ -308,6 +317,17 @@ non-nil AND resolves to an existing, writable directory.
       upload-only restriction; then run uploads serially via
       `LocalFolderWriter` reporting progress, run deletes via
       `FileManager.removeItem`, assemble `SyncReport`
+- [ ] A per-asset `LocalFolderWriter.write` failure (mid-write I/O error,
+      e.g. an ejected external drive) is caught and appended to
+      `SyncReport.failed` like `SyncCoordinator`'s own upload-failure
+      handling (see `SyncCoordinator.swift`'s `runUploads`) — it must NOT
+      abort the whole `sync`/`resume` run or trigger an immediate in-process
+      retry of that same file. A flaky/disconnected volume would otherwise
+      turn one stuck large file into a retry-storm hammering the same write
+      repeatedly within a single cycle; the existing failed-item/next-cycle
+      retry model is what bounds that, so this coordinator must route
+      through it rather than adding its own retry loop. `CancellationError`
+      still propagates and stops the run, matching `SyncCoordinator`.
 - [ ] `resume`: re-drive a saved resource list directly through
       `LocalFolderWriter` without re-planning, mirroring
       `SyncCoordinator.resume` — for each resource, recompute its
@@ -315,9 +335,20 @@ non-nil AND resolves to an existing, writable directory.
       upload-plan path uses; `resume` does not get a precomputed path, it
       only has the `AssetResource` list, so this recomputation is required,
       not optional)
+- [ ] `resume` must re-resolve `destinationRoot` via the Task 2 resolve
+      helper at the START of `resume`, not reuse a root captured when the
+      failed resource list was first queued. If the resolved root's bookmark
+      data differs from what was active when the queued resources were
+      planned (user switched the local folder in Settings between the
+      failed attempt and this resume), fail the whole `resume` call with a
+      typed error instead of writing some resources under the old root and
+      some under the new one — silently splitting one resume batch across
+      two destination folders is worse than asking for a fresh full sync
 - [ ] Write tests using `FakeAssetLibrary` + a real temp directory: full
       sync uploads missing assets, skips already-present ones, deletes
-      orphans; resume re-drives a list without re-scanning
+      orphans; resume re-drives a list without re-scanning; a mid-write
+      failure on one resource lands in `SyncReport.failed` and does not
+      stop the remaining resources in the same run
 - [ ] Write tests for the unavailable-destination-folder failure path
       (temp directory removed/made unwritable mid-run → typed error, not a
       crash)
@@ -448,13 +479,28 @@ branching inside those closures' bodies, not touch this plumbing again.
       (for `.all` only) the destination-tree walk + `planDeletes` if a
       failed-count is needed. Do not introduce a new `LocalFolderPlanner`
       API for this — reuse the exact functions Task 5 already has
+- [ ] Extract the `.server`-vs-`.localFolder` branch condition itself
+      (reading `destinationStore.load()` and deciding which coordinator
+      family to build) into a small, pure, testable function or switch —
+      e.g. `func coordinatorKind(for destination: SyncDestination) ->
+      CoordinatorKind` — rather than leaving the decision inline inside the
+      four `FilesNestApp.swift` closures. This is the single highest-risk
+      line in the whole feature (wrong branch = a `.localFolder` user's
+      sync silently uses the server path, or vice versa) and it must not be
+      the one piece of Task 8 covered only by manual verification. Unit-test
+      this extracted function directly for both destination cases; the
+      remaining closure body (actually constructing `ServerClient` vs
+      `LocalFolderSyncCoordinator` and bracketing the security-scoped
+      session) may still fall back to manual verification per the note
+      below, since `FilesNestApp.init()` itself isn't easily unit-testable
 - [ ] Write/update `FilesNestTests` coverage exercising the composition
       root's destination branch (confirm the existing test structure for
       this file — it may be exercised only via `AppModel`/integration-style
       tests rather than directly, given `FilesNestApp.init()` isn't easily
       unit-testable as SwiftUI `App` — note in the plan if this task ends up
       being manual-verification-only for the composition root specifically,
-      and rely on Tasks 1-6's unit coverage for the underlying logic)
+      and rely on Tasks 1-6's unit coverage plus the extracted branch
+      function's tests above for the underlying logic)
 - [ ] Run `xcodebuild -project FilesNest.xcodeproj -scheme FilesNest test`
       — must pass before task 9
 
