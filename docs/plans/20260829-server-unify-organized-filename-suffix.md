@@ -271,40 +271,50 @@ comments are updated to match. The one production call site
   `moveCompletedFile`/completion-flow tests live — confirm exact file at
   implementation time)
 
-- [ ] In `moveCompletedFile` (`handlers.go:1040`), change the
+- [x] In `moveCompletedFile` (`handlers.go:1040`), change the
       `PlanAndMove(...)` call's suffix argument from `upload.BackendID` to
-      `upload.ID`
-- [ ] Before rewriting the doc comment, grep every read of
+      `upload.ID` (also renamed `PlanAndMove`'s parameter `backendID` → `id`
+      in `mover.go` to match, per the Solution Overview's naming intent)
+- [x] Before rewriting the doc comment, grep every read of
       `CompletionIntent.BackendID` (it's set from `upload.BackendID` at
       `saveIntent` time, `handlers.go:1005`) and confirm none of them compare
       it against a *current* `upload.BackendID` to detect a stale intent —
-      if such a comparison exists, document whether it remains correct now
-      that the destination path no longer depends on `backendID` at all; if
-      none exists, add a one-line doc comment directly on the
-      `CompletionIntent.BackendID` field itself stating it is retained only
-      as debugging/audit context (which tusd backend a completed upload's
-      bytes originally moved through) and is no longer read by any
-      path-planning logic — so a future reader hitting the field doesn't
-      have to re-derive why it's still there
-- [ ] Update the `moveCompletedFile` doc comment (`handlers.go:971-991`,
-      specifically the "Retry safety" paragraph) — it currently justifies
-      completion-intent reuse by describing a `backend_id`-driven path
-      divergence across `ReRegister` retries (see the Context section's
-      `ReRegister` note above) that can no longer happen once the suffix is
-      `upload.ID`-based and unconditional. Rewrite it to state plainly that
-      recomputing the destination is now fully deterministic (no disk-state
-      dependency, no `backendID` dependency), and that intent-reuse is kept
-      as a deliberate simplicity/consistency choice (avoids recomputing on
-      every retry) rather than as a correctness requirement for this
-      specific failure mode — do not just delete the paragraph, a future
-      reader needs to know why intent-reuse still exists
-- [ ] Grep for any other test fixtures asserting the old `_<backendID>`
-      suffix shape in completion/finalize handler tests and update them
-- [ ] Write/update a handler-level integration test (`httptest`, per
+      confirmed: the only reads are in `recovery.go` (log line, empty-check
+      for sidecar cleanup, and `TerminateOrCleanup`), none comparing against a
+      current backend ID. Added a doc comment directly on the
+      `CompletionIntent.BackendID` field stating it is retained only as
+      debugging/audit context (which tusd backend a completed upload's bytes
+      originally moved through) and for best-effort tusd sidecar cleanup during
+      crash recovery, and is no longer read by any path-planning logic
+- [x] Update the `moveCompletedFile` doc comment (`handlers.go:971-991`,
+      specifically the "Retry safety" paragraph) — rewritten to state plainly
+      that recomputing the destination is now fully deterministic (no
+      disk-state dependency, no `backendID` dependency), and that intent-reuse
+      is kept as a deliberate simplicity/consistency choice (avoids recomputing
+      on every retry) rather than as a correctness requirement for this
+      specific failure mode; also updated the stale first paragraph describing
+      the removed collision-check TOCTOU mechanism to describe the
+      uniqueness-by-ID reasoning and the mutex's remaining role
+- [x] Grep for any other test fixtures asserting the old `_<backendID>`
+      suffix shape in completion/finalize handler tests and update them — none
+      found; the only completion-intent assertions (`intent.BackendID ==
+      created.BackendID` in
+      `TestHandlePatchUploadStatus_MoveFailurePreservesUploading`) still hold
+      because the field is retained as audit/cleanup context
+- [x] Write/update a handler-level integration test (`httptest`, per
       `docs/architecture.md`'s testing-approach section) asserting a
       completed upload's organized filename ends in `_<upload.ID>`, not
-      `_<backendID>`
-- [ ] Run `make test` and `make lint` — must pass before task 4
+      `_<backendID>` — added
+      `TestHandlePatchUploadStatus_OrganizedFilenameSuffixedWithUploadID` in
+      `handlers_test.go` (asserts exact filename `IMG_0001_<upload.ID>.jpg`,
+      absence of `backend_id`, and that the file exists at the suffixed path)
+- [x] Run `make test` and `make lint` — must pass before task 4. `make test`
+      passes for every package touched (`internal/api`, `internal/filestore`,
+      `internal/store`, plus the rest of `./...`); the sole root-package
+      `TestSetupStdLoggerAppliesLogLevel` failure is the documented
+      pre-existing baseline issue (verified identical on the untouched
+      baseline via stash). `make lint` findings set is byte-identical to
+      baseline — zero new findings
 
 ### Task 4: End-to-end verification against the live stack
 

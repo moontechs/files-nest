@@ -2411,6 +2411,48 @@ func TestHandlePatchUploadStatus_FileContentPreserved(t *testing.T) {
 	}
 }
 
+// TestHandlePatchUploadStatus_OrganizedFilenameSuffixedWithUploadID verifies at
+// the handler level that a completed upload's organized filename always ends in
+// the stable _<upload.ID> suffix (the SafeID of its local identifier), not the
+// mutable tusd _<backend_id> — the backend ID changes across backend_lost
+// re-registration and cannot serve as a durable per-asset filename marker.
+func TestHandlePatchUploadStatus_OrganizedFilenameSuffixedWithUploadID(t *testing.T) {
+	h, st, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-STATUS-SUFFIX/L0/000", "IMG_0001.jpg", creationDate)
+
+	data := []byte("content for organized filename suffix test")
+	patchRec := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0,
+		strconv.Itoa(len(data)), strings.NewReader(string(data)))
+	if patchRec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH data expected 204, got %d: %s", patchRec.Code, patchRec.Body.String())
+	}
+
+	rec := statusPatchRequest(h.HandlePatchUploadStatus, created.ID, `{"status": "complete"}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH status expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	upload, err := st.GetUpload(created.ID)
+	if err != nil {
+		t.Fatalf("GetUpload: %v", err)
+	}
+	if upload.OrganizedPath == "" {
+		t.Fatal("expected non-empty organized_path")
+	}
+
+	wantName := "IMG_0001_" + created.ID + ".jpg"
+	if got := filepath.Base(upload.OrganizedPath); got != wantName {
+		t.Errorf("organized filename = %q, want %q (suffixed with upload ID)", got, wantName)
+	}
+	if strings.Contains(upload.OrganizedPath, created.BackendID) {
+		t.Errorf("organized path %q must not contain backend_id %q", upload.OrganizedPath, created.BackendID)
+	}
+
+	if _, err := os.Stat(filepath.Join(h.StoragePath(), upload.OrganizedPath)); err != nil {
+		t.Errorf("organized file missing at suffixed path: %v", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Concurrent completion collision safety
 // ---------------------------------------------------------------------------

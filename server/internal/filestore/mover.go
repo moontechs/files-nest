@@ -224,12 +224,12 @@ func suffixFilename(filename, id string) string {
 // If beforeMove returns an error, no move is performed and that error is
 // returned to the caller.
 func (m *Mover) PlanAndMove(
-	src, creationDate, createdAt, filename, backendID string, beforeMove func(PlanDestResult) error,
+	src, creationDate, createdAt, filename, id string, beforeMove func(PlanDestResult) error,
 ) (PlanDestResult, error) {
 	m.moveMu.Lock()
 	defer m.moveMu.Unlock()
 
-	plan := m.PlanDestination(creationDate, createdAt, filename, backendID)
+	plan := m.PlanDestination(creationDate, createdAt, filename, id)
 	if beforeMove != nil {
 		err := beforeMove(plan)
 		if err != nil {
