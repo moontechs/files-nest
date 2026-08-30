@@ -7,7 +7,9 @@
 
 import Testing
 @testable import FilesNest
+import FilesNestCore
 
+@MainActor
 struct FilesNestTests {
 
     @Test func coordinatorKindMatchesDestination() {

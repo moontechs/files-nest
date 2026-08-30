@@ -60,9 +60,9 @@ struct ShellStoresTests {
         #expect(await isDestinationReady(.server, urlStore: urlStore,
                                          credStore: StaticCredentialStore(credentials), localFolderStore: localFolderStore))
         #expect(!(await isDestinationReady(.server, urlStore: urlStore,
-                                           credStore: StaticCredentialStore(nil), localFolderStore: localFolderStore))
+                                           credStore: StaticCredentialStore(nil), localFolderStore: localFolderStore)))
         #expect(!(await isDestinationReady(.localFolder, urlStore: urlStore,
-                                           credStore: StaticCredentialStore(credentials), localFolderStore: localFolderStore))
+                                           credStore: StaticCredentialStore(credentials), localFolderStore: localFolderStore)))
     }
 
     @Test func localFolderReadinessRequiresExistingWritableBookmarkedDirectory() async throws {

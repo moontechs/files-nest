@@ -23,6 +23,33 @@ struct SettingsModelTests {
         #expect(saves == 1)
     }
 
+    @Test func switchingDestinationsKeepsTheServerDraft() {
+        let model = makeModel()
+        model.serverURL = "https://nest.home.example"
+        model.username = "nest"
+        model.password = "secret"
+
+        model.destination = .localFolder
+        model.destination = .server
+
+        #expect(model.serverURL == "https://nest.home.example")
+        #expect(model.username == "nest")
+        #expect(model.password == "secret")
+    }
+
+    @Test func switchingToLocalFolderClearsServerConnectionFeedback() async {
+        let model = makeModel()
+        model.serverURL = "not a URL"
+        model.username = "nest"
+        model.password = "secret"
+        await model.connect()
+
+        model.destination = .localFolder
+
+        #expect(model.saveError == nil)
+        #expect(model.testResult == nil)
+    }
+
     @Test func choosingFolderPersistsBookmarkAndTriggersSaveCallback() {
         let store = InMemoryLocalFolderStore()
         let folder = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -127,14 +154,15 @@ struct SettingsModelTests {
         credentials: InMemoryCredentialStore = InMemoryCredentialStore(),
         destinationStore: InMemoryDestinationStore = InMemoryDestinationStore(),
         localFolderStore: any LocalFolderStore = UserDefaultsLocalFolderStore(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-        folderPicker: any LocalFolderPicker = FakeLocalFolderPicker(url: nil)
+        folderPicker: (any LocalFolderPicker)? = nil
     ) -> SettingsModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [ProbeURLProtocol.self]
         return SettingsModel(urlStore: urlStore, credStore: credentials,
                               destinationStore: destinationStore,
                              probe: ConnectionProbe(session: URLSession(configuration: config)),
-                             localFolderStore: localFolderStore, folderPicker: folderPicker)
+                             localFolderStore: localFolderStore,
+                             folderPicker: folderPicker ?? FakeLocalFolderPicker(url: nil))
     }
 }
 

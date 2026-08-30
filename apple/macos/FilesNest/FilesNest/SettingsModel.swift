@@ -12,6 +12,7 @@ struct OpenPanelLocalFolderPicker: LocalFolderPicker {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose Folder"
         return panel.runModal() == .OK ? panel.url : nil
@@ -26,6 +27,10 @@ final class SettingsModel: ObservableObject {
     @Published var destination: SyncDestination = .server {
         didSet {
             guard destination != oldValue else { return }
+            // A connection result belongs to the server form. Do not show its failure while
+            // a local-folder backup is active (and vice versa).
+            saveError = nil
+            testResult = nil
             markDraftAsEdited()
             destinationStore.save(destination)
             onSaved?()
@@ -53,14 +58,14 @@ final class SettingsModel: ObservableObject {
         destinationStore: any SyncDestinationStore,
         probe: ConnectionProbe,
         localFolderStore: any LocalFolderStore,
-        folderPicker: any LocalFolderPicker = OpenPanelLocalFolderPicker()
+        folderPicker: (any LocalFolderPicker)? = nil
     ) {
         self.urlStore = urlStore
         self.credStore = credStore
         self.destinationStore = destinationStore
         self.probe = probe
         self.localFolderStore = localFolderStore
-        self.folderPicker = folderPicker
+        self.folderPicker = folderPicker ?? OpenPanelLocalFolderPicker()
         self._destination = Published(initialValue: destinationStore.load())
         self._selectedFolderPath = Published(initialValue: resolveLocalFolder(store: localFolderStore)?.path)
     }

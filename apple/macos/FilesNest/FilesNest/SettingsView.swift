@@ -8,14 +8,24 @@ struct SettingsView: View {
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Picker("Sync to", selection: $model.destination) {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Backup destination")
+                    .font(.headline)
+                Text("Choose where FilesNest sends future backups. You can switch at any time; settings for the other destination stay saved.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Picker("Backup destination", selection: $model.destination) {
                 Text("FilesNest Server").tag(SyncDestination.server)
                 Text("Local Folder").tag(SyncDestination.localFolder)
             }
             .pickerStyle(.segmented)
+            .accessibilityHint("Changes where future backups are sent immediately.")
 
-            Group {
+            GroupBox {
                 switch model.destination {
                 case .server:
                     serverSettings
@@ -23,6 +33,7 @@ struct SettingsView: View {
                     localFolderSettings
                 }
             }
+            .accessibilityElement(children: .contain)
 
             Toggle("Launch at login", isOn: $launchAtLogin)
                 .onChange(of: launchAtLogin) { _, on in
@@ -30,15 +41,17 @@ struct SettingsView: View {
                 }
 
         }
-        .padding(16).frame(width: 360)
+        .padding(20).frame(width: 420)
         .task { await model.load() }
         .onDisappear { NSApp.setActivationPolicy(.accessory) }
     }
 
     private var serverSettings: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
+            activeDestination("Backing up to FilesNest Server", systemImage: "server.rack")
+
             Form {
-                Section("FilesNest server") {
+                Section("Server connection") {
                     TextField("Server URL", text: $model.serverURL)
                         .textContentType(.URL)
                         .autocorrectionDisabled()
@@ -63,21 +76,47 @@ struct SettingsView: View {
     }
 
     private var localFolderSettings: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("Local folder", systemImage: "externaldrive.badge.timemachine")
-                .font(.headline)
-            Text(model.selectedFolderPath ?? "No folder selected")
+        VStack(alignment: .leading, spacing: 14) {
+            activeDestination("Backing up to Local Folder", systemImage: "folder.badge.gearshape")
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Save backups here")
+                    .font(.subheadline.weight(.medium))
+                if let selectedFolderPath = model.selectedFolderPath {
+                    Text(selectedFolderPath)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .textSelection(.enabled)
+                } else {
+                    Text("Choose a folder to finish setting up this destination.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Button(model.selectedFolderPath == nil ? "Choose Folder…" : "Choose Different Folder…") {
+                model.chooseLocalFolder()
+            }
+                .buttonStyle(.borderedProminent)
+
+            Label("Your saved server address and credentials are kept. Switch back to FilesNest Server above whenever you want to use them again.",
+                  systemImage: "checkmark.shield")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .lineLimit(2)
-            Button("Choose Folder…") { model.chooseLocalFolder() }
-                .buttonStyle(.borderedProminent)
+                .fixedSize(horizontal: false, vertical: true)
             if let saveError = model.saveError {
                 Label(saveError, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption).foregroundStyle(.red).lineLimit(2)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 170, alignment: .leading)
+    }
+
+    private func activeDestination(_ title: LocalizedStringKey, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.headline)
+            .accessibilityAddTraits(.isHeader)
     }
 
     @ViewBuilder private var testPill: some View {

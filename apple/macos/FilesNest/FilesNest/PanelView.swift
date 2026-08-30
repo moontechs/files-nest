@@ -160,7 +160,7 @@ struct PanelView: View {
     private var actions: some View {
         VStack(spacing: 0) {
             if isSignedOut {
-                Button("Set Up FilesNest") { SettingsPresenter.open(openSettings) }
+                Button("Set Up Backup") { SettingsPresenter.open(openSettings) }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -268,7 +268,7 @@ struct PanelView: View {
     private var statusColor: Color { ringColor }
     private var title: String {
         switch model.status {
-        case .signedOut: return "Your backup needs a server"
+        case .signedOut: return "Set up your backup"
         case .counting(_, _, let purpose):
             // A verify pass follows a completed upload; saying "Counting…" again there reads
             // as "it started over", which is exactly what the resume work set out to avoid.
@@ -282,11 +282,7 @@ struct PanelView: View {
     }
     private var subtitle: String {
         switch model.status {
-        case .signedOut:
-            switch destinationStore.load() {
-            case .server: return "Connect your server in Settings"
-            case .localFolder: return "Local folder sync isn't available yet — set it up in Settings"
-            }
+        case .signedOut: return "Choose a server or local folder in Settings"
         case .counting(let done, let total, let purpose):
             let scope = purpose == .verify ? "Checking for changes" : "Scanning library"
             return total > 0 ? "\(scope) · \(done.formatted()) of \(total.formatted())" : "\(scope)…"
@@ -312,7 +308,12 @@ struct PanelView: View {
             return "Retrying in \(seconds)s · \(retry.waitingRequests) \(requests) waiting"
         case .paused(let n): return "\(n) items waiting"
         case .error:
-            return "Check that your server is online and the address is correct, then retry."
+            switch destinationStore.load() {
+            case .server:
+                return "Check that your server is online and the address is correct, then retry."
+            case .localFolder:
+                return "Check that your local backup folder is available and writable, then retry."
+            }
         }
     }
 

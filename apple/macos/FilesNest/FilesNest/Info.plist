@@ -28,6 +28,6 @@
 		<true/>
 	</dict>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>FilesNest reads your photo and video originals to back them up to your server.</string>
+	<string>FilesNest reads your photo and video originals to back them up to a FilesNest server or local folder.</string>
 </dict>
 </plist>

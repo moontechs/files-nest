@@ -119,6 +119,7 @@ struct FilesNestApp: App {
                     stateStore.saveAssessment(a)
                     return a
                 }
+                guard let url = urlStore.load() else { throw NotSignedInError() }
                 // Assessment is intentionally fail-fast: unlike an upload, it has no
                 // reconnect progress state to present while it waits.
                 let client = ServerClient(baseURL: url, credentials: credStore, maxPatchRetries: 0)
@@ -197,9 +198,9 @@ struct FilesNestApp: App {
     }
 }
 
-enum CoordinatorKind: Equatable { case server, localFolder }
+nonisolated enum CoordinatorKind: Equatable { case server, localFolder }
 
-func coordinatorKind(for destination: SyncDestination) -> CoordinatorKind {
+nonisolated func coordinatorKind(for destination: SyncDestination) -> CoordinatorKind {
     destination == .server ? .server : .localFolder
 }
 

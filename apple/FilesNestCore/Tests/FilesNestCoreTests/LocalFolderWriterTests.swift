@@ -16,7 +16,7 @@ struct LocalFolderWriterTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let destination = directory.appendingPathComponent("nested/result.jpg")
         let source = FakeAssetDataSource(totalBytes: 250, blobSize: 100, fillRandom: false)
-        let writer = LocalFolderWriter(source: source, volumeFreeSpace: { _ in 100 })
+        let writer = LocalFolderWriter(source: source, minimumFreeSpace: 1, volumeFreeSpace: { _ in 100 })
 
         try await writer.write(assetID: "asset", destinationPath: destination)
 
@@ -29,14 +29,14 @@ struct LocalFolderWriterTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let probe = Probe()
         let destination = directory.appendingPathComponent("missing/year/month/result.jpg")
-        let writer = LocalFolderWriter(source: FakeAssetDataSource(totalBytes: 1, blobSize: 1), volumeFreeSpace: { url in
+        let writer = LocalFolderWriter(source: FakeAssetDataSource(totalBytes: 1, blobSize: 1), minimumFreeSpace: 1, volumeFreeSpace: { url in
             probe.record(url)
             return 100
         })
 
         try await writer.write(assetID: "asset", destinationPath: destination)
 
-        #expect(probe.value == directory)
+        #expect(probe.value?.standardizedFileURL == directory.standardizedFileURL)
     }
 
     @Test func failedReadLeavesNoFinalOrTemporaryFile() async throws {
@@ -46,7 +46,7 @@ struct LocalFolderWriterTests {
         let writer = LocalFolderWriter(
             source: FakeAssetDataSource(totalBytes: 250, blobSize: 100,
                                         failAfterBlobs: 1, fillRandom: false),
-            volumeFreeSpace: { _ in 100 })
+            minimumFreeSpace: 1, volumeFreeSpace: { _ in 100 })
 
         await #expect(throws: FakeSourceError.injected) {
             try await writer.write(assetID: "asset", destinationPath: destination)
@@ -81,7 +81,7 @@ struct LocalFolderWriterTests {
         try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: outside.path)
         let destination = link.appendingPathComponent("01/02/result.jpg")
         let writer = LocalFolderWriter(source: FakeAssetDataSource(totalBytes: 1, blobSize: 1),
-                                       destinationRoot: directory, volumeFreeSpace: { _ in 100 })
+                                       minimumFreeSpace: 1, destinationRoot: directory, volumeFreeSpace: { _ in 100 })
 
         await #expect(throws: LocalFolderWriterError.unsafeDestination) {
             try await writer.write(assetID: "asset", destinationPath: destination)
