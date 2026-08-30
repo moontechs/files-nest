@@ -38,17 +38,18 @@ struct ShellStoresTests {
     @Test func destinationReadinessRequiresServerURLAndCredentials() async {
         let suite = UserDefaults(suiteName: "destination.\(UUID().uuidString)")!
         let urlStore = UserDefaultsServerURLStore(defaults: suite)
+        let localFolderStore = UserDefaultsLocalFolderStore(defaults: suite)
         let credentials = BasicCredentials(username: "u", password: "p")
 
         #expect(!(await isDestinationReady(.server, urlStore: urlStore,
-                                           credStore: StaticCredentialStore(credentials))))
+                                           credStore: StaticCredentialStore(credentials), localFolderStore: localFolderStore)))
         urlStore.save(URL(string: "https://nest.home.example")!)
         #expect(await isDestinationReady(.server, urlStore: urlStore,
-                                         credStore: StaticCredentialStore(credentials)))
+                                         credStore: StaticCredentialStore(credentials), localFolderStore: localFolderStore))
         #expect(!(await isDestinationReady(.server, urlStore: urlStore,
-                                           credStore: StaticCredentialStore(nil))))
+                                           credStore: StaticCredentialStore(nil), localFolderStore: localFolderStore))
         #expect(!(await isDestinationReady(.localFolder, urlStore: urlStore,
-                                           credStore: StaticCredentialStore(credentials))))
+                                           credStore: StaticCredentialStore(credentials), localFolderStore: localFolderStore))
     }
 
     @Test func cachingCredentialStoreCoalescesConcurrentReads() async throws {

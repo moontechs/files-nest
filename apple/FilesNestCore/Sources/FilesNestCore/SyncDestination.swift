@@ -35,13 +35,20 @@ public final class UserDefaultsSyncDestinationStore: SyncDestinationStore, @unch
 public func isDestinationReady(
     _ destination: SyncDestination,
     urlStore: any ServerURLStore,
-    credStore: any CredentialStore
+    credStore: any CredentialStore,
+    localFolderStore: any LocalFolderStore
 ) async -> Bool {
     switch destination {
     case .server:
         guard urlStore.load() != nil else { return false }
         return (try? await credStore.basicCredentials()) != nil
     case .localFolder:
-        return false
+        guard let url = resolveLocalFolder(store: localFolderStore) else { return false }
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessing { url.stopAccessingSecurityScopedResource() }
+        }
+        return FileManager.default.fileExists(atPath: url.path)
+            && FileManager.default.isWritableFile(atPath: url.path)
     }
 }

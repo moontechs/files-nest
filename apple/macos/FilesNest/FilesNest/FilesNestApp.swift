@@ -11,12 +11,14 @@ struct FilesNestApp: App {
     private let destinationStore: any SyncDestinationStore
     private let urlStore: any ServerURLStore
     private let credStore: any CredentialSavingStore
+    private let localFolderStore: any LocalFolderStore
 
     init() {
         let defaults   = UserDefaults.standard
         let urlStore   = UserDefaultsServerURLStore(defaults: defaults)
         let credStore  = CachingCredentialStore(wrapping: KeychainStore())
         let destinationStore = UserDefaultsSyncDestinationStore(defaults: defaults)
+        let localFolderStore = UserDefaultsLocalFolderStore(defaults: defaults)
         let stateStore = UserDefaultsSyncStateStore(defaults: defaults)
         // Shared, TTL-memoized scan so a Sync Now right after the launch count reuses that
         // scan instead of paying a second full enumeration. (Observer-invalidated later.)
@@ -30,7 +32,7 @@ struct FilesNestApp: App {
             perform: { range, onProgress in
                 // Read URL + creds at sync time so a Settings change takes effect.
                 guard await isDestinationReady(destinationStore.load(), urlStore: urlStore,
-                                               credStore: credStore),
+                                               credStore: credStore, localFolderStore: localFolderStore),
                       let url = urlStore.load() else {
                     throw NotSignedInError()
                 }
@@ -47,7 +49,7 @@ struct FilesNestApp: App {
                 // Resume starts backing up immediately. Cold launches verify afterwards; an
                 // unchanged Pause resumes its known plan without another full library scan.
                 guard await isDestinationReady(destinationStore.load(), urlStore: urlStore,
-                                               credStore: credStore),
+                                               credStore: credStore, localFolderStore: localFolderStore),
                       let url = urlStore.load() else {
                     throw NotSignedInError()
                 }
@@ -65,7 +67,7 @@ struct FilesNestApp: App {
                 // Cached so a warm launch is instant.
                 let scan = try await library.resources(in: range, onProgress: progress.report)
                 guard await isDestinationReady(destinationStore.load(), urlStore: urlStore,
-                                               credStore: credStore),
+                                               credStore: credStore, localFolderStore: localFolderStore),
                       let url = urlStore.load() else {
                     // Signed out: no server to diff against — everything local is pending.
                     let a = Assessment(backedUp: 0, pending: scan.count, resourceTotal: scan.count)
@@ -96,7 +98,7 @@ struct FilesNestApp: App {
             cachedAssessment: { stateStore.loadAssessment() },
             isReady: {
                 await isDestinationReady(destinationStore.load(), urlStore: urlStore,
-                                         credStore: credStore)
+                                         credStore: credStore, localFolderStore: localFolderStore)
             })
 
         // Continuously watch the photo library: on a debounced change, invalidate the cached
@@ -119,6 +121,7 @@ struct FilesNestApp: App {
         self.destinationStore = destinationStore
         self.urlStore = urlStore
         self.credStore = credStore
+        self.localFolderStore = localFolderStore
         _model = StateObject(wrappedValue: appModel)
         _settings = StateObject(wrappedValue: settingsModel)
     }
@@ -132,7 +135,7 @@ struct FilesNestApp: App {
 
         Window("", id: "settings-anchor") {
             SettingsAnchorView(destinationStore: destinationStore, urlStore: urlStore,
-                               credStore: credStore)
+                               credStore: credStore, localFolderStore: localFolderStore)
         }
         .windowStyle(.hiddenTitleBar)
 

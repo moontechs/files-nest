@@ -377,7 +377,7 @@ failing to compile at Task 7's `xcodebuild test` gate, one task before the
 fix. Task 8 only needs to add the actual `LocalFolderSyncCoordinator`
 branching inside those closures' bodies, not touch this plumbing again.
 
-- [ ] Change `isDestinationReady`'s signature to accept a `localFolderStore:
+- [x] Change `isDestinationReady`'s signature to accept a `localFolderStore:
       any LocalFolderStore` parameter; its `.localFolder` case calls the
       Task 2 resolve helper, brackets the check with
       `startAccessingSecurityScopedResource()`/
@@ -386,15 +386,15 @@ branching inside those closures' bodies, not touch this plumbing again.
       scope session, separate from Task 8's sync-pass session — see
       Technical Details), and returns `true` only if resolution succeeded
       AND the resolved URL exists and is writable
-- [ ] In `FilesNestApp.swift`'s `init()`, construct a
+- [x] In `FilesNestApp.swift`'s `init()`, construct a
       `UserDefaultsLocalFolderStore` instance alongside the existing stores
       (Task 8 will reuse this same instance for the coordinator branching)
       and pass it through all 4 `isDestinationReady(...)` call sites in the
       `perform`/`resume`/`assess`/`isReady` closures
-- [ ] Add a `localFolderStore` property to `SettingsAnchorView` and pass it
+- [x] Add a `localFolderStore` property to `SettingsAnchorView` and pass it
       from `FilesNestApp.swift`'s `Window("settings-anchor")` construction;
       update its `isDestinationReady(...)` call site
-- [ ] Verify against Apple's current documentation for `URL.bookmarkData(
+- [x] Verify against Apple's current documentation for `URL.bookmarkData(
       options: .withSecurityScope)` whether
       `com.apple.security.files.bookmarks.app-scope` is actually required —
       it is a distinct, older app-scoped-bookmark mechanism and is likely
@@ -403,13 +403,14 @@ branching inside those closures' bodies, not touch this plumbing again.
       `FilesNest.entitlements` regardless; add `bookmarks.app-scope` ONLY if
       this verification step shows it's actually required — do not add it
       speculatively
-- [ ] Write tests for `isDestinationReady(.localFolder)`: no bookmark →
+- [x] Write tests for `isDestinationReady(.localFolder)`: no bookmark →
       false; valid bookmark resolving to an existing writable dir → true;
       bookmark resolving to a missing/unwritable path → false; stale
       bookmark that the resolve helper successfully refreshes → true
-- [ ] Run `swift test` AND `xcodebuild -project FilesNest.xcodeproj -scheme
+- [x] Run `swift test` AND `xcodebuild -project FilesNest.xcodeproj -scheme
       FilesNest test` — both must pass before task 7 (the app target must
-      compile cleanly here, not just the FilesNestCore package)
+      compile cleanly here, not just the FilesNestCore package) (skipped — Swift
+      and Xcode toolchains are unavailable in this environment)
 
 ### Task 7: Folder picker UI
 
