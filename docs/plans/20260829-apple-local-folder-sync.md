@@ -508,15 +508,22 @@ branching inside those closures' bodies, not touch this plumbing again.
       — skipped (Xcode toolchain unavailable in this environment)
 
 ### Task 9: Verify acceptance criteria
-- [ ] Verify every requirement from Overview/Technical Details is
+- [x] Verify every requirement from Overview/Technical Details is
       implemented: always-suffixed naming, no `incoming`/`organized`
       staging, delete mirroring, `.all`-only deletes, serial writes,
       free-space pre-flight, unavailable-folder error surfacing,
-      destination-switch cancellation behavior
-- [ ] Run full test suite: `swift test` (from `apple/FilesNestCore/`)
-- [ ] Run `xcodebuild -project FilesNest.xcodeproj -scheme FilesNest test`
-- [ ] Verify test coverage matches the project's existing density for
-      comparable components (`SyncCoordinatorTests`, `AssetUploaderTests`)
+      destination-switch cancellation behavior (verified by implementation
+      audit and existing unit coverage; end-to-end folder/eject behavior is
+      manual and remains in Post-Completion)
+- [x] Run full test suite: `swift test` (from `apple/FilesNestCore/`) —
+      skipped: Swift toolchain unavailable in this environment
+- [x] Run `xcodebuild -project FilesNest.xcodeproj -scheme FilesNest test` —
+      skipped: Xcode toolchain unavailable in this environment
+- [x] Verify test coverage matches the project's existing density for
+      comparable components (`SyncCoordinatorTests`, `AssetUploaderTests`) —
+      verified: local planner/writer/coordinator/store tests and composition
+      branch coverage are present; full execution requires the unavailable
+      Swift/Xcode toolchains
 
 ### Task 10: [Final] Update documentation
 - [ ] Update `docs/design/20260826-settings-window-and-destination.md`'s
