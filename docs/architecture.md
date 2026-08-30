@@ -137,8 +137,9 @@ HEAD or PATCH → backend 404
   → Mac: delete record, POST /uploads to re-register
 
 PATCH /uploads/:id/status { status: "complete" }
-  → server moves file: incoming/<backend_id> → organized/YYYY/MM/DD/<filename>
-  → if dest exists: append _<backend_id> before extension (no silent overwrite)
+  → server moves file: incoming/<backend_id> → organized/YYYY/MM/DD/<stem>_<id><ext>
+  → _<id> (the record's stable safe ID) always appended before the extension;
+    destination is deterministic, no dest-exists collision check
   → only if move succeeds: UpdateStatus(complete)
   → if move fails: 500, status stays uploading (retryable)
 
@@ -173,11 +174,25 @@ $STORAGE_PATH/
     YYYY/
       MM/
         DD/
-          IMG_1234.jpg
-          IMG_0001_abc123.jpg   ← collision suffix: _<backend_id> before extension
+          IMG_1234_<id>.jpg   ← _<id>: the upload record's stable safe ID,
+                                always appended before the extension
 ```
 
-Filename collisions are common on iPhones (IMG_0001.jpg resets across dates). Before writing, check if dest exists. If so, insert `_<backend_id>` before the extension.
+Every completed file in `organized/` carries a deterministic `_<id>` suffix —
+the upload record's safe server ID, a SHA-256/base64url hash of the asset's
+`localIdentifier` (see the `SafeID` derivation in the BadgerDB Schema section
+above). The suffix is appended unconditionally, **not** only on collision, so
+the final path is fully deterministic from (creation date, filename, id)
+alone: it never depends on current disk state or on which tusd backend
+attempt wrote the bytes. Because no two live records can share an `id` (the
+store dedups by `localIdentifier`, so per-record IDs are unique by
+construction) and the organized-tree mutex forecloses the planning-to-move
+window, no collision check or fallback exists. A foreign file already at the
+computed path — manual intervention in `organized/`, inconsistent disk
+state, or a bug elsewhere — is overwritten by the move; the server
+WARN-logs it as a safety net first. The scheme is prospective only: files
+organized before this change keep their existing names indefinitely, so old
+and new naming coexist on disk with no migration.
 
 Cross-device moves: `os.Rename` first; fall back to copy+delete if source and dest are on different filesystems.
 

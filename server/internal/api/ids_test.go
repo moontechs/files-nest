@@ -59,6 +59,31 @@ func TestSafeID_AllASCII(t *testing.T) {
 	}
 }
 
+func TestSafeID_GroundTruthVectors(t *testing.T) {
+	// Shared ground-truth vectors: the exact same literal values are
+	// asserted independently by the companion apple plan's Task 1
+	// (docs/plans/20260829-apple-local-folder-sync.md), so both the Go
+	// implementation (raw []byte(string) hashing) and the Swift port are
+	// pinned against one shared ground truth rather than each trusting its
+	// own output. The non-ASCII vector is the case that would actually
+	// catch a Unicode normalization mismatch between the two languages.
+	vectors := []struct {
+		input string
+		want  string
+	}{
+		{input: "AAAA-BBBB-CCCC-DDDD#photo", want: "QEzizTsZbhLknu3BxIqchpZg6BiVPEM7p8HYKhmIpCc"},
+		{input: "AAAA-BBBB-CCCC-DDDD#pairedVideo", want: "FlwSC0rmUccfKH1nEq9BAo3lHk_SeclzxNeV9Sp_-kw"},
+		{input: "", want: "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU"},
+		{input: "AAAA-BBBB-CCCC-DDDD-café#photo", want: "8h9r2pPlYMjO0ke3F01cPwtzADNQkhqD2k72i46TAEk"},
+	}
+
+	for _, v := range vectors {
+		if got := api.SafeID(v.input); got != v.want {
+			t.Errorf("SafeID(%q) = %q, want %q", v.input, got, v.want)
+		}
+	}
+}
+
 func TestValidateSafeID_Valid(t *testing.T) {
 	id := api.SafeID(rawLocalID)
 	if err := api.ValidateSafeID(id); err != nil {

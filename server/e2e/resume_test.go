@@ -185,6 +185,7 @@ func TestResume_ResumeAfterInterruption(t *testing.T) {
 		"local_identifier must be preserved through resume")
 	require.Equal(t, "IMG_resume_interrupt.jpg", rec.Filename,
 		"filename must be preserved through resume")
+	assertSuffixedOrganizedPath(t, "IMG_resume_interrupt.jpg", rec)
 }
 
 // TestResume_MultipleResumeCycles simulates a client that resumes multiple
@@ -477,6 +478,7 @@ func TestResume_ManySmallChunks(t *testing.T) {
 	// the record reflects the correct filename and status.
 	require.Equal(t, "IMG_many_chunks.jpg", rec.Filename,
 		"filename must be preserved through many chunks")
+	assertSuffixedOrganizedPath(t, "IMG_many_chunks.jpg", rec)
 }
 
 // ---------------------------------------------------------------------------
