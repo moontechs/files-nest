@@ -22,6 +22,12 @@ const (
 	dirPerm           = 0o750
 	maxPathSegmentLen = 200
 	unknownSegment    = "unknown"
+
+	// maxFilenameSegmentLen caps the final organized filename component at the
+	// common filesystem per-component limit (NAME_MAX, 255 bytes). Only the
+	// filename stem is ever truncated to fit; the `_<id>` suffix and the
+	// extension always survive intact (they identify the record and the type).
+	maxFilenameSegmentLen = 255
 )
 
 // Sentinel errors for path/file operations, wrapped at the call site with
@@ -157,17 +163,29 @@ func (m *Mover) RemoveOrganizedFile(organizedPath string) error {
 // PlanDestination computes the destination file paths for an upload,
 // returning the absolute destination path and relative organized path.
 //
-// The organized path uses the form: organized/YYYY/MM/DD/<filename>
-// where YYYY, MM, DD are extracted from the creation date. If
-// creationDate cannot be parsed as RFC3339 or YYYY-MM-DD, createdAt
-// is tried as a fallback. If neither can be parsed, the raw date
-// string is used as a single segment under organized/ with month
-// and day defaulting to "unknown".
+// The organized path uses the form: organized/YYYY/MM/DD/<stem>_<id><ext>
+// where YYYY, MM, DD are extracted from the creation date and <id> is the
+// caller-supplied per-record identifier. The suffix is applied
+// unconditionally — never only on collision — so the destination is fully
+// deterministic from (creationDate, filename, id) alone, with no dependence
+// on current disk state. If creationDate cannot be parsed as RFC3339 or
+// YYYY-MM-DD, createdAt is tried as a fallback. If neither can be parsed,
+// the raw date string is used as a single segment under organized/ with
+// month and day defaulting to "unknown".
 //
-// If a file already exists at the computed destination, the backendID
-// is inserted before the filename extension to avoid overwriting the
-// existing file (e.g. IMG_0001.jpg → IMG_0001_<backendID>.jpg).
-func (m *Mover) PlanDestination(creationDate, createdAt, filename, backendID string) PlanDestResult {
+// No collision-avoidance fallback exists between two live records: the
+// store layer keys records by LocalIdentifier and returns the existing
+// record on a repeat (PutUploadIfAbsent), so no two live records can share
+// an id in the first place — the SafeID hash's uniqueness alone is not the
+// guarantee. The moveMu lock separately forecloses the TOCTOU window
+// between planning and the actual move.
+//
+// A *foreign* file (not produced by this mover) already occupying the
+// computed path is a separate, accepted risk: the path is deterministic, so
+// the move silently overwrites it. The single os.Stat in this method exists
+// only as a detection/logging safety net for that case — it is never a
+// naming decision, and the planned paths are returned unchanged either way.
+func (m *Mover) PlanDestination(creationDate, createdAt, filename, id string) PlanDestResult {
 	// Determine the best available date for path construction.
 	dateToUse := creationDate
 	if dateToUse == "" || !isParseableDate(dateToUse) {
@@ -184,20 +202,49 @@ func (m *Mover) PlanDestination(creationDate, createdAt, filename, backendID str
 	// Parse date into YYYY/MM/DD.
 	year, month, day := datePathSegments(dateToUse)
 
+	// Always append the identifier suffix to the filename component, never
+	// only on collision. The suffix and the extension must survive intact
+	// (they identify the record and the file type), so only the stem is
+	// truncated if the full <stem>_<id><ext> would exceed filesystem name
+	// limits; an empty filename has no stem and is left unchanged.
+	filename = suffixFilename(filename, id)
+
 	rel := filepath.Join("organized", year, month, day, filename)
 	abs := filepath.Join(m.storagePath, rel)
 
-	// Collision: if a file already exists at the computed path, insert
-	// backendID before the extension to avoid overwriting.
-	_, err := os.Stat(abs)
-	if err == nil {
-		ext := filepath.Ext(abs)
-		base := strings.TrimSuffix(abs, ext)
-		abs = base + "_" + backendID + ext
-		rel = filepath.Join(filepath.Dir(rel), filepath.Base(abs))
+	// Safety net only: a pre-existing file at the deterministic destination
+	// is unexpected (foreign file, inconsistent disk state, or a bug
+	// elsewhere). This stat never influences the returned paths — the move
+	// overwrites — it exists purely so the condition is observable in logs.
+	_, statErr := os.Stat(abs)
+	if statErr == nil {
+		log.Printf("WARN filestore: unexpected file already at organized destination %s; it will be overwritten", abs)
 	}
 
 	return PlanDestResult{Abs: abs, Rel: rel, DateUsed: dateToUse}
+}
+
+// suffixFilename inserts "_" + id before the extension of a filename,
+// truncating the stem (never the suffix or extension) so the full
+// <stem>_<id><ext> component stays within maxFilenameSegmentLen bytes.
+// An empty filename is returned unchanged (there is no stem to suffix).
+func suffixFilename(filename, id string) string {
+	if filename == "" {
+		return ""
+	}
+
+	ext := filepath.Ext(filename)
+	stem := strings.TrimSuffix(filename, ext)
+
+	// Bytes available for the stem once the suffix and extension take
+	// their share of the per-component limit.
+	maxStem := max(maxFilenameSegmentLen-1-len(id)-len(ext), 0)
+
+	if len(stem) > maxStem {
+		stem = stem[:maxStem]
+	}
+
+	return stem + "_" + id + ext
 }
 
 // MoveResult holds the result of a file move operation.

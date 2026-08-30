@@ -163,7 +163,7 @@ comments are updated to match. The one production call site
 - Modify: `server/internal/filestore/mover_internal_test.go`
 - Modify: `server/internal/api/ids_test.go`
 
-- [ ] Add (if not already covered) assertions in `ids_test.go` that
+- [x] Add (if not already covered) assertions in `ids_test.go` that
       `SafeID` produces these exact ground-truth vectors — the same literal
       values are asserted independently in the companion apple plan's Task 1
       (`docs/plans/20260829-apple-local-folder-sync.md`), so both
@@ -177,12 +177,14 @@ comments are updated to match. The one production call site
         plan's Task 1 — the case that would actually catch a Unicode
         normalization mismatch between Go's raw `[]byte(string)` hashing and
         the Swift port, unlike the ASCII-only vectors above)
-- [ ] In `PlanDestination`, remove the `os.Stat`-gated collision branch
+      Implemented as `TestSafeID_GroundTruthVectors` in `ids_test.go`; all
+      four vectors verified byte-exact against the Go implementation.
+- [x] In `PlanDestination`, remove the `os.Stat`-gated collision branch
       entirely (no fallback replaces it — see Technical Details' "No
       collision fallback" note); always compute `rel`/`abs` as
       `organized/YYYY/MM/DD/<stem>_<id><ext>` (rename the `backendID`
       parameter to `id`)
-- [ ] Keep a single `os.Stat` on the computed destination purely as a
+- [x] Keep a single `os.Stat` on the computed destination purely as a
       detection/logging safety net, not as a naming decision: if a file
       already exists at `<stem>_<id><ext>` before the move, `log.Printf` a
       WARN (per `server/CLAUDE.md`'s logging policy) noting the unexpected
@@ -190,13 +192,13 @@ comments are updated to match. The one production call site
       Technical Details' "foreign file" note; this is visibility, not a
       behavior change, and is a single stat per completed upload, not a
       hot-loop cost)
-- [ ] Update `PlanDestination`'s doc comment to describe unconditional
+- [x] Update `PlanDestination`'s doc comment to describe unconditional
       suffixing instead of collision-only, to state plainly why no
       collision-avoidance fallback exists between two live records
       (dedup at `PutUploadIfAbsent`, not just hash uniqueness — see
       Technical Details), and to note the WARN-log safety net for the
       separate foreign-file case
-- [ ] Check filename length: with the suffix always present (43-char
+- [x] Check filename length: with the suffix always present (43-char
       `SafeID` + `_`), confirm `mover.go`'s `maxPathSegmentLen = 200` (or any
       other filesystem name-length handling) still holds for realistic
       filenames — add a test with a long original filename to confirm the
@@ -205,16 +207,41 @@ comments are updated to match. The one production call site
       `_<id>` suffix or extension — those must stay intact for the file to
       remain identifiable and correctly typed) to whatever length keeps the
       full `<stem>_<id><ext>` within the limit, and add a test asserting
-      the truncation point and that the suffix/extension survive intact
-- [ ] Update existing collision-only tests
-      (`TestPlanDestination_CollisionInsertsBackendID`,
-      `TestPlanDestination_PreservesExistingOnCollision`,
-      `TestPlanDestination_CollisionWithNoExtension`,
-      `TestPlanDestination_MultipleDotsExtension`, and any
+      the truncation point and that the suffix/extension survive intact.
+      Implemented: new `suffixFilename` helper caps the full component at
+      `maxFilenameSegmentLen = 255` (the filesystem `NAME_MAX` limit; the
+      255-byte bound already used by `SanitizeFilename`), truncating only
+      the stem. Tests: `TestPlanDestination_LongFilenameStemTruncatedSuffixAndExtensionIntact`
+      (255-byte input, asserts exact truncation point and suffix/extension
+      survival) and `TestPlanDestination_LongFilenameWithinLimitKeepsWholeStem`.
+- [x] Update existing collision-only tests
+      (`TestPlanDestination_CollisionInsertsBackendID` →
+      `TestPlanDestination_PreexistingPlainFileUnaffected`,
+      `TestPlanDestination_PreservesExistingOnCollision` →
+      `TestPlanDestination_PreexistingPlainFileContentPreserved`,
+      `TestPlanDestination_CollisionWithNoExtension` →
+      `TestPlanDestination_SuffixNoExtension`,
+      `TestPlanDestination_MultipleDotsExtension` →
+      `TestPlanDestination_SuffixMultipleDots`, and any
       `TestPlanDestination_*`/`TestMoveFile_*`/`TestOrganizedPath_*` case
       asserting a plain, un-suffixed filename in the non-collision case) to
-      assert the new always-suffixed paths
-- [ ] Run `make test` and `make lint` — must pass before task 2
+      assert the new always-suffixed paths. Also renamed the stale
+      `Deduplication*` `MoveFile` tests
+      (`TestMoveFile_DeduplicatesWhenDestinationExists` →
+      `TestMoveFile_PreexistingPlainFileLeftUntouched`, etc.) since the
+      move always suffixes now, and added
+      `TestPlanDestination_PreexistingFileAtDestinationWarns` (WARN safety
+      net) and `TestPlanAndMoveOverwritesForeignFileAtDestination`
+      (overwrite on foreign file).
+- [x] Run `make test` and `make lint` — must pass before task 2. `make
+      lint` is clean relative to baseline under the project's pinned
+      golangci-lint v2.12.2 (and v2.0.2); `make test` passes for every
+      package this change touches (`internal/filestore`, `internal/api`,
+      plus the rest of `./...`). One root-package test
+      (`TestSetupStdLoggerAppliesLogLevel`) fails identically on the
+      untouched baseline under Go 1.26.2 (lgr std-logger calldepth
+      formatting is Go-version-sensitive) — pre-existing, unrelated to this
+      change, and out of this plan's scope to fix.
 
 ### Task 2: Remove now-dead `Deduplicated`/`(m *Mover) MoveFile` method if unused
 

@@ -3,7 +3,9 @@
 package filestore_test
 
 import (
+	"bytes"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +22,7 @@ func TestPlanAndMoveBeforeMoveCallback(t *testing.T) {
 		writeFile(t, src, []byte("content"))
 		called := false
 		plan, err := m.PlanAndMove(src, "2024-01-02T00:00:00Z", "", "file.txt", "id", func(got filestore.PlanDestResult) error {
-			called = got.Rel == "organized/2024/01/02/file.txt"
+			called = got.Rel == "organized/2024/01/02/file_id.txt"
 			return nil
 		})
 		if err != nil || !called {
@@ -76,6 +78,16 @@ const (
 	relMar2024IMG1234 = "organized/2024/03/15/IMG_1234.jpg"
 	relDec2024IMG9999 = "organized/2024/12/31/IMG_9999.jpg"
 	img0001Name       = "IMG_0001.jpg"
+
+	// maxFilenameSegmentLen mirrors filestore's unexported cap on the final
+	// organized filename component (the common NAME_MAX filesystem limit);
+	// the truncation tests below assert against this shared value.
+	maxFilenameSegmentLen = 255
+
+	// suffixFilenameTestID is a 43-char identifier matching the length of a
+	// production SafeID (SafeIDEncodedLen), as used for the always-applied
+	// organized-filename suffix.
+	suffixFilenameTestID = "QEzizTsZbhLknu3BxIqchpZg6BiVPEM7p8HYKhmIpCc"
 )
 
 // ---------------------------------------------------------------------------
@@ -312,15 +324,20 @@ func TestMoveFile_Success(t *testing.T) {
 	if result.Src != srcPath {
 		t.Errorf("result.Src: got %q, want %q", result.Src, srcPath)
 	}
-	if result.DstRel != relMar2024IMG1234 {
-		t.Errorf("result.DstRel: got %q, want %q", result.DstRel, relMar2024IMG1234)
+	wantDstRel := "organized/2024/03/15/IMG_1234_tusd-abc123.jpg"
+	if result.DstRel != wantDstRel {
+		t.Errorf("result.DstRel: got %q, want %q", result.DstRel, wantDstRel)
 	}
 	expectedAbs := filepath.Join(m.StoragePath(), result.DstRel)
 	if result.Dst != expectedAbs {
 		t.Errorf("result.Dst: got %q, want %q", result.Dst, expectedAbs)
 	}
-	if result.Deduplicated {
-		t.Error("result.Deduplicated should be false for fresh destination")
+	// Suffixing is unconditional now, so the planned path always differs from
+	// the plain organized path and Deduplicated is always true. The field no
+	// longer carries information and is slated for removal (plan Task 2); this
+	// assertion pins the current behavior until then.
+	if !result.Deduplicated {
+		t.Error("result.Deduplicated should be true once suffixing is unconditional")
 	}
 
 	// Source file should no longer exist at the original path.
@@ -370,13 +387,15 @@ func TestMoveFile_CreatesDestinationDirectory(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// MoveFile — deduplication
+// MoveFile — unconditional identifier suffix
 // ---------------------------------------------------------------------------
 
-func TestMoveFile_DeduplicatesWhenDestinationExists(t *testing.T) {
+func TestMoveFile_PreexistingPlainFileLeftUntouched(t *testing.T) {
 	m := openTestMover(t)
 
-	// Create an existing file at the computed destination path.
+	// Create a file at the plain (unsuffixed) path — e.g. content organized
+	// before always-suffixing shipped. The always-applied suffix means a
+	// newly moved file never targets this path, so it must survive intact.
 	existingRel := relMar2024IMG1234
 	existingAbs := filepath.Join(m.StoragePath(), existingRel)
 	writeFile(t, existingAbs, []byte("existing content"))
@@ -385,17 +404,18 @@ func TestMoveFile_DeduplicatesWhenDestinationExists(t *testing.T) {
 	srcPath := filepath.Join(m.StoragePath(), "incoming", "tusd-dup001")
 	writeFile(t, srcPath, []byte("new content"))
 
-	// Move — should deduplicate because destination exists.
+	// Move — the destination always carries the id suffix, regardless of
+	// what already exists on disk.
 	result, err := m.MoveFile(srcPath, "2024-03-15T10:30:00Z", "IMG_1234.jpg", "tusd-dup001")
 	if err != nil {
 		t.Fatalf("MoveFile failed: %v", err)
 	}
 
 	if !result.Deduplicated {
-		t.Error("expected Deduplicated=true when destination already exists")
+		t.Error("expected Deduplicated=true (always true once suffixing is unconditional)")
 	}
 
-	// The destination filename should include the backendID.
+	// The destination filename includes the id.
 	expectedFilename := "IMG_1234_tusd-dup001.jpg"
 	if filepath.Base(result.Dst) != expectedFilename {
 		t.Errorf("destination filename: got %q, want %q", filepath.Base(result.Dst), expectedFilename)
@@ -432,46 +452,42 @@ func TestMoveFile_DeduplicatesWhenDestinationExists(t *testing.T) {
 	assertMtimeMatches(t, result.Dst, "2024-03-15T10:30:00Z")
 }
 
-func TestMoveFile_MultipleDeduplications(t *testing.T) {
+func TestMoveFile_SameFilenameMultipleMovesDistinctSuffixes(t *testing.T) {
 	m := openTestMover(t)
 	backendID1 := "tusd-first"
 	backendID2 := "tusd-second"
 
-	// Move first file — no dedup needed.
+	// Move first file — always suffixed with its own id.
 	src1 := filepath.Join(m.StoragePath(), "incoming", backendID1)
 	writeFile(t, src1, []byte("first"))
 	result1, err := m.MoveFile(src1, "2024-03-15T10:30:00Z", "IMG_1234.jpg", backendID1)
 	if err != nil {
 		t.Fatalf("first MoveFile failed: %v", err)
 	}
-	if result1.Deduplicated {
-		t.Error("first move should not be deduplicated")
+	if !result1.Deduplicated {
+		t.Error("first move: Deduplicated is always true once suffixing is unconditional")
 	}
-	if result1.DstRel != relMar2024IMG1234 {
-		t.Errorf("first DstRel: got %q, want %q", result1.DstRel, relMar2024IMG1234)
+	if result1.DstRel != "organized/2024/03/15/IMG_1234_tusd-first.jpg" {
+		t.Errorf("first DstRel: got %q, want %q", result1.DstRel, "organized/2024/03/15/IMG_1234_tusd-first.jpg")
 	}
 
-	// Move second file — same date and filename, should deduplicate.
+	// Move second file — same date and filename, different id: each record
+	// computes its own deterministic <stem>_<id><ext> path, so the two never
+	// collide on disk regardless of what already exists.
 	src2 := filepath.Join(m.StoragePath(), "incoming", backendID2)
 	writeFile(t, src2, []byte("second"))
 	result2, err := m.MoveFile(src2, "2024-03-15T10:30:00Z", "IMG_1234.jpg", backendID2)
 	if err != nil {
 		t.Fatalf("second MoveFile failed: %v", err)
 	}
-	if !result2.Deduplicated {
-		t.Error("second move should be deduplicated")
-	}
 	expectedRel2 := "organized/2024/03/15/IMG_1234_tusd-second.jpg"
 	if result2.DstRel != expectedRel2 {
 		t.Errorf("second DstRel: got %q, want %q", result2.DstRel, expectedRel2)
 	}
 
-	// Move third file — same date and filename again, should also deduplicate.
-	// Note: the deduplication is only against the *computed* path
-	// (organized/2024/03/15/IMG_1234.jpg), not against previously
-	// deduplicated names. This means the third file will also get the
-	// backendID suffix because the base path still exists (occupied by
-	// the first file).
+	// Move third file — same date and filename again; it gets its own
+	// distinct suffix. The previously written files occupy their own
+	// suffixed paths, so all three coexist.
 	backendID3 := "tusd-third"
 	src3 := filepath.Join(m.StoragePath(), "incoming", backendID3)
 	writeFile(t, src3, []byte("third"))
@@ -480,7 +496,7 @@ func TestMoveFile_MultipleDeduplications(t *testing.T) {
 		t.Fatalf("third MoveFile failed: %v", err)
 	}
 	if !result3.Deduplicated {
-		t.Error("third move should be deduplicated")
+		t.Error("third move: Deduplicated is always true once suffixing is unconditional")
 	}
 	expectedRel3 := "organized/2024/03/15/IMG_1234_tusd-third.jpg"
 	if result3.DstRel != expectedRel3 {
@@ -508,11 +524,11 @@ func TestMoveFile_MultipleDeduplications(t *testing.T) {
 	}
 }
 
-func TestMoveFile_DeduplicationWithExtension(t *testing.T) {
+func TestMoveFile_SuffixBeforeExtension(t *testing.T) {
 	m := openTestMover(t)
 	backendID := "tusd-ext-001"
 
-	// Create existing file.
+	// Create existing file at the plain path.
 	existingAbs := filepath.Join(m.StoragePath(), "organized/2024/06/15/video.mp4")
 	writeFile(t, existingAbs, []byte("existing"))
 
@@ -525,7 +541,7 @@ func TestMoveFile_DeduplicationWithExtension(t *testing.T) {
 	}
 
 	if !result.Deduplicated {
-		t.Error("expected deduplication for same filename")
+		t.Error("expected Deduplicated=true (always true once suffixing is unconditional)")
 	}
 	expectedRel := "organized/2024/06/15/video_tusd-ext-001.mp4"
 	if result.DstRel != expectedRel {
@@ -538,7 +554,7 @@ func TestMoveFile_DeduplicationWithExtension(t *testing.T) {
 	assertMtimeMatches(t, result.Dst, "2024-06-15T12:00:00Z")
 }
 
-func TestMoveFile_DeduplicationNoExtension(t *testing.T) {
+func TestMoveFile_SuffixNoExtension(t *testing.T) {
 	m := openTestMover(t)
 	backendID := "tusd-noext"
 
@@ -555,7 +571,7 @@ func TestMoveFile_DeduplicationNoExtension(t *testing.T) {
 	}
 
 	if !result.Deduplicated {
-		t.Error("expected deduplication")
+		t.Error("expected Deduplicated=true (always true once suffixing is unconditional)")
 	}
 	// For a file without extension, ext is empty, so the filename
 	// becomes "README_tusd-noext".
@@ -567,7 +583,7 @@ func TestMoveFile_DeduplicationNoExtension(t *testing.T) {
 	assertMtimeMatches(t, result.Dst, "2024-01-01T00:00:00Z")
 }
 
-func TestMoveFile_DeduplicationWithMultipleDots(t *testing.T) {
+func TestMoveFile_SuffixWithMultipleDots(t *testing.T) {
 	m := openTestMover(t)
 	backendID := "tusd-multidot"
 
@@ -584,7 +600,7 @@ func TestMoveFile_DeduplicationWithMultipleDots(t *testing.T) {
 	}
 
 	if !result.Deduplicated {
-		t.Error("expected deduplication")
+		t.Error("expected Deduplicated=true (always true once suffixing is unconditional)")
 	}
 	// filepath.Ext returns ".gz" for "archive.tar.gz", so the result
 	// is "archive.tar_tusd-multidot.gz".
@@ -633,8 +649,11 @@ func TestMoveFile_SameDateDifferentFilenames(t *testing.T) {
 		if err != nil {
 			t.Fatalf("MoveFile %s failed: %v", f.srcName, err)
 		}
-		if result.Deduplicated {
-			t.Errorf("MoveFile %s should not deduplicate (different filename)", f.srcName)
+		// Distinct filenames produce distinct suffixed destinations; no two
+		// records share a path. Deduplicated is always true now (planned for
+		// removal in plan Task 2), so it asserts nothing about filenames.
+		if !result.Deduplicated {
+			t.Errorf("MoveFile %s: Deduplicated should be true once suffixing is unconditional", f.srcName)
 		}
 
 		// Verify content.
@@ -651,16 +670,16 @@ func TestMoveFile_SameDateDifferentFilenames(t *testing.T) {
 func TestMoveFile_DifferentDatesSameFilename(t *testing.T) {
 	m := openTestMover(t)
 
-	// Move files with the same filename but different dates — should not deduplicate
-	// because they end up in different directories.
+	// Move files with the same filename but different dates — they end up in
+	// different directories and each carries its own id suffix.
 	dates := []struct {
 		date        string
 		expectedRel string
 		backendID   string
 	}{
-		{"2024-01-15T10:00:00Z", "organized/2024/01/15/IMG_0001.jpg", "tusd-jan"},
-		{"2024-02-20T11:00:00Z", "organized/2024/02/20/IMG_0001.jpg", "tusd-feb"},
-		{"2024-03-25T12:00:00Z", "organized/2024/03/25/IMG_0001.jpg", "tusd-mar"},
+		{"2024-01-15T10:00:00Z", "organized/2024/01/15/IMG_0001_tusd-jan.jpg", "tusd-jan"},
+		{"2024-02-20T11:00:00Z", "organized/2024/02/20/IMG_0001_tusd-feb.jpg", "tusd-feb"},
+		{"2024-03-25T12:00:00Z", "organized/2024/03/25/IMG_0001_tusd-mar.jpg", "tusd-mar"},
 	}
 
 	for _, d := range dates {
@@ -671,8 +690,8 @@ func TestMoveFile_DifferentDatesSameFilename(t *testing.T) {
 		if err != nil {
 			t.Fatalf("MoveFile for %s failed: %v", d.date, err)
 		}
-		if result.Deduplicated {
-			t.Errorf("expected no dedup for different dates, got dedup on %s", d.date)
+		if !result.Deduplicated {
+			t.Errorf("Deduplicated should be true for %s (unconditional suffix)", d.date)
 		}
 		if result.DstRel != d.expectedRel {
 			t.Errorf("DstRel: got %q, want %q", result.DstRel, d.expectedRel)
@@ -773,7 +792,7 @@ func TestMoveFile_ConcurrentDifferentPaths(t *testing.T) {
 
 	// Verify all files were moved.
 	for i := range n {
-		dstPath := filepath.Join(m.StoragePath(), "organized/2024/03/15/IMG_"+itoa(i)+".jpg")
+		dstPath := filepath.Join(m.StoragePath(), "organized/2024/03/15/IMG_"+itoa(i)+"_tusd-concurrent-"+itoa(i)+".jpg")
 		assertPathExists(t, dstPath)
 	}
 }
@@ -936,15 +955,16 @@ func TestMoveFile_TimeBasedDirsAreDistinct(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MoveFile January failed: %v", err)
 	}
-	if janResult.Deduplicated {
-		t.Error("January move should not be deduplicated")
+	wantJanRel := "organized/2024/01/15/photo_tusd-time-distinct.jpg"
+	if !janResult.Deduplicated {
+		t.Error("January move: Deduplicated is always true once suffixing is unconditional")
 	}
-	if janResult.DstRel != "organized/2024/01/15/photo.jpg" {
-		t.Errorf("January DstRel: got %q, want %q", janResult.DstRel, "organized/2024/01/15/photo.jpg")
+	if janResult.DstRel != wantJanRel {
+		t.Errorf("January DstRel: got %q, want %q", janResult.DstRel, wantJanRel)
 	}
 
-	// Move to February with same filename — should NOT deduplicate because
-	// the directory is different.
+	// Move to February with same filename — lands in a different directory,
+	// so no collision is even possible; each carries its own id suffix.
 	febSrc := filepath.Join(m.StoragePath(), "incoming", backendID+"-feb")
 	writeFile(t, febSrc, []byte("february content"))
 
@@ -952,11 +972,12 @@ func TestMoveFile_TimeBasedDirsAreDistinct(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MoveFile February failed: %v", err)
 	}
-	if febResult.Deduplicated {
-		t.Error("February move should not deduplicate (different directory)")
+	wantFebRel := "organized/2024/02/20/photo_tusd-time-distinct-feb.jpg"
+	if !febResult.Deduplicated {
+		t.Error("February move: Deduplicated is always true once suffixing is unconditional")
 	}
-	if febResult.DstRel != "organized/2024/02/20/photo.jpg" {
-		t.Errorf("February DstRel: got %q, want %q", febResult.DstRel, "organized/2024/02/20/photo.jpg")
+	if febResult.DstRel != wantFebRel {
+		t.Errorf("February DstRel: got %q, want %q", febResult.DstRel, wantFebRel)
 	}
 
 	// Verify both files exist with correct content.
@@ -1014,9 +1035,10 @@ func TestMoveFile_ResultFields(t *testing.T) {
 		t.Errorf("Dst: got %q, want %q", result.Dst, expectedDst)
 	}
 
-	// Deduplicated should be false (fresh destination).
-	if result.Deduplicated {
-		t.Error("Deduplicated should be false")
+	// Deduplicated is always true once suffixing is unconditional; the field
+	// is slated for removal (plan Task 2).
+	if !result.Deduplicated {
+		t.Error("Deduplicated should be true")
 	}
 
 	// File should exist at Dst.
@@ -1053,7 +1075,7 @@ func TestMoveFile_OrganizedDirStructure(t *testing.T) {
 	yearDir := filepath.Join(organizedBase, "2024")
 	monthDir := filepath.Join(yearDir, "11")
 	dayDir := filepath.Join(monthDir, "05")
-	filePath := filepath.Join(dayDir, "IMG_structure.jpg")
+	filePath := filepath.Join(dayDir, "IMG_structure_tusd-structure.jpg")
 
 	for _, p := range []string{organizedBase, yearDir, monthDir, dayDir, filePath} {
 		assertPathExists(t, p)
@@ -1083,29 +1105,27 @@ func TestMoveFile_OrganizedDirStructure(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // MoveFile — same file moved with different backend IDs on same date
-// (legitimate deduplication scenario)
 // ---------------------------------------------------------------------------
 
 func TestMoveFile_SameDateFilenameDifferentBackendIDs(t *testing.T) {
 	m := openTestMover(t)
 
-	baseRel := "organized/2024/06/15/IMG_1000.jpg"
-
-	// First move — no dedup.
+	// First move — always suffixed with its own id.
 	src1 := filepath.Join(m.StoragePath(), "incoming", "tusd-1000-a")
 	writeFile(t, src1, []byte("file a"))
 	r1, err := m.MoveFile(src1, "2024-06-15T12:00:00Z", "IMG_1000.jpg", "tusd-1000-a")
 	if err != nil {
 		t.Fatalf("first MoveFile: %v", err)
 	}
-	if r1.Deduplicated {
-		t.Error("first move should not be deduplicated")
+	if !r1.Deduplicated {
+		t.Error("first move: Deduplicated is always true once suffixing is unconditional")
 	}
-	if r1.DstRel != baseRel {
-		t.Errorf("first DstRel: got %q, want %q", r1.DstRel, baseRel)
+	if r1.DstRel != "organized/2024/06/15/IMG_1000_tusd-1000-a.jpg" {
+		t.Errorf("first DstRel: got %q, want %q", r1.DstRel, "organized/2024/06/15/IMG_1000_tusd-1000-a.jpg")
 	}
 
-	// Second move — same date and filename, different backend ID -> dedup.
+	// Second move — same date and filename, different id: the deterministic
+	// per-record suffix keeps the two paths distinct.
 	src2 := filepath.Join(m.StoragePath(), "incoming", "tusd-1000-b")
 	writeFile(t, src2, []byte("file b"))
 	r2, err := m.MoveFile(src2, "2024-06-15T12:00:00Z", "IMG_1000.jpg", "tusd-1000-b")
@@ -1113,7 +1133,7 @@ func TestMoveFile_SameDateFilenameDifferentBackendIDs(t *testing.T) {
 		t.Fatalf("second MoveFile: %v", err)
 	}
 	if !r2.Deduplicated {
-		t.Error("second move should be deduplicated")
+		t.Error("second move: Deduplicated is always true once suffixing is unconditional")
 	}
 	expectedRel2 := "organized/2024/06/15/IMG_1000_tusd-1000-b.jpg"
 	if r2.DstRel != expectedRel2 {
@@ -1279,8 +1299,9 @@ func TestPlanDestination_BasicRFC3339(t *testing.T) {
 	m := openTestMover(t)
 
 	plan := m.PlanDestination("2024-03-15T10:30:00Z", "", "IMG_1234.jpg", "tusd-abc")
-	if plan.Rel != relMar2024IMG1234 {
-		t.Errorf("rel: got %q, want %q", plan.Rel, relMar2024IMG1234)
+	wantRel := "organized/2024/03/15/IMG_1234_tusd-abc.jpg"
+	if plan.Rel != wantRel {
+		t.Errorf("rel: got %q, want %q", plan.Rel, wantRel)
 	}
 	expectedAbs := filepath.Join(m.StoragePath(), plan.Rel)
 	if plan.Abs != expectedAbs {
@@ -1292,8 +1313,9 @@ func TestPlanDestination_DateOnly(t *testing.T) {
 	m := openTestMover(t)
 
 	plan := m.PlanDestination("2024-06-20", "", "IMG_5678.jpg", "tusd-def")
-	if plan.Rel != "organized/2024/06/20/IMG_5678.jpg" {
-		t.Errorf("rel: got %q, want %q", plan.Rel, "organized/2024/06/20/IMG_5678.jpg")
+	wantRel := "organized/2024/06/20/IMG_5678_tusd-def.jpg"
+	if plan.Rel != wantRel {
+		t.Errorf("rel: got %q, want %q", plan.Rel, wantRel)
 	}
 	expectedAbs := filepath.Join(m.StoragePath(), plan.Rel)
 	if plan.Abs != expectedAbs {
@@ -1306,8 +1328,9 @@ func TestPlanDestination_CreatedAtFallbackWhenEmpty(t *testing.T) {
 
 	// When creationDate is empty, createdAt is used as fallback.
 	plan := m.PlanDestination("", "2024-07-04T12:00:00Z", "IMG_video.mp4", "tusd-fallback")
-	if plan.Rel != "organized/2024/07/04/IMG_video.mp4" {
-		t.Errorf("rel: got %q, want %q", plan.Rel, "organized/2024/07/04/IMG_video.mp4")
+	wantRel := "organized/2024/07/04/IMG_video_tusd-fallback.mp4"
+	if plan.Rel != wantRel {
+		t.Errorf("rel: got %q, want %q", plan.Rel, wantRel)
 	}
 	expectedAbs := filepath.Join(m.StoragePath(), plan.Rel)
 	if plan.Abs != expectedAbs {
@@ -1320,8 +1343,9 @@ func TestPlanDestination_CreatedAtFallbackWhenUnparseable(t *testing.T) {
 
 	// When creationDate is unparseable, createdAt is used as fallback.
 	plan := m.PlanDestination("bad-date", "2024-07-04", "photo.jpg", "tusd-fallback2")
-	if plan.Rel != "organized/2024/07/04/photo.jpg" {
-		t.Errorf("rel: got %q, want %q", plan.Rel, "organized/2024/07/04/photo.jpg")
+	wantRel := "organized/2024/07/04/photo_tusd-fallback2.jpg"
+	if plan.Rel != wantRel {
+		t.Errorf("rel: got %q, want %q", plan.Rel, wantRel)
 	}
 	expectedAbs := filepath.Join(m.StoragePath(), plan.Rel)
 	if plan.Abs != expectedAbs {
@@ -1329,14 +1353,17 @@ func TestPlanDestination_CreatedAtFallbackWhenUnparseable(t *testing.T) {
 	}
 }
 
-func TestPlanDestination_CollisionInsertsBackendID(t *testing.T) {
+func TestPlanDestination_PreexistingPlainFileUnaffected(t *testing.T) {
 	m := openTestMover(t)
 
-	// Create an existing file at the computed path.
+	// A file already sitting at the plain (unsuffixed) path — e.g. content
+	// organized before always-suffixing shipped — is left untouched: the
+	// always-applied suffix means this record's destination never targets it.
 	existingAbs := filepath.Join(m.StoragePath(), relMar2024IMG1234)
 	writeFile(t, existingAbs, []byte("existing"))
 
-	// PlanDestination should detect the collision and insert backendID.
+	// The plan is fully deterministic: <stem>_<id><ext>, regardless of
+	// what exists on disk.
 	plan := m.PlanDestination("2024-03-15T10:30:00Z", "", "IMG_1234.jpg", "tusd-collision")
 	expectedRel := "organized/2024/03/15/IMG_1234_tusd-collision.jpg"
 	if plan.Rel != expectedRel {
@@ -1355,8 +1382,9 @@ func TestPlanDestination_BothDatesEmpty(t *testing.T) {
 	m := openTestMover(t)
 
 	plan := m.PlanDestination("", "", "file.txt", "tusd-empty")
-	if plan.Rel != "organized/unknown/unknown/unknown/file.txt" {
-		t.Errorf("rel: got %q, want %q", plan.Rel, "organized/unknown/unknown/unknown/file.txt")
+	wantRel := "organized/unknown/unknown/unknown/file_tusd-empty.txt"
+	if plan.Rel != wantRel {
+		t.Errorf("rel: got %q, want %q", plan.Rel, wantRel)
 	}
 	expectedAbs := filepath.Join(m.StoragePath(), plan.Rel)
 	if plan.Abs != expectedAbs {
@@ -1364,14 +1392,15 @@ func TestPlanDestination_BothDatesEmpty(t *testing.T) {
 	}
 }
 
-func TestPlanDestination_PreservesExistingOnCollision(t *testing.T) {
+func TestPlanDestination_PreexistingPlainFileContentPreserved(t *testing.T) {
 	m := openTestMover(t)
 
-	// Create existing file.
+	// Create existing file at the plain path.
 	existingAbs := filepath.Join(m.StoragePath(), "organized/2024/01/01/same_name.txt")
 	writeFile(t, existingAbs, []byte("do not overwrite"))
 
-	// PlanDestination should not overwrite the existing file.
+	// The always-applied suffix means the plan never targets the existing
+	// plain file, so it is not overwritten.
 	plan := m.PlanDestination("2024-01-01T00:00:00Z", "", "same_name.txt", "tusd-preserve")
 	expectedRel := "organized/2024/01/01/same_name_tusd-preserve.txt"
 	if plan.Rel != expectedRel {
@@ -1394,7 +1423,7 @@ func TestPlanDestination_PreservesExistingOnCollision(t *testing.T) {
 	}
 }
 
-func TestPlanDestination_CollisionWithNoExtension(t *testing.T) {
+func TestPlanDestination_SuffixNoExtension(t *testing.T) {
 	m := openTestMover(t)
 
 	// Create existing file without extension.
@@ -1414,7 +1443,7 @@ func TestPlanDestination_CollisionWithNoExtension(t *testing.T) {
 	assertPathExists(t, existingAbs)
 }
 
-func TestPlanDestination_MultipleDotsExtension(t *testing.T) {
+func TestPlanDestination_SuffixMultipleDots(t *testing.T) {
 	m := openTestMover(t)
 
 	// Create existing file with multiple dots.
@@ -1747,7 +1776,7 @@ func TestPlanDestinationThenMoveFile(t *testing.T) {
 	}
 
 	// Rel path should match.
-	expectedRel := "organized/2024/09/15/IMG_final.jpg"
+	expectedRel := "organized/2024/09/15/IMG_final_tusd-integration.jpg"
 	if plan.Rel != expectedRel {
 		t.Errorf("rel: got %q, want %q", plan.Rel, expectedRel)
 	}
@@ -1757,10 +1786,10 @@ func TestPlanDestinationThenMoveFile(t *testing.T) {
 	assertMtimeMatches(t, plan.Abs, plan.DateUsed)
 }
 
-func TestPlanDestinationWithCollisionThenMoveFile(t *testing.T) {
+func TestPlanDestinationThenMoveFile_PreexistingPlainFile(t *testing.T) {
 	m := openTestMover(t)
 
-	// Create an existing file at the computed destination.
+	// Create an existing file at the plain path.
 	existingAbs := filepath.Join(m.StoragePath(), "organized/2024/10/01/photo.jpg")
 	writeFile(t, existingAbs, []byte("existing photo"))
 
@@ -1770,7 +1799,8 @@ func TestPlanDestinationWithCollisionThenMoveFile(t *testing.T) {
 
 	plan := m.PlanDestination("2024-10-01T12:00:00Z", "", "photo.jpg", "tusd-collision-int")
 
-	// The planned destination should have the backendID suffix due to collision.
+	// The planned destination always carries the id suffix; the pre-existing
+	// plain file is never targeted and therefore survives.
 	expectedRel := "organized/2024/10/01/photo_tusd-collision-int.jpg"
 	if plan.Rel != expectedRel {
 		t.Errorf("rel: got %q, want %q", plan.Rel, expectedRel)
@@ -1808,8 +1838,9 @@ func TestPlanDestination_RFC3339Nano(t *testing.T) {
 	m := openTestMover(t)
 
 	plan := m.PlanDestination("2024-12-31T23:59:59.123456789Z", "", "nano.jpg", "tusd-nano")
-	if plan.Rel != "organized/2024/12/31/nano.jpg" {
-		t.Errorf("rel: got %q, want %q", plan.Rel, "organized/2024/12/31/nano.jpg")
+	wantRel := "organized/2024/12/31/nano_tusd-nano.jpg"
+	if plan.Rel != wantRel {
+		t.Errorf("rel: got %q, want %q", plan.Rel, wantRel)
 	}
 	expectedAbs := filepath.Join(m.StoragePath(), plan.Rel)
 	if plan.Abs != expectedAbs {
@@ -1822,8 +1853,9 @@ func TestPlanDestination_UnparseableDateBecomesSegment(t *testing.T) {
 
 	plan := m.PlanDestination("not-a-date", "", "file.txt", "tusd-unparseable")
 	// The raw string is used as the year segment.
-	if plan.Rel != "organized/not-a-date/unknown/unknown/file.txt" {
-		t.Errorf("rel: got %q, want %q", plan.Rel, "organized/not-a-date/unknown/unknown/file.txt")
+	wantRel := "organized/not-a-date/unknown/unknown/file_tusd-unparseable.txt"
+	if plan.Rel != wantRel {
+		t.Errorf("rel: got %q, want %q", plan.Rel, wantRel)
 	}
 	expectedAbs := filepath.Join(m.StoragePath(), plan.Rel)
 	if plan.Abs != expectedAbs {
@@ -1836,8 +1868,9 @@ func TestPlanDestination_CreationDatePreferredOverCreatedAt(t *testing.T) {
 
 	// Both dates are valid; creationDate should be preferred.
 	plan := m.PlanDestination("2024-01-15T10:00:00Z", "2024-06-20T12:00:00Z", "preferred.jpg", "tusd-pref")
-	if plan.Rel != "organized/2024/01/15/preferred.jpg" {
-		t.Errorf("rel: got %q, want %q (creationDate should be preferred)", plan.Rel, "organized/2024/01/15/preferred.jpg")
+	wantRel := "organized/2024/01/15/preferred_tusd-pref.jpg"
+	if plan.Rel != wantRel {
+		t.Errorf("rel: got %q, want %q (creationDate should be preferred)", plan.Rel, wantRel)
 	}
 	expectedAbs := filepath.Join(m.StoragePath(), plan.Rel)
 	if plan.Abs != expectedAbs {
@@ -1850,8 +1883,9 @@ func TestPlanDestination_CreationDateNotParseableCreatedAtPreferred(t *testing.T
 
 	// creationDate is unparseable, createdAt is valid - should use createdAt.
 	plan := m.PlanDestination("garbage-date", "2024-11-05T08:30:00Z", "fallback_test.jpg", "tusd-fb")
-	if plan.Rel != "organized/2024/11/05/fallback_test.jpg" {
-		t.Errorf("rel: got %q, want %q", plan.Rel, "organized/2024/11/05/fallback_test.jpg")
+	wantRel := "organized/2024/11/05/fallback_test_tusd-fb.jpg"
+	if plan.Rel != wantRel {
+		t.Errorf("rel: got %q, want %q", plan.Rel, wantRel)
 	}
 	expectedAbs := filepath.Join(m.StoragePath(), plan.Rel)
 	if plan.Abs != expectedAbs {
@@ -1933,6 +1967,120 @@ func TestPlanDestination_DateUsed(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// PlanDestination — filename length limits
+// ---------------------------------------------------------------------------
+
+func TestPlanDestination_LongFilenameStemTruncatedSuffixAndExtensionIntact(t *testing.T) {
+	m := openTestMover(t)
+
+	// A 255-byte filename (the sanitizer's upper bound): 251 'a' bytes plus
+	// ".jpg". Adding "_" + 43-char id would exceed the filesystem component
+	// limit, so only the stem is truncated to keep the full name within it.
+	id := suffixFilenameTestID
+	filename := strings.Repeat("a", maxFilenameSegmentLen-len(".jpg")) + ".jpg"
+	if len(filename) != maxFilenameSegmentLen {
+		t.Fatalf("test setup: wanted %d-byte filename, got %d", maxFilenameSegmentLen, len(filename))
+	}
+
+	plan := m.PlanDestination("2024-03-15T10:30:00Z", "", filename, id)
+
+	got := filepath.Base(plan.Rel)
+	if len(got) > maxFilenameSegmentLen {
+		t.Errorf("final filename %d bytes exceeds filesystem limit %d", len(got), maxFilenameSegmentLen)
+	}
+
+	// The _<id> suffix and the extension always survive intact; only the
+	// stem is cut, at exactly the point that leaves the full name at the
+	// filesystem limit.
+	wantStemLen := maxFilenameSegmentLen - 1 - len(id) - len(".jpg")
+	want := filename[:wantStemLen] + "_" + id + ".jpg"
+	if got != want {
+		t.Errorf("final filename: got %q, want %q", got, want)
+	}
+	if !strings.HasSuffix(got, "_"+id+".jpg") {
+		t.Errorf("suffix and extension must survive intact, got %q", got)
+	}
+}
+
+func TestPlanDestination_LongFilenameWithinLimitKeepsWholeStem(t *testing.T) {
+	m := openTestMover(t)
+
+	// A realistically long name that still fits once the suffix is added:
+	// no truncation happens and the whole stem survives.
+	id := suffixFilenameTestID
+	stem := "IMG_" + strings.Repeat("b", 100)
+	filename := stem + ".jpg"
+
+	plan := m.PlanDestination("2024-03-15T10:30:00Z", "", filename, id)
+
+	want := stem + "_" + id + ".jpg"
+	if got := filepath.Base(plan.Rel); got != want {
+		t.Errorf("final filename: got %q, want %q", got, want)
+	}
+	if len(filepath.Base(plan.Rel)) > maxFilenameSegmentLen {
+		t.Error("final filename exceeds filesystem limit")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PlanDestination — pre-existing foreign file safety net
+// ---------------------------------------------------------------------------
+
+func TestPlanDestination_PreexistingFileAtDestinationWarns(t *testing.T) {
+	m := openTestMover(t)
+
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+
+	// A foreign file already occupying the exact deterministic destination.
+	filename := "IMG_1234_" + suffixFilenameTestID + ".jpg"
+	existingAbs := filepath.Join(m.StoragePath(), "organized/2024/03/15", filename)
+	writeFile(t, existingAbs, []byte("foreign"))
+
+	plan := m.PlanDestination("2024-03-15T10:30:00Z", "", "IMG_1234.jpg", suffixFilenameTestID)
+
+	// The WARN stat is a safety net only: the planned paths are unchanged.
+	wantRel := "organized/2024/03/15/" + filename
+	if plan.Rel != wantRel {
+		t.Errorf("paths must be unchanged by the safety-net stat, got %q, want %q", plan.Rel, wantRel)
+	}
+	if !strings.Contains(buf.String(), "WARN") {
+		t.Errorf("expected WARN log about the pre-existing file, got: %q", buf.String())
+	}
+}
+
+func TestPlanAndMoveOverwritesForeignFileAtDestination(t *testing.T) {
+	m := openTestMover(t)
+
+	// A foreign file already sitting at the deterministic destination path.
+	planned := m.PlanDestination("2024-03-15T10:30:00Z", "", "IMG_1234.jpg", suffixFilenameTestID)
+	writeFile(t, planned.Abs, []byte("foreign content"))
+
+	// Moving a real upload to the same path silently overwrites it (the WARN
+	// safety net has already logged the unexpected pre-existing file).
+	src := filepath.Join(m.StoragePath(), "incoming", "tusd-overwrite")
+	writeFile(t, src, []byte("real upload"))
+
+	result, err := m.PlanAndMove(src, "2024-03-15T10:30:00Z", "", "IMG_1234.jpg", suffixFilenameTestID, nil)
+	if err != nil {
+		t.Fatalf("PlanAndMove failed: %v", err)
+	}
+	if result.Abs != planned.Abs {
+		t.Errorf("destination: got %q, want %q", result.Abs, planned.Abs)
+	}
+	data, err := os.ReadFile(planned.Abs)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(data) != "real upload" {
+		t.Errorf("content: got %q, want the moved upload's content", string(data))
+	}
+	assertPathNotExists(t, src)
+}
+
+// ---------------------------------------------------------------------------
 // Verify PlanDestination correctly uses OrganizedPath logic internally
 // ---------------------------------------------------------------------------
 
@@ -1958,10 +2106,10 @@ func TestPlanDestination_DifferentDates(t *testing.T) {
 		wantRel  string
 		desc     string
 	}{
-		{"2024-01-01T00:00:00Z", img0001Name, "organized/2024/01/01/IMG_0001.jpg", "january start"},
-		{"2024-12-31T23:59:59Z", "IMG_9999.jpg", relDec2024IMG9999, "december end"},
-		{"2025-06-15T12:00:00Z", "VID_2025.mp4", "organized/2025/06/15/VID_2025.mp4", "june mid-year"},
-		{"2024-02-29T10:30:00Z", "leap_day.txt", "organized/2024/02/29/leap_day.txt", "leap day"},
+		{"2024-01-01T00:00:00Z", img0001Name, "organized/2024/01/01/IMG_0001_tusd-test.jpg", "january start"},
+		{"2024-12-31T23:59:59Z", "IMG_9999.jpg", "organized/2024/12/31/IMG_9999_tusd-test.jpg", "december end"},
+		{"2025-06-15T12:00:00Z", "VID_2025.mp4", "organized/2025/06/15/VID_2025_tusd-test.mp4", "june mid-year"},
+		{"2024-02-29T10:30:00Z", "leap_day.txt", "organized/2024/02/29/leap_day_tusd-test.txt", "leap day"},
 	}
 
 	for _, tt := range tests {
