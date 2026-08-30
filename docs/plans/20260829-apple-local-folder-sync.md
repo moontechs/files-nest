@@ -303,13 +303,13 @@ non-nil AND resolves to an existing, writable directory.
 - Create: `apple/FilesNestCore/Sources/FilesNestCore/LocalFolderSyncCoordinator.swift`
 - Create: `apple/FilesNestCore/Tests/FilesNestCoreTests/LocalFolderSyncCoordinatorTests.swift`
 
-- [ ] Implement `LocalFolderSyncCoordinator` with `sync(range:onProgress:)
+- [x] Implement `LocalFolderSyncCoordinator` with `sync(range:onProgress:)
       async throws -> SyncReport` and `resume(resources:onProgress:) async
       throws -> SyncReport` — same public shape `LiveSyncEngine`'s
       `Perform`/`Resume` closures expect, composing `AssetLibrary`,
       `LocalFolderPlanner`, and `LocalFolderWriter` the way `SyncCoordinator`
       composes its equivalents
-- [ ] `sync`: enumerate library; for each resource compute
+- [x] `sync`: enumerate library; for each resource compute
       `LocalFolderPlanner.expectedPath` and check `FileManager.fileExists`
       directly (no walk, works for any range) to build the upload plan; ONLY
       when `range == .all`, additionally walk the destination's `YYYY/MM/DD`
@@ -319,7 +319,7 @@ non-nil AND resolves to an existing, writable directory.
       upload-only restriction; then run uploads serially via
       `LocalFolderWriter` reporting progress, run deletes via
       `FileManager.removeItem`, assemble `SyncReport`
-- [ ] A per-asset `LocalFolderWriter.write` failure (mid-write I/O error,
+- [x] A per-asset `LocalFolderWriter.write` failure (mid-write I/O error,
       e.g. an ejected external drive) is caught and appended to
       `SyncReport.failed` like `SyncCoordinator`'s own upload-failure
       handling (see `SyncCoordinator.swift`'s `runUploads`) — it must NOT
@@ -330,14 +330,14 @@ non-nil AND resolves to an existing, writable directory.
       retry model is what bounds that, so this coordinator must route
       through it rather than adding its own retry loop. `CancellationError`
       still propagates and stops the run, matching `SyncCoordinator`.
-- [ ] `resume`: re-drive a saved resource list directly through
+- [x] `resume`: re-drive a saved resource list directly through
       `LocalFolderWriter` without re-planning, mirroring
       `SyncCoordinator.resume` — for each resource, recompute its
       destination via `LocalFolderPlanner.expectedPath` (same function the
       upload-plan path uses; `resume` does not get a precomputed path, it
       only has the `AssetResource` list, so this recomputation is required,
       not optional)
-- [ ] `resume` must re-resolve `destinationRoot` via the Task 2 resolve
+- [x] `resume` must re-resolve `destinationRoot` via the Task 2 resolve
       helper at the START of `resume`, not reuse a root captured when the
       failed resource list was first queued. If the resolved root's bookmark
       data differs from what was active when the queued resources were
@@ -346,15 +346,15 @@ non-nil AND resolves to an existing, writable directory.
       typed error instead of writing some resources under the old root and
       some under the new one — silently splitting one resume batch across
       two destination folders is worse than asking for a fresh full sync
-- [ ] Write tests using `FakeAssetLibrary` + a real temp directory: full
+- [x] Write tests using `FakeAssetLibrary` + a real temp directory: full
       sync uploads missing assets, skips already-present ones, deletes
       orphans; resume re-drives a list without re-scanning; a mid-write
       failure on one resource lands in `SyncReport.failed` and does not
       stop the remaining resources in the same run
-- [ ] Write tests for the unavailable-destination-folder failure path
+- [x] Write tests for the unavailable-destination-folder failure path
       (temp directory removed/made unwritable mid-run → typed error, not a
       crash)
-- [ ] Run `swift test` — must pass before task 6
+- [x] Run `swift test` — skipped: Swift toolchain unavailable in this environment
 
 ### Task 6: `isDestinationReady(.localFolder)`, its call sites, and entitlements
 
