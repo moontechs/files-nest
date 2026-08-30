@@ -31,11 +31,20 @@ struct FilesNestApp: App {
             state: stateStore,
             perform: { range, onProgress in
                 // Read URL + creds at sync time so a Settings change takes effect.
-                guard await isDestinationReady(destinationStore.load(), urlStore: urlStore,
+                let destination = destinationStore.load()
+                guard await isDestinationReady(destination, urlStore: urlStore,
                                                credStore: credStore, localFolderStore: localFolderStore),
-                      let url = urlStore.load() else {
+                      (destination == .localFolder || urlStore.load() != nil) else {
                     throw NotSignedInError()
                 }
+                if coordinatorKind(for: destination) == .localFolder {
+                    guard let root = resolveLocalFolder(store: localFolderStore) else { throw LocalFolderSyncError.unavailableDestination }
+                    let accessing = root.startAccessingSecurityScopedResource()
+                    defer { if accessing { root.stopAccessingSecurityScopedResource() } }
+                    let coordinator = LocalFolderSyncCoordinator(library: library, writer: LocalFolderWriter(source: PhotosAssetDataSource()), store: localFolderStore)
+                    return try await coordinator.sync(range: range, onProgress: onProgress)
+                }
+                guard let url = urlStore.load() else { throw NotSignedInError() }
                 let client   = ServerClient(baseURL: url, credentials: credStore)
                 let uploader = AssetUploader(client: client, source: PhotosAssetDataSource())
                 let coordinator = SyncCoordinator(client: client,
@@ -48,11 +57,20 @@ struct FilesNestApp: App {
                 // Re-drive the persisted not-yet-uploaded list: no scan, no diff, so a launch or
                 // Resume starts backing up immediately. Cold launches verify afterwards; an
                 // unchanged Pause resumes its known plan without another full library scan.
-                guard await isDestinationReady(destinationStore.load(), urlStore: urlStore,
+                let destination = destinationStore.load()
+                guard await isDestinationReady(destination, urlStore: urlStore,
                                                credStore: credStore, localFolderStore: localFolderStore),
-                      let url = urlStore.load() else {
+                      (destination == .localFolder || urlStore.load() != nil) else {
                     throw NotSignedInError()
                 }
+                if coordinatorKind(for: destination) == .localFolder {
+                    guard let root = resolveLocalFolder(store: localFolderStore) else { throw LocalFolderSyncError.unavailableDestination }
+                    let accessing = root.startAccessingSecurityScopedResource()
+                    defer { if accessing { root.stopAccessingSecurityScopedResource() } }
+                    let coordinator = LocalFolderSyncCoordinator(library: library, writer: LocalFolderWriter(source: PhotosAssetDataSource()), store: localFolderStore)
+                    return try await coordinator.resume(resources: resources, onProgress: onProgress)
+                }
+                guard let url = urlStore.load() else { throw NotSignedInError() }
                 let client   = ServerClient(baseURL: url, credentials: credStore)
                 let uploader = AssetUploader(client: client, source: PhotosAssetDataSource())
                 let coordinator = SyncCoordinator(client: client,
@@ -66,12 +84,22 @@ struct FilesNestApp: App {
                 // Pending via SyncPlanner. `.all` on launch/restart; `.modifiedSince` on a change.
                 // Cached so a warm launch is instant.
                 let scan = try await library.resources(in: range, onProgress: progress.report)
-                guard await isDestinationReady(destinationStore.load(), urlStore: urlStore,
+                let destination = destinationStore.load()
+                guard await isDestinationReady(destination, urlStore: urlStore,
                                                credStore: credStore, localFolderStore: localFolderStore),
-                      let url = urlStore.load() else {
+                      (destination == .localFolder || urlStore.load() != nil) else {
                     // Signed out: no server to diff against — everything local is pending.
                     let a = Assessment(backedUp: 0, pending: scan.count, resourceTotal: scan.count)
                     stateStore.saveAssessment(a); return a
+                }
+                if coordinatorKind(for: destination) == .localFolder {
+                    guard let root = resolveLocalFolder(store: localFolderStore) else { throw LocalFolderSyncError.unavailableDestination }
+                    let accessing = root.startAccessingSecurityScopedResource()
+                    defer { if accessing { root.stopAccessingSecurityScopedResource() } }
+                    let backedUp = scan.filter { FileManager.default.fileExists(atPath: LocalFolderPlanner.expectedPath(for: $0, destinationRoot: root).path) }.count
+                    let a = Assessment(backedUp: backedUp, pending: scan.count - backedUp, resourceTotal: scan.count)
+                    stateStore.saveAssessment(a)
+                    return a
                 }
                 // Assessment is intentionally fail-fast: unlike an upload, it has no
                 // reconnect progress state to present while it waits.
@@ -144,6 +172,12 @@ struct FilesNestApp: App {
             SettingsView(model: settings)
         }
     }
+}
+
+enum CoordinatorKind: Equatable { case server, localFolder }
+
+func coordinatorKind(for destination: SyncDestination) -> CoordinatorKind {
+    destination == .server ? .server : .localFolder
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
