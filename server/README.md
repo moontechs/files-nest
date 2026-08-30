@@ -159,8 +159,10 @@ Everything lives under `$STORAGE_PATH`:
   binary file plus a `.info` metadata sidecar. Once an upload completes, the
   file is moved to `organized/` and the `.info` sidecar is cleaned up.
 - `organized/YYYY/MM/DD/` — completed files, named by their original
-  filename (e.g. `IMG_1234.jpg`), with `_<backend_id>` appended on a
-  collision (e.g. `IMG_0001_<backend_id>.jpg`).
+  filename with the upload's stable safe ID always appended before the
+  extension (e.g. `IMG_1234_<id>.jpg`). The `_<id>` suffix is
+  unconditional — never only on collision — so a completed file's path is
+  fully deterministic given its creation date, filename, and record ID.
 
 ---
 
@@ -318,7 +320,7 @@ limit.
       "creation_date": "2024-03-15T10:30:00Z",
       "created_at": "2024-03-15T10:30:00Z",
       "updated_at": "2024-03-15T10:32:00Z",
-      "organized_path": "organized/2024/03/15/IMG_1234.jpg"
+      "organized_path": "organized/2024/03/15/IMG_1234_<id>.jpg"
     }
   ],
   "next_cursor": "MjAyNC0wMy0xNS9hMWIyYzNkN...=="
@@ -492,7 +494,7 @@ of the upload record and is searchable via the `LocalIdentifierIndex`.
   "created_at": "2024-03-15T10:30:00Z",
   "updated_at": "2024-03-15T10:30:00Z",
   "metadata": { "orientation": "6" },
-  "organized_path": "organized/2024/03/15/IMG_1234.jpg"
+  "organized_path": "organized/2024/03/15/IMG_1234_<id>.jpg"
 }
 ```
 
@@ -672,7 +674,8 @@ is returned.
   indexes (`index.go`), and completion-intent CRUD (`completion.go`).
 - `internal/uploadbackend/` — the narrow tusd adapter (`tushandler.go`) and
   its sentinel errors (`errors.go`).
-- `internal/filestore/` — path planning, file moves, and collision handling
+- `internal/filestore/` — path planning, file moves, and deterministic
+  organized-filename suffixing
   (`mover.go`).
 
 See `CLAUDE.md` in this directory for the same layout kept current alongside

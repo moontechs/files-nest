@@ -408,11 +408,22 @@ comments are updated to match. The one production call site
       suffix logic anywhere
 
 ### Task 7: [Final] Update documentation
-- [ ] Update `server/README.md` if it documents the organized-file naming
-      convention
-- [ ] Update `docs/architecture.md`'s "File organization" section to
-      describe the new always-suffixed convention
-- [ ] Move this plan to `docs/plans/completed/`
+- [x] Update `server/README.md` if it documents the organized-file naming
+      convention — updated the Storage Layout bullet (always-append
+      `_<id>`, deterministic), the `organized_path` examples in the GET
+      /uploads response and the Upload Record JSON (now
+      `organized/2024/03/15/IMG_1234_<id>.jpg`), and the project-structure
+      description of `internal/filestore` (no longer "collision
+      handling"). Remaining `_<backend_id>` references (Backend index,
+      `incoming/` partial-file naming) are still accurate and unchanged
+- [x] Update `docs/architecture.md`'s "File organization" section to
+      describe the new always-suffixed convention — rewrote the section
+      (deterministic `_<id>` suffix, uniqueness by store-level
+      `PutUploadIfAbsent` dedup plus the organized-tree mutex, WARN-log
+      safety net for foreign files at the destination, prospective-only
+      coexistence of old and new names) and the "complete" step of the
+      TUS proxy flow to match
+- [x] Move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 
