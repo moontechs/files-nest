@@ -119,15 +119,32 @@ comments are updated to match. The one production call site
   doesn't need to know it's `SafeID(resourceKey)` specifically — same
   separation of concerns as today, where it didn't need to know `backendID`
   came from tusd).
-- **No collision fallback.** Two *new* records cannot compute the same final
-  `<filename>_<id>` path: `id` is `SafeID(resourceKey)`, unique per record by
-  construction (distinct `resourceKey`s hash to distinct IDs), and the
-  `moveMu` lock already forecloses the TOCTOU window that mattered under the
-  old collision-detection scheme. There is no identified scenario where two
-  live records collide on the new path shape, so no `os.Stat`-and-retry
-  fallback is added. (An old, pre-change file happening to already occupy a
-  path shaped like `<filename>_<id>` is not possible either: old files never
-  had this suffix shape, by construction of the prospective-only rollout.)
+- **No collision fallback between two live records.** Two *new* records
+  cannot compute the same final `<filename>_<id>` path: `id` is
+  `SafeID(resourceKey)`, unique per record by construction (distinct
+  `resourceKey`s hash to distinct IDs), and — this is the actual guarantee,
+  not just the hash's low collision probability —
+  `store.PutUploadIfAbsent` (`server/internal/store/uploads.go:220`) already
+  keys records by `LocalIdentifier` (the wire-level field, which equals
+  `resourceKey.encoded`) and returns the *existing* record rather than
+  creating a second one for a repeated `resourceKey`. So no two live
+  `store.Upload` rows can ever share an `id` in the first place; the hash
+  uniqueness argument alone would not be sufficient without this dedup at
+  the store layer, and Task 1 should note this explicitly rather than resting
+  the "no collision" claim on hash uniqueness in isolation. The `moveMu`
+  lock separately forecloses the TOCTOU window between planning and the
+  actual move. There is no identified scenario where two live records
+  collide on the new path shape, so no `os.Stat`-and-retry fallback is
+  added for that case.
+- **A *foreign* file already at the computed path is a different risk, not
+  covered by the point above.** Removing `os.Stat` from `PlanDestination`
+  also removes the only signal that would previously have caught a stray
+  file already occupying the exact target path for a reason unrelated to
+  two live records colliding — e.g. manual intervention in `organized/`, a
+  filesystem left in an inconsistent state, or a bug elsewhere. Since the
+  path is fully deterministic now, silently overwriting on move is an
+  accepted risk this plan takes on knowingly (see Task 1's added log line)
+  rather than a scenario proven impossible.
 
 ## What Goes Where
 
@@ -155,20 +172,40 @@ comments are updated to match. The one production call site
       - `"AAAA-BBBB-CCCC-DDDD#photo"` → `"QEzizTsZbhLknu3BxIqchpZg6BiVPEM7p8HYKhmIpCc"`
       - `"AAAA-BBBB-CCCC-DDDD#pairedVideo"` → `"FlwSC0rmUccfKH1nEq9BAo3lHk_SeclzxNeV9Sp_-kw"`
       - `""` → `"47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU"`
+      - `"AAAA-BBBB-CCCC-DDDD-café#photo"` → `"8h9r2pPlYMjO0ke3F01cPwtzADNQkhqD2k72i46TAEk"`
+        (non-ASCII vector, added to both this plan and the companion apple
+        plan's Task 1 — the case that would actually catch a Unicode
+        normalization mismatch between Go's raw `[]byte(string)` hashing and
+        the Swift port, unlike the ASCII-only vectors above)
 - [ ] In `PlanDestination`, remove the `os.Stat`-gated collision branch
       entirely (no fallback replaces it — see Technical Details' "No
       collision fallback" note); always compute `rel`/`abs` as
       `organized/YYYY/MM/DD/<stem>_<id><ext>` (rename the `backendID`
       parameter to `id`)
+- [ ] Keep a single `os.Stat` on the computed destination purely as a
+      detection/logging safety net, not as a naming decision: if a file
+      already exists at `<stem>_<id><ext>` before the move, `log.Printf` a
+      WARN (per `server/CLAUDE.md`'s logging policy) noting the unexpected
+      pre-existing file, then proceed with the move (still overwrites — see
+      Technical Details' "foreign file" note; this is visibility, not a
+      behavior change, and is a single stat per completed upload, not a
+      hot-loop cost)
 - [ ] Update `PlanDestination`'s doc comment to describe unconditional
-      suffixing instead of collision-only, and to state plainly why no
-      collision fallback exists (unique-by-construction `id`, no identified
-      collision scenario)
+      suffixing instead of collision-only, to state plainly why no
+      collision-avoidance fallback exists between two live records
+      (dedup at `PutUploadIfAbsent`, not just hash uniqueness — see
+      Technical Details), and to note the WARN-log safety net for the
+      separate foreign-file case
 - [ ] Check filename length: with the suffix always present (43-char
       `SafeID` + `_`), confirm `mover.go`'s `maxPathSegmentLen = 200` (or any
       other filesystem name-length handling) still holds for realistic
       filenames — add a test with a long original filename to confirm the
-      final `<stem>_<id><ext>` doesn't silently exceed a filesystem limit
+      final `<stem>_<id><ext>` doesn't silently exceed a filesystem limit.
+      If it can exceed the limit, truncate the filename *stem* (never the
+      `_<id>` suffix or extension — those must stay intact for the file to
+      remain identifiable and correctly typed) to whatever length keeps the
+      full `<stem>_<id><ext>` within the limit, and add a test asserting
+      the truncation point and that the suffix/extension survive intact
 - [ ] Update existing collision-only tests
       (`TestPlanDestination_CollisionInsertsBackendID`,
       `TestPlanDestination_PreservesExistingOnCollision`,
@@ -216,8 +253,12 @@ comments are updated to match. The one production call site
       it against a *current* `upload.BackendID` to detect a stale intent —
       if such a comparison exists, document whether it remains correct now
       that the destination path no longer depends on `backendID` at all; if
-      none exists, note that `CompletionIntent.BackendID` is now purely
-      informational
+      none exists, add a one-line doc comment directly on the
+      `CompletionIntent.BackendID` field itself stating it is retained only
+      as debugging/audit context (which tusd backend a completed upload's
+      bytes originally moved through) and is no longer read by any
+      path-planning logic — so a future reader hitting the field doesn't
+      have to re-derive why it's still there
 - [ ] Update the `moveCompletedFile` doc comment (`handlers.go:971-991`,
       specifically the "Retry safety" paragraph) — it currently justifies
       completion-intent reuse by describing a `backend_id`-driven path
