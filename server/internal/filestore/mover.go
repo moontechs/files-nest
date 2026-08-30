@@ -41,12 +41,12 @@ var (
 // into the date-based organized tree under the storage root path.
 //
 // moveMu serializes the plan-then-move sequence for the organized tree.
-// PlanDestination detects collisions with os.Stat and MoveFile renames
-// atomically; without a lock spanning both, two concurrent completions
-// for different uploads that share a creation date + filename could each
-// see no file at the computed path, compute identical destinations, and
-// the second rename would silently overwrite the first upload's data.
-// The mutex closes that TOCTOU window. Moves are fast (in-process rename),
+// Destinations are fully deterministic per record (<stem>_<id><ext>, with
+// id unique per record by construction at the store layer), so no two live
+// records can compute the same path; the lock exists so the safety-net stat
+// in PlanDestination, the rename in MoveFile, MoveToPlaned, and
+// RemoveOrganizedFile (including its idempotent already-moved handling)
+// never interleave on the same files. Moves are fast (in-process rename),
 // so global serialization of the move step has no practical throughput
 // impact on the upload (PATCH /data) path, which is only same-id locked.
 type Mover struct {
@@ -64,40 +64,6 @@ func New(storagePath string) *Mover {
 // StoragePath returns the storage root path. Exported for test access.
 func (m *Mover) StoragePath() string {
 	return m.storagePath
-}
-
-// OrganizedPath computes the relative and absolute organized file paths
-// from the creation date and filename.
-//
-// The relative path uses the form: organized/YYYY/MM/DD/<filename>
-// where YYYY, MM, DD are extracted from the creation date.
-//
-// If the creation date cannot be parsed as RFC3339 or YYYY-MM-DD, the
-// raw date string is used as a single path segment under organized/ and
-// month/day default to "unknown".
-func (m *Mover) OrganizedPath(creationDate, filename string) (string, string) {
-	var year, month, day string
-
-	t, ok := parseCreationDate(creationDate)
-	if ok {
-		year = t.Format("2006")
-		month = t.Format("01")
-		day = t.Format("02")
-	} else {
-		// Fallback: sanitize the raw date string as a single path segment.
-		// SafePathSegment rejects traversal characters ('/', '\\', '..') so an
-		// unparseable date can never escape the organized root. An empty result
-		// (empty or unsafe input) is left empty so filepath.Join collapses it,
-		// preserving the organized/unknown/unknown/<file> layout for empty dates.
-		year = SafePathSegment(creationDate)
-		month = unknownSegment
-		day = unknownSegment
-	}
-
-	rel := filepath.Join("organized", year, month, day, filename)
-	abs := filepath.Join(m.storagePath, rel)
-
-	return rel, abs
 }
 
 // PlanDestResult holds the planned destination paths for an upload.
@@ -247,68 +213,13 @@ func suffixFilename(filename, id string) string {
 	return stem + "_" + id + ext
 }
 
-// MoveResult holds the result of a file move operation.
-type MoveResult struct {
-	// Src is the original source file path that was moved.
-	Src string
-	// Dst is the final absolute destination path after the move.
-	Dst string
-	// DstRel is the relative destination path for storage in DB records.
-	DstRel string
-	// Deduplicated is true when the destination was modified because a file
-	// already existed at the computed path. When true, the filename used has
-	// the backendID inserted before the extension (e.g. IMG_0001_<id>.jpg).
-	Deduplicated bool
-}
-
-// MoveFile moves a file from srcPath to the organized tree. It computes
-// the destination path from creationDate and filename, creates the
-// destination directory if needed, and handles deduplication when a file
-// already exists at the computed path by inserting the backendID before
-// the filename extension.
-//
-// MoveFile uses os.Rename for an atomic move on the same filesystem (the
-// common case since incoming/ and organized/ are both under the storage
-// root). If the rename fails with EXDEV (cross-device link), it falls
-// back to a copy-then-remove sequence.
-//
-// On success it returns a MoveResult with the final paths. The caller
-// should use DstRel (not the computed rel) for persisting in the DB,
-// because deduplication may have changed the filename.
-func (m *Mover) MoveFile(srcPath, creationDate, filename, backendID string) (*MoveResult, error) {
-	m.moveMu.Lock()
-	defer m.moveMu.Unlock()
-
-	plan := m.PlanDestination(creationDate, "", filename, backendID)
-
-	// Determine if deduplication occurred by comparing the final path
-	// against the base organized path (without collision handling).
-	baseRel, _ := m.OrganizedPath(creationDate, filename)
-	deduped := plan.Rel != baseRel
-
-	// Pass the raw creationDate through (not plan.DateUsed): the method's
-	// contract is that the caller's creationDate wins for the timestamp,
-	// matching the date it used for path construction via PlanDestination.
-	err := MoveFile(srcPath, plan.Abs, creationDate)
-	if err != nil {
-		return nil, err
-	}
-
-	return &MoveResult{
-		Src:          srcPath,
-		Dst:          plan.Abs,
-		DstRel:       plan.Rel,
-		Deduplicated: deduped,
-	}, nil
-}
-
 // PlanAndMove plans the destination for a completed upload and moves the
-// file there, both under the organized-tree mutex so the collision check
-// in PlanDestination and the rename in MoveFile are atomic with respect
-// to other concurrent completions. beforeMove (if non-nil) is called
-// after planning and before the rename, still holding the mutex; callers
-// use it to persist a completion intent for crash recovery so a crash
-// between the intent write and the rename remains recoverable.
+// file there, both under the organized-tree mutex so the safety-net stat
+// in PlanDestination and the rename in MoveFile stay atomic with respect
+// to other concurrent moves and removals. beforeMove (if non-nil) is
+// called after planning and before the rename, still holding the mutex;
+// callers use it to persist a completion intent for crash recovery so a
+// crash between the intent write and the rename remains recoverable.
 //
 // If beforeMove returns an error, no move is performed and that error is
 // returned to the caller.

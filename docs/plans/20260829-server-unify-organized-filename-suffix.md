@@ -249,19 +249,19 @@ comments are updated to match. The one production call site
 - Modify: `server/internal/filestore/mover.go`
 - Modify: `server/internal/filestore/mover_test.go`
 
-- [ ] Re-confirm (repo-wide grep) that `(m *Mover) MoveFile` (the method) and
+- [x] Re-confirm (repo-wide grep) that `(m *Mover) MoveFile` (the method) and
       `MoveResult.Deduplicated` have no callers outside this package's own
       tests
-- [ ] If confirmed unused: delete the method, `MoveResult`, and
+- [x] If confirmed unused: delete the method, `MoveResult`, and
       `OrganizedPath`'s only remaining caller-path if it too becomes unused;
       remove their now-orphaned tests. If `OrganizedPath` is still used
       elsewhere (e.g. by another package needing the plain-path shape for a
       non-suffix reason), keep it and only remove the dedup-comparison usage
-- [ ] If NOT confirmed unused (a caller exists this discovery missed): STOP
+- [x] If NOT confirmed unused (a caller exists this discovery missed): STOP
       and flag it back rather than silently patching — this task's premise
       (safe to delete) would be wrong and the plan needs re-scoping, not a
       quick workaround
-- [ ] Run `make test` and `make lint` — must pass before task 3
+- [x] Run `make test` and `make lint` — must pass before task 3
 
 ### Task 3: Switch the production call site to `upload.ID`
 
