@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 	"testing"
@@ -147,7 +148,10 @@ func CreateTestUpload(t testing.TB, localID, filename string) *CreateUploadRespo
 //
 // The helper asserts every intermediate step and returns the final
 // UploadRecord with status "complete". The data length must be greater
-// than zero.
+// than zero. It also asserts the unified organized-filename convention:
+// the final filename must be <stem>_<upload.ID><ext> (the stable SafeID
+// suffix is appended unconditionally, never only on collision — see
+// docs/adr/0009-unify-organized-filename-suffix.md).
 //
 // Example:
 //
@@ -192,7 +196,36 @@ func CreateCompleteUpload(t testing.TB, localID, filename string, data []byte) *
 	require.Equal(t, localID, record.LocalIdentifier,
 		"local_identifier must be preserved through lifecycle")
 
+	assertSuffixedOrganizedPath(t, filename, record)
+
 	return record
+}
+
+// assertSuffixedOrganizedPath asserts that rec.OrganizedPath follows the
+// unified always-suffixed naming convention: the final path component is
+// exactly <stem>_<rec.ID><ext> where <stem>/<ext> come from the uploaded
+// filename. This is the end-to-end counterpart of the unit-level
+// PlanDestination assertions — it verifies what the live server actually
+// wrote, not just what the planner computed in isolation. rec.ID is the
+// stable SafeID(localIdentifier), which must be what the suffix uses
+// (never the tusd backend ID, which is mutable across backend_lost
+// re-registration).
+func assertSuffixedOrganizedPath(t testing.TB, filename string, rec *UploadRecord) {
+	t.Helper()
+
+	require.NotEmpty(t, rec.ID, "upload ID must not be empty")
+	require.NotEmpty(t, rec.OrganizedPath,
+		"organized_path must be non-empty to assert its suffix")
+
+	base := path.Base(rec.OrganizedPath)
+	ext := path.Ext(filename)
+	stem := strings.TrimSuffix(filename, ext)
+	expected := stem + "_" + rec.ID + ext
+
+	require.Equal(t, expected, base,
+		"organized filename must be <stem>_<upload.ID><ext> (always-suffixed), got %q", base)
+	require.NotContains(t, base, "_"+rec.BackendID,
+		"organized filename must not use the mutable backend_id suffix, got %q", base)
 }
 
 // UploadSomeData appends a chunk of data to an existing uploading upload

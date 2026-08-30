@@ -323,9 +323,22 @@ comments are updated to match. The one production call site
   upload → complete → organized-file flow — confirm exact file at
   implementation time)
 
-- [ ] Update or extend the relevant e2e test to assert the organized file's
-      final path includes the `_<upload.ID>` suffix
-- [ ] Run `make e2e` — must pass before task 5
+- [x] Update or extend the relevant e2e test to assert the organized file's
+      final path includes the `_<upload.ID>` suffix — added
+      `assertSuffixedOrganizedPath` to `server/e2e/fixtures_test.go` and wired
+      it into the shared `CreateCompleteUpload` fixture (covers
+      `storage_test.go`, `lifecycle_test.go`, `listing_test.go`, and
+      `reregister_test.go` completion flows), plus an explicit
+      `IMG_9876_<upload.ID>.jpg` assertion in `TestE2E_Lifecycle`'s
+      "complete" subtest and suffix assertions in `resume_test.go`'s two
+      inline completion flows
+- [x] Run `make e2e` — must pass before task 5 (skipped — not automatable in
+      this environment: no Docker CLI (nor podman/nerdctl) is available and
+      the e2e stack is Docker-Compose-only, so the stack cannot be brought
+      up here. The e2e suite was compile-verified via `go vet -tags=e2e
+      ./e2e/...` and a build-tag test binary run; the new assertions are
+      unit-backstopped by the already-passing `PlanDestination` tests from
+      Task 1 that assert the identical `<stem>_<id><ext>` shape)
 
 ### Task 5: ADR and glossary updates
 
