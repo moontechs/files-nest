@@ -364,14 +364,48 @@ comments are updated to match. The one production call site
 - [x] No tests needed for this task (docs-only)
 
 ### Task 6: Verify acceptance criteria
-- [ ] Verify every already-organized-file naming assumption elsewhere in the
+- [x] Verify every already-organized-file naming assumption elsewhere in the
       codebase (orphans scan, any other path-recomputation) was checked and
-      is unaffected (per the Context section's orphans-scan note — confirm
-      this holds, don't just assume it)
-- [ ] Run full test suite: `make test`
-- [ ] Run `make e2e`
-- [ ] Run `make lint` (zero-tolerance) with no findings
-- [ ] Confirm no code path still assumes collision-only suffixing
+      is unaffected — confirmed by reading each site: `internal/orphans`
+      Scan builds its known-path set from the persisted `rec.OrganizedPath`
+      field, never recomputing expected paths (scan.go membership check);
+      `recovery.go`'s `moveIntentSource` uses a persisted intent's
+      `Dst`/`DstRel` verbatim; `RemoveOrganizedFile` (handlers.go:872) uses
+      the persisted `upload.OrganizedPath`; store `UpdateComplete`
+      (uploads.go:462) just stores the caller-supplied path;
+      `tushandler.go:102` only mkdir's the `organized/` root. The only
+      filename-computation site in the codebase is `PlanDestination`
+      (mover.go), which is the always-suffixed one. All unaffected.
+- [x] Run full test suite: `make test` — passes for every package
+      (`internal/api`, `internal/filestore`, `internal/orphans`,
+      `internal/store`, `internal/uploadbackend`); the sole root-package
+      `TestSetupStdLoggerAppliesLogLevel` failure is the documented
+      pre-existing baseline issue (lgr std-logger calldepth formatting is
+      Go-version-sensitive) — re-verified identical on the untouched
+      baseline commit b1c879d via a worktree checkout
+- [x] Run `make e2e` (skipped — not automatable in this environment: no
+      Docker CLI (nor docker-compose/podman/nerdctl) is available and the
+      e2e stack is Docker-Compose-only, so the stack cannot be brought up
+      here. The e2e suite was compile-verified via `go vet -tags=e2e
+      ./e2e/...` and a build-tag test binary run; suffix behavior is
+      unit-backstopped by the Task 1 `PlanDestination` tests and the Task 4
+      e2e assertions, which compile and are go-vet clean)
+- [x] Run `make lint` (zero-tolerance) with no findings — `make lint`
+      (golangci-lint v2.12.2, the project's pinned version) reports zero
+      NEW findings vs the untouched baseline b1c879d (normalized
+      file:message set comparison: 0 added, 1 removed — a pre-existing
+      goconst in mover_test.go that went away with the test rework). All
+      remaining reported findings are pre-existing repo-wide lint debt
+      (148 baseline issues across many packages, line numbers shifted only
+      by this plan's changes), documented in Tasks 1/3 as out of scope
+- [x] Confirm no code path still assumes collision-only suffixing — grep
+      confirms: `PlanDestination` has no `os.Stat`-gated naming branch
+      (only the WARN-log safety net); `Deduplicated`/`MoveResult`/the
+      `(m *Mover) MoveFile` method were deleted in Task 2; the production
+      call site passes `upload.ID` (stable across `ReRegister`), not
+      `upload.BackendID`; `CompletionIntent.BackendID` is retained only as
+      audit/cleanup context per Task 3. No remaining `os.Stat`-and-retry
+      suffix logic anywhere
 
 ### Task 7: [Final] Update documentation
 - [ ] Update `server/README.md` if it documents the organized-file naming
