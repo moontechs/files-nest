@@ -116,7 +116,8 @@ struct FilesNestApp: App {
         let settingsModel = SettingsModel(urlStore: urlStore,
                                           credStore: credStore,
                                           destinationStore: destinationStore,
-                                          probe: ConnectionProbe())
+                                          probe: ConnectionProbe(),
+                                          localFolderStore: localFolderStore)
         settingsModel.onSaved = { appModel.restart() }
         self.destinationStore = destinationStore
         self.urlStore = urlStore

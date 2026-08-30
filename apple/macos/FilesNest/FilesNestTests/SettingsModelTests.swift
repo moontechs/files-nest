@@ -15,6 +15,26 @@ struct SettingsModelTests {
         #expect(destinationStore.saved == [.server])
     }
 
+    @Test func destinationChangeTriggersSaveCallback() {
+        let model = makeModel()
+        var saves = 0
+        model.onSaved = { saves += 1 }
+        model.destination = .localFolder
+        #expect(saves == 1)
+    }
+
+    @Test func choosingFolderPersistsBookmarkAndTriggersSaveCallback() {
+        let store = InMemoryLocalFolderStore()
+        let folder = URL(fileURLWithPath: NSTemporaryDirectory())
+        let model = makeModel(localFolderStore: store, folderPicker: FakeLocalFolderPicker(url: folder))
+        var saves = 0
+        model.onSaved = { saves += 1 }
+        model.chooseLocalFolder()
+        #expect(store.value != nil)
+        #expect(model.selectedFolderPath == folder.path)
+        #expect(saves == 1)
+    }
+
     @Test func assigningTheCurrentDestinationDoesNotDiscardPersistedValues() async {
         let url = URL(string: "https://nest.home.example")!
         let destinationStore = InMemoryDestinationStore(destination: .server)
@@ -105,14 +125,31 @@ struct SettingsModelTests {
     private func makeModel(
         urlStore: InMemoryURLStore = InMemoryURLStore(),
         credentials: InMemoryCredentialStore = InMemoryCredentialStore(),
-        destinationStore: InMemoryDestinationStore = InMemoryDestinationStore()
+        destinationStore: InMemoryDestinationStore = InMemoryDestinationStore(),
+        localFolderStore: any LocalFolderStore = UserDefaultsLocalFolderStore(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+        folderPicker: any LocalFolderPicker = FakeLocalFolderPicker(url: nil)
     ) -> SettingsModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [ProbeURLProtocol.self]
         return SettingsModel(urlStore: urlStore, credStore: credentials,
-                             destinationStore: destinationStore,
-                             probe: ConnectionProbe(session: URLSession(configuration: config)))
+                              destinationStore: destinationStore,
+                             probe: ConnectionProbe(session: URLSession(configuration: config)),
+                             localFolderStore: localFolderStore, folderPicker: folderPicker)
     }
+}
+
+@MainActor
+private final class FakeLocalFolderPicker: LocalFolderPicker {
+    let url: URL?
+    init(url: URL?) { self.url = url }
+    func chooseFolder() -> URL? { url }
+}
+
+private final class InMemoryLocalFolderStore: LocalFolderStore, @unchecked Sendable {
+    var value: Data?
+    func load() -> Data? { value }
+    func save(_ bookmark: Data) { value = bookmark }
+    func clear() { value = nil }
 }
 
 private final class InMemoryURLStore: ServerURLStore, @unchecked Sendable {
