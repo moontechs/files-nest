@@ -43,7 +43,7 @@ struct FilesNestApp: App {
                     let accessing = root.startAccessingSecurityScopedResource()
                     defer { if accessing { root.stopAccessingSecurityScopedResource() } }
                     let coordinator = LocalFolderSyncCoordinator(
-                        library: library, writer: LocalFolderWriter(source: PhotosAssetDataSource()),
+                        library: library, writer: LocalFolderWriter(source: PhotosAssetDataSource(), destinationRoot: root),
                         root: root, bookmark: bookmark, state: stateStore)
                     return try await coordinator.sync(range: range, onProgress: onProgress)
                 }
@@ -72,7 +72,7 @@ struct FilesNestApp: App {
                     let accessing = root.startAccessingSecurityScopedResource()
                     defer { if accessing { root.stopAccessingSecurityScopedResource() } }
                     let coordinator = LocalFolderSyncCoordinator(
-                        library: library, writer: LocalFolderWriter(source: PhotosAssetDataSource()),
+                        library: library, writer: LocalFolderWriter(source: PhotosAssetDataSource(), destinationRoot: root),
                         root: root, bookmark: bookmark, state: stateStore)
                     return try await coordinator.resume(resources: resources, onProgress: onProgress)
                 }
@@ -102,8 +102,20 @@ struct FilesNestApp: App {
                     guard let root = resolveLocalFolder(store: localFolderStore) else { throw LocalFolderSyncError.unavailableDestination }
                     let accessing = root.startAccessingSecurityScopedResource()
                     defer { if accessing { root.stopAccessingSecurityScopedResource() } }
-                    let backedUp = scan.filter { FileManager.default.fileExists(atPath: LocalFolderPlanner.expectedPath(for: $0, destinationRoot: root).path) }.count
-                    let a = Assessment(backedUp: backedUp, pending: scan.count - backedUp, resourceTotal: scan.count)
+                    // A modified-window scan is not a complete library inventory. Re-scan the
+                    // local destination against the complete library before publishing global
+                    // counts, rather than overwriting the summary with only that window.
+                    let assessedResources: [AssetResource]
+                    if case .all = range {
+                        assessedResources = scan
+                    } else {
+                        assessedResources = try await library.resources(in: .all)
+                    }
+                    let backedUp = assessedResources.filter {
+                        LocalFolderPlanner.isCompletedFile(at: LocalFolderPlanner.expectedPath(for: $0, destinationRoot: root))
+                    }.count
+                    let a = Assessment(backedUp: backedUp, pending: assessedResources.count - backedUp,
+                                       resourceTotal: assessedResources.count)
                     stateStore.saveAssessment(a)
                     return a
                 }
@@ -133,6 +145,11 @@ struct FilesNestApp: App {
             isReady: {
                 await isDestinationReady(destinationStore.load(), urlStore: urlStore,
                                          credStore: credStore, localFolderStore: localFolderStore)
+            },
+            isResumeReady: {
+                remainingUploadsBelong(to: destinationStore.load(),
+                                       savedDestination: stateStore.loadRemainingUploadsDestination(),
+                                       localFolderStore: localFolderStore)
             })
 
         // Continuously watch the photo library: on a debounced change, invalidate the cached

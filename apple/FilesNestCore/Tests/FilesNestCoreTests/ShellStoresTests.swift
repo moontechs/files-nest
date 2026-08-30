@@ -35,6 +35,19 @@ struct ShellStoresTests {
         #expect(store.load() == .server)
     }
 
+    @Test func remainingUploadsMustMatchTheirDestination() {
+        let suite = UserDefaults(suiteName: "destination.resume.\(UUID().uuidString)")!
+        let folders = UserDefaultsLocalFolderStore(defaults: suite)
+        let bookmark = Data([1, 2, 3])
+
+        #expect(remainingUploadsBelong(to: .server, savedDestination: nil, localFolderStore: folders))
+        #expect(!remainingUploadsBelong(to: .server, savedDestination: bookmark, localFolderStore: folders))
+        #expect(!remainingUploadsBelong(to: .localFolder, savedDestination: bookmark, localFolderStore: folders))
+
+        folders.save(bookmark)
+        #expect(remainingUploadsBelong(to: .localFolder, savedDestination: bookmark, localFolderStore: folders))
+    }
+
     @Test func destinationReadinessRequiresServerURLAndCredentials() async {
         let suite = UserDefaults(suiteName: "destination.\(UUID().uuidString)")!
         let urlStore = UserDefaultsServerURLStore(defaults: suite)

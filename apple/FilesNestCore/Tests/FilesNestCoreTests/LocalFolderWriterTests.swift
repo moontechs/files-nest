@@ -69,6 +69,25 @@ struct LocalFolderWriterTests {
         }
         #expect(!FileManager.default.fileExists(atPath: destination.path))
     }
+
+    @Test func rejectsSymlinkedDestinationAncestor() async throws {
+        let directory = try temporaryDirectory()
+        let outside = try temporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.removeItem(at: outside)
+        }
+        let link = directory.appendingPathComponent("2023")
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: outside.path)
+        let destination = link.appendingPathComponent("01/02/result.jpg")
+        let writer = LocalFolderWriter(source: FakeAssetDataSource(totalBytes: 1, blobSize: 1),
+                                       destinationRoot: directory, volumeFreeSpace: { _ in 100 })
+
+        await #expect(throws: LocalFolderWriterError.unsafeDestination) {
+            try await writer.write(assetID: "asset", destinationPath: destination)
+        }
+        #expect(!FileManager.default.fileExists(atPath: outside.appendingPathComponent("01/02/result.jpg").path))
+    }
 }
 
 private final class Probe: @unchecked Sendable {

@@ -30,4 +30,23 @@ public enum LocalFolderPlanner {
             (path: $0, key: ResourceKey(localIdentifier: $0.path, kind: .photo))
         }
     }
+
+    /// A completed local backup is always a regular, non-symlinked file.
+    public static func isCompletedFile(at path: URL) -> Bool {
+        guard let values = try? path.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else {
+            return false
+        }
+        return values.isRegularFile == true && values.isSymbolicLink != true
+    }
+
+    /// FilesNest-owned names end in the URL-safe, unpadded SHA-256 suffix produced by `safeID`.
+    /// This keeps delete mirroring from treating ordinary files in a chosen date folder as ours.
+    public static func isManagedPath(_ path: URL) -> Bool {
+        let basename = (path.lastPathComponent as NSString).deletingPathExtension
+        let suffixLength = 43 // SHA-256 encoded with URL-safe base64 and no padding.
+        guard basename.count > suffixLength + 1 else { return false }
+        let suffixStart = basename.index(basename.endIndex, offsetBy: -suffixLength)
+        guard basename[basename.index(before: suffixStart)] == "_" else { return false }
+        return basename[suffixStart...].allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+    }
 }

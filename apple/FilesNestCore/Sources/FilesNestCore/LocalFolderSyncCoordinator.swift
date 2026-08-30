@@ -3,6 +3,7 @@ import Foundation
 public enum LocalFolderSyncError: Error, Equatable {
     case unavailableDestination
     case destinationChanged
+    case unsafeDestination
 }
 
 /// Executes a local-folder reconciliation serially against one root acquired by
@@ -33,7 +34,7 @@ public struct LocalFolderSyncCoordinator: Sendable {
         let resources = try await library.resources(in: range)
         var uploads: [AssetResource] = []
         for resource in resources {
-            if !FileManager.default.fileExists(atPath: LocalFolderPlanner.expectedPath(for: resource, destinationRoot: root).path) {
+            if !LocalFolderPlanner.isCompletedFile(at: LocalFolderPlanner.expectedPath(for: resource, destinationRoot: root)) {
                 uploads.append(resource)
             }
         }
@@ -91,7 +92,12 @@ public struct LocalFolderSyncCoordinator: Sendable {
         for (index, resource) in resources.enumerated() {
             try Task.checkCancellation()
             onProgress(SyncProgress(completed: index, total: resources.count, currentItemName: resource.filename, bytesRemaining: nil, currentItemID: resource.key.localIdentifier))
-            do { try await writer.write(assetID: resource.key.encoded, destinationPath: LocalFolderPlanner.expectedPath(for: resource, destinationRoot: root)); uploaded.append(resource.key) }
+            do {
+                let path = LocalFolderPlanner.expectedPath(for: resource, destinationRoot: root)
+                try validateExpectedPath(path)
+                try await writer.write(assetID: resource.key.encoded, destinationPath: path)
+                uploaded.append(resource.key)
+            }
             catch is CancellationError { throw CancellationError() }
             catch { failed.append(FailedItem(key: resource.key, filename: resource.filename, reason: String(describing: error))) }
         }
@@ -102,13 +108,12 @@ public struct LocalFolderSyncCoordinator: Sendable {
     private func actualPaths(_ root: URL) throws -> Set<URL> {
         var result = Set<URL>()
         let fm = FileManager.default
-        guard let years = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else { return result }
+        guard let years = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else { return result }
         for year in years where isDirectory(year) && isNumericComponent(year.lastPathComponent, digits: 4) {
-            for month in (try? fm.contentsOfDirectory(at: year, includingPropertiesForKeys: [.isDirectoryKey])) ?? [] where isDirectory(month) && isNumericComponent(month.lastPathComponent, digits: 2) {
-                for day in (try? fm.contentsOfDirectory(at: month, includingPropertiesForKeys: [.isDirectoryKey])) ?? [] where isDirectory(day) && isNumericComponent(day.lastPathComponent, digits: 2) {
+            for month in (try? fm.contentsOfDirectory(at: year, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey])) ?? [] where isDirectory(month) && isNumericComponent(month.lastPathComponent, digits: 2) {
+                for day in (try? fm.contentsOfDirectory(at: month, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey])) ?? [] where isDirectory(day) && isNumericComponent(day.lastPathComponent, digits: 2) {
                     for file in (try? fm.contentsOfDirectory(at: day, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey])) ?? [] {
-                        let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-                        if values?.isRegularFile == true && values?.isSymbolicLink != true { result.insert(file) }
+                        if LocalFolderPlanner.isCompletedFile(at: file), LocalFolderPlanner.isManagedPath(file) { result.insert(file) }
                     }
                 }
             }
@@ -117,10 +122,23 @@ public struct LocalFolderSyncCoordinator: Sendable {
     }
 
     private func isDirectory(_ url: URL) -> Bool {
-        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else { return false }
+        return values.isDirectory == true && values.isSymbolicLink != true
     }
 
     private func isNumericComponent(_ component: String, digits: Int) -> Bool {
         component.count == digits && component.allSatisfy(\.isNumber)
+    }
+
+    private func validateExpectedPath(_ path: URL) throws {
+        let fm = FileManager.default
+        var component = root
+        for name in path.pathComponents.dropFirst(root.pathComponents.count) {
+            component.appendPathComponent(name)
+            guard fm.fileExists(atPath: component.path) else { break }
+            if (try? fm.destinationOfSymbolicLink(atPath: component.path)) != nil {
+                throw LocalFolderSyncError.unsafeDestination
+            }
+        }
     }
 }

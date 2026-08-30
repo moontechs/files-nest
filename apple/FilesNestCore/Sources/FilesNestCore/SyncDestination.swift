@@ -31,6 +31,26 @@ public final class UserDefaultsSyncDestinationStore: SyncDestinationStore, @unch
     }
 }
 
+/// Whether the saved resume list was created for the active destination.
+/// Server lists use `nil`; local-folder lists retain their selected bookmark.
+public func remainingUploadsBelong(
+    to destination: SyncDestination,
+    savedDestination: Data?,
+    localFolderStore: any LocalFolderStore
+) -> Bool {
+    switch destination {
+    case .server:
+        return savedDestination == nil
+    case .localFolder:
+        guard let savedDestination, let current = localFolderStore.load() else { return false }
+        if savedDestination == current { return true }
+        guard let savedRoot = resolveLocalFolder(bookmark: savedDestination),
+              let currentRoot = resolveLocalFolder(bookmark: current) else { return false }
+        return savedRoot.resolvingSymlinksInPath().standardizedFileURL
+            == currentRoot.resolvingSymlinksInPath().standardizedFileURL
+    }
+}
+
 /// Returns whether the active destination has every value needed to start a sync.
 public func isDestinationReady(
     _ destination: SyncDestination,

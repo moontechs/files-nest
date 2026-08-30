@@ -915,6 +915,27 @@ import Foundation
         #expect(order.marks.contains("assess"))
     }
 
+    @Test func launchWithMismatchedSavedDestinationClearsItAndReassesses() async {
+        let state = InMemorySyncStateStore()
+        state.saveRemainingUploads([AssetResource(key: ResourceKey(localIdentifier: "A", kind: .photo),
+                                                  filename: "A.jpg",
+                                                  creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)],
+                                   destination: Data([1]), session: state.remainingUploadsSession())
+        let resumeCalls = Counter()
+        let engine = LiveSyncEngine(
+            credentials: creds(true), state: state,
+            perform: { _, _ in self.emptyReport() },
+            resume: { _, _ in await resumeCalls.inc(); return self.emptyReport() },
+            assess: { _, _ in Assessment(backedUp: 0, pending: 0, resourceTotal: 0) },
+            isResumeReady: { false })
+
+        await engine.start()
+        _ = await awaitStatus(engine, isWatching)
+
+        #expect(await resumeCalls.value == 0)
+        #expect(state.loadRemainingUploads().isEmpty)
+    }
+
     @Test func resumeWithSavedListAndNoChangeFastPathsWithoutVerificationScan() async {
         let state = InMemorySyncStateStore()
         let hold = Gate()   // stall the resume upload so the `.syncing` fast-path state is observable

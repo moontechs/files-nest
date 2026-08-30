@@ -23,7 +23,7 @@ struct LocalFolderSyncCoordinatorTests {
                                    root: root, bookmark: bookmark, state: state)
     }
 
-    @Test func fullSyncWritesMissingSkipsExistingAndDeletesOnlyFiles() async throws {
+    @Test func fullSyncWritesMissingSkipsExistingAndDeletesOnlyManagedFiles() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let missing = resource("missing")
@@ -31,9 +31,11 @@ struct LocalFolderSyncCoordinatorTests {
         let existingPath = LocalFolderPlanner.expectedPath(for: existing, destinationRoot: root)
         try FileManager.default.createDirectory(at: existingPath.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("old".utf8).write(to: existingPath)
-        let orphan = root.appendingPathComponent("2023/01/02/orphan.jpg")
+        let orphan = root.appendingPathComponent("2023/01/02/orphan_\(safeID("removed")).jpg")
         try FileManager.default.createDirectory(at: orphan.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: orphan)
+        let unrelated = root.appendingPathComponent("2023/01/02/family.jpg")
+        try Data().write(to: unrelated)
         let protectedDirectory = root.appendingPathComponent("2023/01/02/important")
         try FileManager.default.createDirectory(at: protectedDirectory, withIntermediateDirectories: true)
 
@@ -42,6 +44,7 @@ struct LocalFolderSyncCoordinatorTests {
         #expect(report.uploaded == [missing.key])
         #expect(report.skipped == 1)
         #expect(!FileManager.default.fileExists(atPath: orphan.path))
+        #expect(FileManager.default.fileExists(atPath: unrelated.path))
         #expect(FileManager.default.fileExists(atPath: protectedDirectory.path))
         #expect(FileManager.default.fileExists(atPath: LocalFolderPlanner.expectedPath(for: missing, destinationRoot: root).path))
     }
@@ -57,6 +60,19 @@ struct LocalFolderSyncCoordinatorTests {
 
         #expect(report.deleted.isEmpty)
         #expect(FileManager.default.fileExists(atPath: orphan.path))
+    }
+
+    @Test func directoryAtExpectedPathIsNotCountedAsBackedUp() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let item = resource("directory")
+        let path = LocalFolderPlanner.expectedPath(for: item, destinationRoot: root)
+        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
+
+        let report = try await coordinator(library: FakeAssetLibrary(items: [item]), root: root).sync(range: .all)
+
+        #expect(report.skipped == 0)
+        #expect(report.failed.map(\.key) == [item.key])
     }
 
     @Test func resumeUsesSavedDestinationWithoutScanning() async throws {
