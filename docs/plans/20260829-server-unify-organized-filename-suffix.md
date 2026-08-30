@@ -346,14 +346,14 @@ comments are updated to match. The one production call site
 - Create: `docs/adr/0009-unify-organized-filename-suffix.md`
 - Modify: `CONTEXT.md`
 
-- [ ] Write ADR 0009 (next available number after 0008): what changed
+- [x] Write ADR 0009 (next available number after 0008): what changed
       (always-append `_<id>` instead of collision-only `_<backendID>`), why
       (local-folder sync's correctness requirement, established during the
       brainstorm session referenced in Overview, plus the deliberate choice
       for cross-destination filename parity), and the explicit
       prospective-only/no-migration decision and its accepted consequence
       (two naming schemes coexist indefinitely on already-deployed servers)
-- [ ] Update `CONTEXT.md`'s "Organized path" entry to describe the final,
+- [x] Update `CONTEXT.md`'s "Organized path" entry to describe the final,
       unified rule precisely (it currently describes pre-change,
       collision-only behavior plus an earlier edit anticipating
       local-folder's own always-suffixed scheme as a *different* shape —
@@ -361,7 +361,7 @@ comments are updated to match. The one production call site
       the identical `_<id>` rule, only the root path shape differs
       — `organized/YYYY/MM/DD/...` under the server's storage root vs.
       `YYYY/MM/DD/...` directly under a local-folder destination)
-- [ ] No tests needed for this task (docs-only)
+- [x] No tests needed for this task (docs-only)
 
 ### Task 6: Verify acceptance criteria
 - [ ] Verify every already-organized-file naming assumption elsewhere in the
