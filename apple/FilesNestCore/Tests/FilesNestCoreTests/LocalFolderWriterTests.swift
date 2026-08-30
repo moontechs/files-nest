@@ -24,6 +24,21 @@ struct LocalFolderWriterTests {
         #expect(try Data(contentsOf: destination).count == 250)
     }
 
+    @Test func probesExistingAncestorForNestedDestination() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let probe = Probe()
+        let destination = directory.appendingPathComponent("missing/year/month/result.jpg")
+        let writer = LocalFolderWriter(source: FakeAssetDataSource(totalBytes: 1, blobSize: 1), volumeFreeSpace: { url in
+            probe.record(url)
+            return 100
+        })
+
+        try await writer.write(assetID: "asset", destinationPath: destination)
+
+        #expect(probe.value == directory)
+    }
+
     @Test func failedReadLeavesNoFinalOrTemporaryFile() async throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -54,4 +69,11 @@ struct LocalFolderWriterTests {
         }
         #expect(!FileManager.default.fileExists(atPath: destination.path))
     }
+}
+
+private final class Probe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: URL?
+    var value: URL? { lock.lock(); defer { lock.unlock() }; return _value }
+    func record(_ url: URL) { lock.lock(); defer { lock.unlock() }; _value = url }
 }

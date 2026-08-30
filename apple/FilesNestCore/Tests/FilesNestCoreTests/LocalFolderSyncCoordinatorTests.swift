@@ -4,40 +4,113 @@ import Testing
 
 @Suite(.serialized)
 struct LocalFolderSyncCoordinatorTests {
-    final class Store: LocalFolderStore, @unchecked Sendable {
-        var bookmark: Data?
-        init(_ bookmark: Data? = nil) { self.bookmark = bookmark }
-        func load() -> Data? { bookmark }
-        func save(_ bookmark: Data) { self.bookmark = bookmark }
-        func clear() { bookmark = nil }
+    private func temporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("filesnest-coordinator-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 
-    @Test func missingDestinationIsTypedError() async {
-        let store = Store()
-        let writer = LocalFolderWriter(source: FakeAssetDataSource(totalBytes: 0, blobSize: 1))
-        let coordinator = LocalFolderSyncCoordinator(library: FakeAssetLibrary(), writer: writer, store: store)
-        do {
-            _ = try await coordinator.sync(range: .all)
-            Issue.record("expected unavailable destination")
-        } catch let error as LocalFolderSyncError {
-            #expect(error == .unavailableDestination)
-        } catch {
-            Issue.record("unexpected error: \(error)")
+    private func resource(_ id: String, filename: String = "IMG.jpg") -> AssetResource {
+        AssetResource(key: ResourceKey(localIdentifier: id, kind: .photo), filename: filename,
+                      creationDate: Date(timeIntervalSince1970: 1_700_000_000), bundleID: nil)
+    }
+
+    private func coordinator(library: any AssetLibrary, root: URL, bookmark: Data = Data([1]),
+                             source: any AssetDataSource = FakeAssetDataSource(totalBytes: 10, blobSize: 10),
+                             state: InMemorySyncStateStore = InMemorySyncStateStore()) -> LocalFolderSyncCoordinator {
+        LocalFolderSyncCoordinator(library: library,
+                                   writer: LocalFolderWriter(source: source, volumeFreeSpace: { _ in 1_000 }),
+                                   root: root, bookmark: bookmark, state: state)
+    }
+
+    @Test func fullSyncWritesMissingSkipsExistingAndDeletesOnlyFiles() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let missing = resource("missing")
+        let existing = resource("existing")
+        let existingPath = LocalFolderPlanner.expectedPath(for: existing, destinationRoot: root)
+        try FileManager.default.createDirectory(at: existingPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("old".utf8).write(to: existingPath)
+        let orphan = root.appendingPathComponent("2023/01/02/orphan.jpg")
+        try FileManager.default.createDirectory(at: orphan.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: orphan)
+        let protectedDirectory = root.appendingPathComponent("2023/01/02/important")
+        try FileManager.default.createDirectory(at: protectedDirectory, withIntermediateDirectories: true)
+
+        let report = try await coordinator(library: FakeAssetLibrary(items: [missing, existing]), root: root).sync(range: .all)
+
+        #expect(report.uploaded == [missing.key])
+        #expect(report.skipped == 1)
+        #expect(!FileManager.default.fileExists(atPath: orphan.path))
+        #expect(FileManager.default.fileExists(atPath: protectedDirectory.path))
+        #expect(FileManager.default.fileExists(atPath: LocalFolderPlanner.expectedPath(for: missing, destinationRoot: root).path))
+    }
+
+    @Test func incrementalSyncDoesNotDeleteOrphans() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let orphan = root.appendingPathComponent("2023/01/02/orphan.jpg")
+        try FileManager.default.createDirectory(at: orphan.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: orphan)
+
+        let report = try await coordinator(library: FakeAssetLibrary(), root: root).sync(range: .modifiedSince(Date()))
+
+        #expect(report.deleted.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: orphan.path))
+    }
+
+    @Test func resumeUsesSavedDestinationWithoutScanning() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let item = resource("resume")
+        let bookmark = Data([8])
+        let state = InMemorySyncStateStore()
+        state.saveRemainingUploads([item], destination: bookmark, session: state.remainingUploadsSession())
+        let library = FakeAssetLibrary(items: [], error: FakeSourceError.injected)
+
+        let report = try await coordinator(library: library, root: root, bookmark: bookmark, state: state).resume(resources: [item])
+
+        #expect(report.uploaded == [item.key])
+        #expect(library.requestedRanges.isEmpty)
+        #expect(state.loadRemainingUploads().isEmpty)
+    }
+
+    @Test func failedWriteDoesNotStopLaterResources() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bad = resource("bad")
+        let good = resource("good")
+
+        let report = try await coordinator(library: FakeAssetLibrary(items: [bad, good]), root: root,
+                                           source: SelectiveFailingSource()).sync(range: .all)
+
+        #expect(report.failed.map(\.key) == [bad.key])
+        #expect(report.uploaded == [good.key])
+    }
+
+    @Test func resumeRejectsDifferentSavedDestination() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let state = InMemorySyncStateStore()
+        state.saveRemainingUploads([], destination: Data([1]), session: state.remainingUploadsSession())
+
+        await #expect(throws: LocalFolderSyncError.destinationChanged) {
+            try await coordinator(library: FakeAssetLibrary(), root: root, bookmark: Data([2]), state: state).resume(resources: [])
         }
     }
 
-    @Test func resumeRejectsChangedBookmark() async {
-        let store = Store(Data([1]))
-        let writer = LocalFolderWriter(source: FakeAssetDataSource(totalBytes: 0, blobSize: 1))
-        let coordinator = LocalFolderSyncCoordinator(library: FakeAssetLibrary(), writer: writer, store: store)
-        store.bookmark = Data([2])
-        do {
-            _ = try await coordinator.resume(resources: [])
-            Issue.record("expected destination changed")
-        } catch let error as LocalFolderSyncError {
-            #expect(error == .destinationChanged)
-        } catch {
-            Issue.record("unexpected error: \(error)")
+    @Test func missingDestinationIsTypedError() async throws {
+        let root = try temporaryDirectory()
+        try FileManager.default.removeItem(at: root)
+        await #expect(throws: LocalFolderSyncError.unavailableDestination) {
+            try await coordinator(library: FakeAssetLibrary(), root: root).sync(range: .all)
         }
+    }
+}
+
+private struct SelectiveFailingSource: AssetDataSource {
+    func read(assetID: String, from offset: Int64, into sink: @Sendable (Data) async throws -> Void) async throws {
+        if assetID == "bad" { throw FakeSourceError.injected }
+        try await sink(Data("ok".utf8))
     }
 }

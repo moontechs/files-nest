@@ -52,6 +52,23 @@ struct ShellStoresTests {
                                            credStore: StaticCredentialStore(credentials), localFolderStore: localFolderStore))
     }
 
+    @Test func localFolderReadinessRequiresExistingWritableBookmarkedDirectory() async throws {
+        let suite = UserDefaults(suiteName: "destination.folder.\(UUID().uuidString)")!
+        let urlStore = UserDefaultsServerURLStore(defaults: suite)
+        let localFolderStore = UserDefaultsLocalFolderStore(defaults: suite)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("filesnest-ready-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let bookmark = try directory.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
+        localFolderStore.save(bookmark)
+
+        #expect(await isDestinationReady(.localFolder, urlStore: urlStore,
+                                         credStore: StaticCredentialStore(nil), localFolderStore: localFolderStore))
+        try FileManager.default.removeItem(at: directory)
+        #expect(!(await isDestinationReady(.localFolder, urlStore: urlStore,
+                                           credStore: StaticCredentialStore(nil), localFolderStore: localFolderStore)))
+    }
+
     @Test func cachingCredentialStoreCoalescesConcurrentReads() async throws {
         let wrapped = DelayedCredentialStore(
             credentials: BasicCredentials(username: "u", password: "p"))

@@ -10,10 +10,10 @@ the server's *original* collision-only suffix (`_<backend_id>`, appended only wh
 path already existed). Designing Local Folder's own naming surfaced that collision-only suffixing
 is unsound without a server database (see `docs/plans/20260829-apple-local-folder-sync.md`): a
 plain existence check can't distinguish "my own already-synced file" from "a different asset's
-file at the same date+filename" without an unconditionally-embedded identifier. Both destinations
-now always append `_<SafeID(resourceKey)>` — never conditionally — per
-`docs/plans/20260829-server-unify-organized-filename-suffix.md`. This ADR's subprocess-vs-direct-
-write decision is unaffected; only the "collision suffix" phrasing below is corrected.
+file at the same date+filename" without an unconditionally-embedded identifier. Local Folder
+therefore always appends `_<SafeID(resourceKey)>`; the companion server plan will adopt that rule
+for the server as well. This ADR's subprocess-vs-direct-write decision is unaffected; only the
+"collision suffix" phrasing below is corrected.
 
 We considered the subprocess route because it would reuse the server's TUS proxy, BadgerDB state,
 and file-organization code as-is, with the Mac app treating "local" the same as "remote." We

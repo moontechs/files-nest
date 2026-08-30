@@ -39,9 +39,12 @@ struct FilesNestApp: App {
                 }
                 if coordinatorKind(for: destination) == .localFolder {
                     guard let root = resolveLocalFolder(store: localFolderStore) else { throw LocalFolderSyncError.unavailableDestination }
+                    guard let bookmark = localFolderStore.load() else { throw LocalFolderSyncError.unavailableDestination }
                     let accessing = root.startAccessingSecurityScopedResource()
                     defer { if accessing { root.stopAccessingSecurityScopedResource() } }
-                    let coordinator = LocalFolderSyncCoordinator(library: library, writer: LocalFolderWriter(source: PhotosAssetDataSource()), store: localFolderStore)
+                    let coordinator = LocalFolderSyncCoordinator(
+                        library: library, writer: LocalFolderWriter(source: PhotosAssetDataSource()),
+                        root: root, bookmark: bookmark, state: stateStore)
                     return try await coordinator.sync(range: range, onProgress: onProgress)
                 }
                 guard let url = urlStore.load() else { throw NotSignedInError() }
@@ -65,9 +68,12 @@ struct FilesNestApp: App {
                 }
                 if coordinatorKind(for: destination) == .localFolder {
                     guard let root = resolveLocalFolder(store: localFolderStore) else { throw LocalFolderSyncError.unavailableDestination }
+                    guard let bookmark = localFolderStore.load() else { throw LocalFolderSyncError.unavailableDestination }
                     let accessing = root.startAccessingSecurityScopedResource()
                     defer { if accessing { root.stopAccessingSecurityScopedResource() } }
-                    let coordinator = LocalFolderSyncCoordinator(library: library, writer: LocalFolderWriter(source: PhotosAssetDataSource()), store: localFolderStore)
+                    let coordinator = LocalFolderSyncCoordinator(
+                        library: library, writer: LocalFolderWriter(source: PhotosAssetDataSource()),
+                        root: root, bookmark: bookmark, state: stateStore)
                     return try await coordinator.resume(resources: resources, onProgress: onProgress)
                 }
                 guard let url = urlStore.load() else { throw NotSignedInError() }

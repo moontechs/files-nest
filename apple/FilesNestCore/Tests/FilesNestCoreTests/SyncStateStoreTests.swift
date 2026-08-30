@@ -51,6 +51,7 @@ struct SyncStateStoreTests {
                                    filename: "A.jpg", creationDate: Date(timeIntervalSince1970: 1), bundleID: nil)]
         store.saveRemainingUploads(items)
         #expect(store.loadRemainingUploads() == items)
+        #expect(store.loadRemainingUploadsDestination() == nil)
         store.clearRemainingUploads()
         #expect(store.loadRemainingUploads().isEmpty)
     }
@@ -63,8 +64,18 @@ struct SyncStateStoreTests {
                                    filename: "A.mov", creationDate: Date(timeIntervalSince1970: 2), bundleID: "b")]
         store.saveRemainingUploads(items)
         #expect(store.loadRemainingUploads() == items)
+        #expect(store.loadRemainingUploadsDestination() == nil)
         // Undecodable value -> [] (clean fallback to a normal count).
         defaults.set(Data([0x00, 0x01]), forKey: "com.filesnest.sync.remainingUploads")
         #expect(store.loadRemainingUploads().isEmpty)
+    }
+
+    @Test func remainingUploadsDestinationRoundTripsAndClears() {
+        let store = InMemorySyncStateStore()
+        let bookmark = Data([1, 2, 3])
+        store.saveRemainingUploads([], destination: bookmark, session: store.remainingUploadsSession())
+        #expect(store.loadRemainingUploadsDestination() == bookmark)
+        store.clearRemainingUploads()
+        #expect(store.loadRemainingUploadsDestination() == nil)
     }
 }

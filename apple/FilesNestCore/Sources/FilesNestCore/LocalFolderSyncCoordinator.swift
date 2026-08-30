@@ -5,26 +5,28 @@ public enum LocalFolderSyncError: Error, Equatable {
     case destinationChanged
 }
 
-/// Executes a local-folder reconciliation serially. The bookmark is resolved for
-/// each operation so Settings changes take effect on the next cycle.
+/// Executes a local-folder reconciliation serially against one root acquired by
+/// the composition root's security-scoped access session.
 public struct LocalFolderSyncCoordinator: Sendable {
     private let library: any AssetLibrary
     private let writer: LocalFolderWriter
-    private let store: any LocalFolderStore
-    private let originalBookmark: Data?
+    private let root: URL
+    private let bookmark: Data
+    private let state: any SyncStateStore
 
-    public init(library: any AssetLibrary, writer: LocalFolderWriter, store: any LocalFolderStore) {
+    public init(library: any AssetLibrary, writer: LocalFolderWriter, root: URL,
+                bookmark: Data, state: any SyncStateStore) {
         self.library = library
         self.writer = writer
-        self.store = store
-        self.originalBookmark = store.load()
+        self.root = root
+        self.bookmark = bookmark
+        self.state = state
     }
 
     public func sync(range: SyncRange,
                      onProgress: @escaping @Sendable (SyncProgress) -> Void = { _ in }) async throws -> SyncReport {
-        let root = try destinationRoot()
-        let accessed = root.startAccessingSecurityScopedResource()
-        defer { if accessed { root.stopAccessingSecurityScopedResource() } }
+        try validateDestination()
+        state.saveLastSyncStarted(Date())
         let resources = try await library.resources(in: range)
         var uploads: [AssetResource] = []
         for resource in resources {
@@ -49,26 +51,33 @@ public struct LocalFolderSyncCoordinator: Sendable {
 
     public func resume(resources: [AssetResource],
                        onProgress: @escaping @Sendable (SyncProgress) -> Void = { _ in }) async throws -> SyncReport {
-        guard store.load() == originalBookmark else { throw LocalFolderSyncError.destinationChanged }
-        let root = try destinationRoot()
-        let accessed = root.startAccessingSecurityScopedResource()
-        defer { if accessed { root.stopAccessingSecurityScopedResource() } }
+        guard state.loadRemainingUploadsDestination() == bookmark else {
+            throw LocalFolderSyncError.destinationChanged
+        }
+        try validateDestination()
+        state.saveLastSyncStarted(Date())
         let result = try await run(resources, root: root, onProgress: onProgress)
         return SyncReport(uploaded: result.uploaded, deleted: [], failed: result.failed, skipped: 0)
     }
 
-    private func destinationRoot() throws -> URL {
-        guard let root = resolveLocalFolder(store: store), FileManager.default.fileExists(atPath: root.path),
+    private func validateDestination() throws {
+        guard FileManager.default.fileExists(atPath: root.path),
               let values = try? root.resourceValues(forKeys: [.isDirectoryKey, .isWritableKey]),
               values.isDirectory == true, values.isWritable == true else {
             throw LocalFolderSyncError.unavailableDestination
         }
-        return root
     }
 
     private func run(_ resources: [AssetResource], root: URL,
                      onProgress: @escaping @Sendable (SyncProgress) -> Void) async throws -> (uploaded: [ResourceKey], failed: [FailedItem]) {
         var uploaded: [ResourceKey] = [], failed: [FailedItem] = []
+        let session = state.remainingUploadsSession()
+        func persist() {
+            let completed = Set(uploaded.map(\.encoded))
+            let remaining = resources.filter { !completed.contains($0.key.encoded) }
+            state.saveRemainingUploads(remaining, destination: remaining.isEmpty ? nil : bookmark, session: session)
+        }
+        defer { persist() }
         for (index, resource) in resources.enumerated() {
             try Task.checkCancellation()
             onProgress(SyncProgress(completed: index, total: resources.count, currentItemName: resource.filename, bytesRemaining: nil, currentItemID: resource.key.localIdentifier))
@@ -84,13 +93,24 @@ public struct LocalFolderSyncCoordinator: Sendable {
         var result = Set<URL>()
         let fm = FileManager.default
         guard let years = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else { return result }
-        for year in years where year.lastPathComponent.count == 4 {
-            for month in (try? fm.contentsOfDirectory(at: year, includingPropertiesForKeys: [.isDirectoryKey])) ?? [] {
-                for day in (try? fm.contentsOfDirectory(at: month, includingPropertiesForKeys: [.isDirectoryKey])) ?? [] {
-                    for file in (try? fm.contentsOfDirectory(at: day, includingPropertiesForKeys: [.isRegularFileKey])) ?? [] { result.insert(file) }
+        for year in years where isDirectory(year) && isNumericComponent(year.lastPathComponent, digits: 4) {
+            for month in (try? fm.contentsOfDirectory(at: year, includingPropertiesForKeys: [.isDirectoryKey])) ?? [] where isDirectory(month) && isNumericComponent(month.lastPathComponent, digits: 2) {
+                for day in (try? fm.contentsOfDirectory(at: month, includingPropertiesForKeys: [.isDirectoryKey])) ?? [] where isDirectory(day) && isNumericComponent(day.lastPathComponent, digits: 2) {
+                    for file in (try? fm.contentsOfDirectory(at: day, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey])) ?? [] {
+                        let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+                        if values?.isRegularFile == true && values?.isSymbolicLink != true { result.insert(file) }
+                    }
                 }
             }
         }
         return result
+    }
+
+    private func isDirectory(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
+
+    private func isNumericComponent(_ component: String, digits: Int) -> Bool {
+        component.count == digits && component.allSatisfy(\.isNumber)
     }
 }

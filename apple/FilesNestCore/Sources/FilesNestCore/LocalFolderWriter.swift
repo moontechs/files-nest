@@ -20,7 +20,7 @@ public struct LocalFolderWriter: Sendable {
     }
 
     public func write(assetID: String, destinationPath: URL) async throws {
-        let available = try volumeFreeSpace(destinationPath)
+        let available = try volumeFreeSpace(existingAncestor(of: destinationPath))
         guard available >= minimumFreeSpace else {
             throw LocalFolderWriterError.insufficientFreeSpace(
                 available: available, required: minimumFreeSpace)
@@ -53,5 +53,16 @@ public struct LocalFolderWriter: Sendable {
             try? handle.close()
             throw error
         }
+    }
+
+    private func existingAncestor(of url: URL) -> URL {
+        let fm = FileManager.default
+        var candidate = url.deletingLastPathComponent()
+        while !fm.fileExists(atPath: candidate.path) {
+            let parent = candidate.deletingLastPathComponent()
+            guard parent.path != candidate.path else { break }
+            candidate = parent
+        }
+        return candidate
     }
 }
