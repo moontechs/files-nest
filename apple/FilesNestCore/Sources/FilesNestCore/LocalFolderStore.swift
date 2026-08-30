@@ -38,6 +38,28 @@ public final class UserDefaultsLocalFolderStore: LocalFolderStore, @unchecked Se
 public func resolveLocalFolder(store: LocalFolderStore) -> URL? {
     guard let bookmark = store.load(), !bookmark.isEmpty else { return nil }
 
+    guard let resolved = resolveLocalFolder(bookmark: bookmark) else { return nil }
+
+    if resolved.isStale,
+       let refreshed = try? resolved.url.bookmarkData(
+           options: [.withSecurityScope],
+           includingResourceValuesForKeys: nil,
+           relativeTo: nil
+       ) {
+        store.save(refreshed)
+    }
+    return resolved.url
+}
+
+/// Resolves bookmark data without modifying its owner. This lets resume compare
+/// a queued bookmark with the currently selected folder even after the current
+/// bookmark was refreshed because it had become stale.
+public func resolveLocalFolder(bookmark: Data) -> URL? {
+    resolveLocalFolderBookmark(bookmark)?.url
+}
+
+private func resolveLocalFolderBookmark(_ bookmark: Data) -> (url: URL, isStale: Bool)? {
+    guard !bookmark.isEmpty else { return nil }
     var isStale = false
     guard let url = try? URL(
         resolvingBookmarkData: bookmark,
@@ -47,14 +69,5 @@ public func resolveLocalFolder(store: LocalFolderStore) -> URL? {
     ) else {
         return nil
     }
-
-    if isStale,
-       let refreshed = try? url.bookmarkData(
-           options: [.withSecurityScope],
-           includingResourceValuesForKeys: nil,
-           relativeTo: nil
-       ) {
-        store.save(refreshed)
-    }
-    return url
+    return (url, isStale)
 }

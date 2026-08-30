@@ -99,6 +99,28 @@ struct LocalFolderSyncCoordinatorTests {
         }
     }
 
+    @Test func resumeAcceptsRefreshedBookmarkForSameFolder() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let item = resource("resume")
+        let queuedBookmark = Data([1])
+        let refreshedBookmark = Data([2])
+        let state = InMemorySyncStateStore()
+        state.saveRemainingUploads([item], destination: queuedBookmark, session: state.remainingUploadsSession())
+        let coordinator = LocalFolderSyncCoordinator(
+            library: FakeAssetLibrary(items: [], error: FakeSourceError.injected),
+            writer: LocalFolderWriter(source: FakeAssetDataSource(totalBytes: 10, blobSize: 10), volumeFreeSpace: { _ in 1_000 }),
+            root: root,
+            bookmark: refreshedBookmark,
+            state: state,
+            resolveBookmark: { bookmark in bookmark == queuedBookmark ? root : nil }
+        )
+
+        let report = try await coordinator.resume(resources: [item])
+
+        #expect(report.uploaded == [item.key])
+    }
+
     @Test func missingDestinationIsTypedError() async throws {
         let root = try temporaryDirectory()
         try FileManager.default.removeItem(at: root)

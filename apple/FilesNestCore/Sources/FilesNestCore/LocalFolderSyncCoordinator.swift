@@ -13,14 +13,17 @@ public struct LocalFolderSyncCoordinator: Sendable {
     private let root: URL
     private let bookmark: Data
     private let state: any SyncStateStore
+    private let resolveBookmark: @Sendable (Data) -> URL?
 
     public init(library: any AssetLibrary, writer: LocalFolderWriter, root: URL,
-                bookmark: Data, state: any SyncStateStore) {
+                bookmark: Data, state: any SyncStateStore,
+                resolveBookmark: @escaping @Sendable (Data) -> URL? = { resolveLocalFolder(bookmark: $0) }) {
         self.library = library
         self.writer = writer
         self.root = root
         self.bookmark = bookmark
         self.state = state
+        self.resolveBookmark = resolveBookmark
     }
 
     public func sync(range: SyncRange,
@@ -51,13 +54,20 @@ public struct LocalFolderSyncCoordinator: Sendable {
 
     public func resume(resources: [AssetResource],
                        onProgress: @escaping @Sendable (SyncProgress) -> Void = { _ in }) async throws -> SyncReport {
-        guard state.loadRemainingUploadsDestination() == bookmark else {
+        guard let queuedBookmark = state.loadRemainingUploadsDestination(),
+              queuedBookmark == bookmark || queuedBookmarkResolvesToCurrentRoot(queuedBookmark) else {
             throw LocalFolderSyncError.destinationChanged
         }
         try validateDestination()
         state.saveLastSyncStarted(Date())
         let result = try await run(resources, root: root, onProgress: onProgress)
         return SyncReport(uploaded: result.uploaded, deleted: [], failed: result.failed, skipped: 0)
+    }
+
+    private func queuedBookmarkResolvesToCurrentRoot(_ queuedBookmark: Data) -> Bool {
+        guard let queuedRoot = resolveBookmark(queuedBookmark) else { return false }
+        return queuedRoot.resolvingSymlinksInPath().standardizedFileURL
+            == root.resolvingSymlinksInPath().standardizedFileURL
     }
 
     private func validateDestination() throws {
