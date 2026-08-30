@@ -47,6 +47,7 @@ public struct LocalFolderSyncCoordinator: Sendable {
         var deleted: [ResourceKey] = []
         for item in deletes {
             try Task.checkCancellation()
+            try validateDestination()
             do { try FileManager.default.removeItem(at: item.path); deleted.append(item.key) }
             catch { failed.append(FailedItem(key: item.key, filename: item.path.lastPathComponent, reason: String(describing: error), kind: .delete)) }
         }
@@ -91,6 +92,7 @@ public struct LocalFolderSyncCoordinator: Sendable {
         defer { persist() }
         for (index, resource) in resources.enumerated() {
             try Task.checkCancellation()
+            try validateDestination()
             onProgress(SyncProgress(completed: index, total: resources.count, currentItemName: resource.filename, bytesRemaining: nil, currentItemID: resource.key.localIdentifier))
             do {
                 let path = LocalFolderPlanner.expectedPath(for: resource, destinationRoot: root)
@@ -99,6 +101,7 @@ public struct LocalFolderSyncCoordinator: Sendable {
                 uploaded.append(resource.key)
             }
             catch is CancellationError { throw CancellationError() }
+            catch let error as LocalFolderSyncError where error == .unavailableDestination { throw error }
             catch { failed.append(FailedItem(key: resource.key, filename: resource.filename, reason: String(describing: error))) }
         }
         onProgress(SyncProgress(completed: resources.count, total: resources.count, currentItemName: nil, bytesRemaining: nil))
@@ -108,12 +111,15 @@ public struct LocalFolderSyncCoordinator: Sendable {
     private func actualPaths(_ root: URL) throws -> Set<URL> {
         var result = Set<URL>()
         let fm = FileManager.default
-        guard let years = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else { return result }
-        for year in years where isDirectory(year) && isNumericComponent(year.lastPathComponent, digits: 4) {
-            for month in (try? fm.contentsOfDirectory(at: year, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey])) ?? [] where isDirectory(month) && isNumericComponent(month.lastPathComponent, digits: 2) {
-                for day in (try? fm.contentsOfDirectory(at: month, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey])) ?? [] where isDirectory(day) && isNumericComponent(day.lastPathComponent, digits: 2) {
-                    for file in (try? fm.contentsOfDirectory(at: day, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey])) ?? [] {
-                        if LocalFolderPlanner.isCompletedFile(at: file), LocalFolderPlanner.isManagedPath(file) { result.insert(file) }
+        let years = try fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        for year in years where try isDirectory(year) && isNumericComponent(year.lastPathComponent, digits: 4) {
+            let months = try fm.contentsOfDirectory(at: year, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            for month in months where try isDirectory(month) && isNumericComponent(month.lastPathComponent, digits: 2) {
+                let days = try fm.contentsOfDirectory(at: month, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+                for day in days where try isDirectory(day) && isNumericComponent(day.lastPathComponent, digits: 2) {
+                    let files = try fm.contentsOfDirectory(at: day, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+                    for file in files where LocalFolderPlanner.isCompletedFile(at: file) && LocalFolderPlanner.isManagedPath(file) {
+                        result.insert(file)
                     }
                 }
             }
@@ -121,8 +127,8 @@ public struct LocalFolderSyncCoordinator: Sendable {
         return result
     }
 
-    private func isDirectory(_ url: URL) -> Bool {
-        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else { return false }
+    private func isDirectory(_ url: URL) throws -> Bool {
+        let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
         return values.isDirectory == true && values.isSymbolicLink != true
     }
 

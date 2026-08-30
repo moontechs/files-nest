@@ -144,11 +144,34 @@ struct LocalFolderSyncCoordinatorTests {
             try await coordinator(library: FakeAssetLibrary(), root: root).sync(range: .all)
         }
     }
+
+    @Test func destinationRemovedDuringRunIsTypedError() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = resource("first")
+        let second = resource("second")
+
+        await #expect(throws: LocalFolderSyncError.unavailableDestination) {
+            try await coordinator(library: FakeAssetLibrary(items: [first, second]), root: root,
+                                  source: RemovesRootAfterFirstRead(root: root)).sync(range: .all)
+        }
+    }
 }
 
 private struct SelectiveFailingSource: AssetDataSource {
     func read(assetID: String, from offset: Int64, into sink: @Sendable (Data) async throws -> Void) async throws {
         if assetID == "bad" { throw FakeSourceError.injected }
         try await sink(Data("ok".utf8))
+    }
+}
+
+private struct RemovesRootAfterFirstRead: AssetDataSource {
+    let root: URL
+
+    func read(assetID: String, from offset: Int64, into sink: @Sendable (Data) async throws -> Void) async throws {
+        try await sink(Data("ok".utf8))
+        if assetID == "first" {
+            try FileManager.default.removeItem(at: root)
+        }
     }
 }
