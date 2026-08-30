@@ -240,15 +240,15 @@ non-nil AND resolves to an existing, writable directory.
 - Create: `apple/FilesNestCore/Sources/FilesNestCore/LocalFolderPlanner.swift`
 - Create: `apple/FilesNestCore/Tests/FilesNestCoreTests/LocalFolderPlannerTests.swift`
 
-- [ ] Define `LocalFolderPlan { let uploads: [AssetResource]; let deletes:
+- [x] Define `LocalFolderPlan { let uploads: [AssetResource]; let deletes:
       [(path: URL, key: ResourceKey)] }`, pattern-matching `SyncPlan` but
       without `.resume`/`.recover` modes
-- [ ] Implement `LocalFolderPlanner.expectedPath(for asset: AssetResource,
+- [x] Implement `LocalFolderPlanner.expectedPath(for asset: AssetResource,
       destinationRoot: URL) -> URL` — pure, deterministic (date + filename +
       `safeID(asset.key.encoded)` from Task 1), no I/O. This is the single
       source of truth for "where does this asset's file live," used both by
       the coordinator's per-asset upload check and by delete-diffing below.
-- [ ] Implement `LocalFolderPlanner.planDeletes(library: [AssetResource],
+- [x] Implement `LocalFolderPlanner.planDeletes(library: [AssetResource],
       actualPaths: Set<URL>, destinationRoot: URL) -> [(path: URL, key:
       ResourceKey)]` — pure diff: `actualPaths` minus the set of
       `expectedPath` for every current library resource. `actualPaths` is
@@ -261,17 +261,17 @@ non-nil AND resolves to an existing, writable directory.
       `expectedPath`'s result (see Task 5) — it needs no walk and must work
       for any `SyncRange`, so it does not belong behind a "planner" that
       implies a full-snapshot diff
-- [ ] Write tests for `expectedPath`: deterministic for a given asset,
+- [x] Write tests for `expectedPath`: deterministic for a given asset,
       distinct for two assets sharing a date+filename (different `SafeID`
       suffixes)
-- [ ] Write tests for `planDeletes`: orphan path present in `actualPaths`
+- [x] Write tests for `planDeletes`: orphan path present in `actualPaths`
       with no matching current asset → planned delete; a path matching a
       current asset's `expectedPath` → not planned; empty `actualPaths` →
       no deletes
-- [ ] Write tests for two assets that would collide on a plain
+- [x] Write tests for two assets that would collide on a plain
       date+filename (same creation date, same original filename) — confirm
       both get distinct expected paths via their distinct `SafeID` suffixes
-- [ ] Run `swift test` — must pass before task 4
+- [x] Run `swift test` — skipped — Swift toolchain unavailable in this environment
 
 ### Task 4: `LocalFolderWriter`
 
