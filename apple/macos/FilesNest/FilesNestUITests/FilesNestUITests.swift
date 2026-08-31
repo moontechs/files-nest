@@ -56,20 +56,84 @@ final class FilesNestUITests: XCTestCase {
                       "Selected folder path: \(selectedPath)")
     }
 
-    private func launch() {
+    @MainActor
+    func testSuccessfulConnectionEnablesTheOperationalPanel() throws {
+        launch()
+        openSettings()
+        enterServerCredentials()
+        app.buttons["settings.connect"].click()
+
+        let result = app.staticTexts["settings.connectionResult"]
+        XCTAssertTrue(result.waitForExistence(timeout: 2))
+        XCTAssertEqual(result.value as? String, "Connected")
+
+        app.typeKey("w", modifierFlags: .command)
+        openPanel()
+        XCTAssertTrue(app.buttons["panel.syncNow"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["panel.pauseResume"].exists)
+    }
+
+    @MainActor
+    func testSyncingPanelCanPauseAndResume() throws {
+        launch(fixture: "syncing")
+        openPanel()
+
+        XCTAssertEqual(app.staticTexts["panel.title"].value as? String, "Syncing…")
+        XCTAssertEqual(app.staticTexts["panel.status"].value as? String, "Backing up")
+        app.buttons["panel.pauseResume"].click()
+        XCTAssertTrue(app.buttons["panel.pauseResume"].waitForExistence(timeout: 2))
+        XCTAssertEqual(app.buttons["panel.pauseResume"].label, "Resume")
+        XCTAssertEqual(app.staticTexts["panel.title"].value as? String, "Paused")
+
+        app.buttons["panel.pauseResume"].click()
+        XCTAssertEqual(app.staticTexts["panel.title"].value as? String, "Syncing…")
+    }
+
+    @MainActor
+    func testErrorPanelRetryStartsSyncing() throws {
+        launch(fixture: "error")
+        openPanel()
+
+        XCTAssertEqual(app.staticTexts["panel.status"].value as? String, "Attention needed")
+        app.buttons["panel.retry"].click()
+        XCTAssertEqual(app.staticTexts["panel.title"].value as? String, "Syncing…")
+    }
+
+    @MainActor
+    func testFailedItemsCanBeInspectedAndRetried() throws {
+        launch(fixture: "failed")
+        openPanel()
+
+        let failedItems = app.buttons["panel.failedItems"]
+        XCTAssertTrue(failedItems.waitForExistence(timeout: 3))
+        failedItems.click()
+        let filename = app.staticTexts["IMG_2045.HEIC"]
+        XCTAssertTrue(filename.waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["The server is unavailable."].exists)
+
+        app.buttons["failed.retry"].click()
+        XCTAssertEqual(app.staticTexts["panel.title"].value as? String, "Syncing…")
+    }
+
+    private func launch(fixture: String? = nil) {
         app = XCUIApplication()
         app.launchArguments = ["-uiTesting", "YES"]
+        if let fixture { app.launchArguments += ["-uiFixture", fixture] }
         app.launch()
     }
 
-    private func openSettings() {
+    private func openPanel() {
         let statusItem = app.statusItems.firstMatch
         XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
         statusItem.click()
+    }
+
+    private func openSettings() {
+        openPanel()
 
         let setup = app.buttons["panel.setup"]
         if !setup.waitForExistence(timeout: 2) {
-            statusItem.click()
+            openPanel()
         }
         XCTAssertTrue(setup.waitForExistence(timeout: 5))
         setup.click()

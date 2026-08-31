@@ -28,7 +28,7 @@ struct FilesNestApp: App {
         // mechanism; the TTL is a self-healing backstop for a missed observer signal.
         let library    = CachingAssetLibrary(wrapping: PhotosAssetLibrary(), ttl: 300)
 
-        let engine = LiveSyncEngine(
+        let liveEngine = LiveSyncEngine(
             credentials: credStore,
             state: stateStore,
             perform: { range, onProgress in
@@ -155,10 +155,16 @@ struct FilesNestApp: App {
                                        localFolderStore: localFolderStore)
             })
 
+        // UI tests use a controllable in-memory engine. Production still creates the live
+        // engine above, but only the selected engine is started or observed.
+        let engine: any SyncEngine = UITesting.isEnabled
+            ? UITestSyncEngine(credentials: credStore, fixture: UITesting.fixture)
+            : liveEngine
+
         // Continuously watch the photo library: on a debounced change, invalidate the cached
         // scan and nudge the engine to count + back up (auto-sync scheduler).
         let watcher = PhotoLibraryWatcher(library: library, engine: engine)
-        watcher.startObserving()
+        if !UITesting.isEnabled { watcher.startObserving() }
         self.watcher = watcher
 
         // Start the engine at launch — reconcile credentials and run launch catch-up — so it
