@@ -14,9 +14,11 @@ struct FilesNestApp: App {
     private let localFolderStore: any LocalFolderStore
 
     init() {
-        let defaults   = UserDefaults.standard
+        let defaults   = UITesting.isEnabled ? UITesting.makeDefaults() : UserDefaults.standard
         let urlStore   = UserDefaultsServerURLStore(defaults: defaults)
-        let credStore  = CachingCredentialStore(wrapping: KeychainStore())
+        let credStore: any CredentialSavingStore = UITesting.isEnabled
+            ? UITestCredentialStore()
+            : CachingCredentialStore(wrapping: KeychainStore())
         let destinationStore = UserDefaultsSyncDestinationStore(defaults: defaults)
         let localFolderStore = UserDefaultsLocalFolderStore(defaults: defaults)
         let stateStore = UserDefaultsSyncStateStore(defaults: defaults)
@@ -187,8 +189,9 @@ struct FilesNestApp: App {
         .menuBarExtraStyle(.window)
 
         Window("", id: "settings-anchor") {
-            SettingsAnchorView(destinationStore: destinationStore, urlStore: urlStore,
-                               credStore: credStore, localFolderStore: localFolderStore)
+            SettingsAnchorView(model: model, destinationStore: destinationStore,
+                               urlStore: urlStore, credStore: credStore,
+                               localFolderStore: localFolderStore, thumbnails: thumbnails)
         }
         .windowStyle(.hiddenTitleBar)
 

@@ -164,6 +164,7 @@ struct PanelView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .frame(maxWidth: .infinity, alignment: .center)
+                    .accessibilityIdentifier("panel.setup")
             } else if isError {
                 HStack(spacing: 8) {
                     Button("Retry") { model.syncNow() }
