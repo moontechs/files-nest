@@ -32,6 +32,10 @@ public struct LocalFolderWriter: Sendable {
         }
 
         let fm = FileManager.default
+        var isDirectory: ObjCBool = false
+        if fm.fileExists(atPath: destinationPath.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            throw LocalFolderWriterError.unsafeDestination
+        }
         let directory = destinationPath.deletingLastPathComponent()
         try fm.createDirectory(at: directory, withIntermediateDirectories: true)
         let temporary = directory.appendingPathComponent(".filesnest-" + UUID().uuidString + ".tmp")

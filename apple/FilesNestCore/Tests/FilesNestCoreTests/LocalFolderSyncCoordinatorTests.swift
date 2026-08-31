@@ -19,7 +19,7 @@ struct LocalFolderSyncCoordinatorTests {
                              source: any AssetDataSource = FakeAssetDataSource(totalBytes: 10, blobSize: 10),
                              state: InMemorySyncStateStore = InMemorySyncStateStore()) -> LocalFolderSyncCoordinator {
         LocalFolderSyncCoordinator(library: library,
-                                   writer: LocalFolderWriter(source: source, volumeFreeSpace: { _ in 1_000 }),
+                                   writer: LocalFolderWriter(source: source, volumeFreeSpace: { _ in Int64.max }),
                                    root: root, bookmark: bookmark, state: state)
     }
 
@@ -125,7 +125,7 @@ struct LocalFolderSyncCoordinatorTests {
         state.saveRemainingUploads([item], destination: queuedBookmark, session: state.remainingUploadsSession())
         let coordinator = LocalFolderSyncCoordinator(
             library: FakeAssetLibrary(items: [], error: FakeSourceError.injected),
-            writer: LocalFolderWriter(source: FakeAssetDataSource(totalBytes: 10, blobSize: 10), volumeFreeSpace: { _ in 1_000 }),
+            writer: LocalFolderWriter(source: FakeAssetDataSource(totalBytes: 10, blobSize: 10), volumeFreeSpace: { _ in Int64.max }),
             root: root,
             bookmark: refreshedBookmark,
             state: state,
@@ -160,7 +160,7 @@ struct LocalFolderSyncCoordinatorTests {
 
 private struct SelectiveFailingSource: AssetDataSource {
     func read(assetID: String, from offset: Int64, into sink: @Sendable (Data) async throws -> Void) async throws {
-        if assetID == "bad" { throw FakeSourceError.injected }
+        if assetID.hasPrefix("bad#") { throw FakeSourceError.injected }
         try await sink(Data("ok".utf8))
     }
 }
@@ -170,7 +170,7 @@ private struct RemovesRootAfterFirstRead: AssetDataSource {
 
     func read(assetID: String, from offset: Int64, into sink: @Sendable (Data) async throws -> Void) async throws {
         try await sink(Data("ok".utf8))
-        if assetID == "first" {
+        if assetID.hasPrefix("first#") {
             try FileManager.default.removeItem(at: root)
         }
     }

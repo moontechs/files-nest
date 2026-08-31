@@ -16,7 +16,7 @@ struct LocalFolderWriterTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let destination = directory.appendingPathComponent("nested/result.jpg")
         let source = FakeAssetDataSource(totalBytes: 250, blobSize: 100, fillRandom: false)
-        let writer = LocalFolderWriter(source: source, volumeFreeSpace: { _ in 100 })
+        let writer = LocalFolderWriter(source: source, volumeFreeSpace: { _ in Int64.max })
 
         try await writer.write(assetID: "asset", destinationPath: destination)
 
@@ -31,12 +31,12 @@ struct LocalFolderWriterTests {
         let destination = directory.appendingPathComponent("missing/year/month/result.jpg")
         let writer = LocalFolderWriter(source: FakeAssetDataSource(totalBytes: 1, blobSize: 1), volumeFreeSpace: { url in
             probe.record(url)
-            return 100
+            return Int64.max
         })
 
         try await writer.write(assetID: "asset", destinationPath: destination)
 
-        #expect(probe.value == directory)
+        #expect(probe.value?.path == directory.path)
     }
 
     @Test func failedReadLeavesNoFinalOrTemporaryFile() async throws {
@@ -46,7 +46,7 @@ struct LocalFolderWriterTests {
         let writer = LocalFolderWriter(
             source: FakeAssetDataSource(totalBytes: 250, blobSize: 100,
                                         failAfterBlobs: 1, fillRandom: false),
-            volumeFreeSpace: { _ in 100 })
+            volumeFreeSpace: { _ in Int64.max })
 
         await #expect(throws: FakeSourceError.injected) {
             try await writer.write(assetID: "asset", destinationPath: destination)
@@ -81,7 +81,7 @@ struct LocalFolderWriterTests {
         try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: outside.path)
         let destination = link.appendingPathComponent("01/02/result.jpg")
         let writer = LocalFolderWriter(source: FakeAssetDataSource(totalBytes: 1, blobSize: 1),
-                                       destinationRoot: directory, volumeFreeSpace: { _ in 100 })
+                                       destinationRoot: directory, volumeFreeSpace: { _ in Int64.max })
 
         await #expect(throws: LocalFolderWriterError.unsafeDestination) {
             try await writer.write(assetID: "asset", destinationPath: destination)
