@@ -53,14 +53,14 @@ final class SettingsModel: ObservableObject {
         destinationStore: any SyncDestinationStore,
         probe: ConnectionProbe,
         localFolderStore: any LocalFolderStore,
-        folderPicker: any LocalFolderPicker = OpenPanelLocalFolderPicker()
+        folderPicker: (any LocalFolderPicker)? = nil
     ) {
         self.urlStore = urlStore
         self.credStore = credStore
         self.destinationStore = destinationStore
         self.probe = probe
         self.localFolderStore = localFolderStore
-        self.folderPicker = folderPicker
+        self.folderPicker = folderPicker ?? OpenPanelLocalFolderPicker()
         self._destination = Published(initialValue: destinationStore.load())
         self._selectedFolderPath = Published(initialValue: resolveLocalFolder(store: localFolderStore)?.path)
     }

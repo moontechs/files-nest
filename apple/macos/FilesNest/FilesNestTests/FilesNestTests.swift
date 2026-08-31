@@ -6,6 +6,7 @@
 //
 
 import Testing
+import FilesNestCore
 @testable import FilesNest
 
 struct FilesNestTests {

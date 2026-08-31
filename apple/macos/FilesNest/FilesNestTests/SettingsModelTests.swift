@@ -127,14 +127,15 @@ struct SettingsModelTests {
         credentials: InMemoryCredentialStore = InMemoryCredentialStore(),
         destinationStore: InMemoryDestinationStore = InMemoryDestinationStore(),
         localFolderStore: any LocalFolderStore = UserDefaultsLocalFolderStore(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-        folderPicker: any LocalFolderPicker = FakeLocalFolderPicker(url: nil)
+        folderPicker: (any LocalFolderPicker)? = nil
     ) -> SettingsModel {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [ProbeURLProtocol.self]
         return SettingsModel(urlStore: urlStore, credStore: credentials,
                               destinationStore: destinationStore,
                              probe: ConnectionProbe(session: URLSession(configuration: config)),
-                             localFolderStore: localFolderStore, folderPicker: folderPicker)
+                             localFolderStore: localFolderStore,
+                             folderPicker: folderPicker ?? FakeLocalFolderPicker(url: nil))
     }
 }
 
