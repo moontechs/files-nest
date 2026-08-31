@@ -35,6 +35,10 @@ FilesNest.xcodeproj -scheme FilesNest test` if you need a non-interactive run.
 - Streams data without app-owned temp files or whole-file buffering — one
   resource processed at a time. Keep that invariant when touching
   `AssetUploader`/`AssetDataSource`/`CallbackStreamReader`.
+- Destination implementations are intentionally concrete and parallel: keep
+  server and local-folder coordinators behind `LiveSyncEngine`'s existing
+  closures rather than introducing a protocol solely to unify the two call
+  sites.
 - Domain vocabulary is defined in `../CONTEXT.md` — use those exact terms.
 - New component/feature design notes go in `../docs/design/` as a new
   `YYYYMMDD-name.md` file, matching the existing ones — check there first for

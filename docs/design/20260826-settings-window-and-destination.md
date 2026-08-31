@@ -91,12 +91,12 @@ tinted with the app's `AccentColor`, so the transient Dock icon and the permanen
 menu-bar icon read as one identity. Explicitly a placeholder — replace with real
 branding whenever that work happens, independent of this ticket.
 
-## 3. Sync destination (future-proofing only — this doc doesn't implement it)
+## 3. Sync destination
 
 Two destinations are planned:
 - **Server** — current behavior (`ServerClient` + TUS upload), fully implemented.
-- **Local folder** — sync to a connected drive/mounted volume. **Not built. Separate
-  ticket.**
+- **Local folder** — sync to a connected drive/mounted volume. Implemented by the
+  companion local-folder sync ticket.
 
 Exactly one is active at a time, chosen in Settings. Model that now so Settings has
 the right shape without building the folder side:
@@ -135,10 +135,9 @@ don't change when the picker changes:
 │    Server URL / Username / Pw         │
 │    Test Connection · pill             │
 │                                        │
-│  Local Folder → placeholder pane:     │
-│    "Local folder sync is coming       │
-│     soon." (selectable now, no        │
-│     folder picker/logic yet)          │
+│  Local Folder → folder picker:        │
+│    Choose Folder…                     │
+│    selected folder path               │
 ├──────────────────────────────────────┤
 │  Launch at login                      │  ← General, independent of destination
 ├──────────────────────────────────────┤
@@ -149,11 +148,10 @@ don't change when the picker changes:
 A segmented picker over two mutually-exclusive options is the native macOS idiom for
 this (System Settings does the same for e.g. "Allow accessories to connect" sources);
 it doesn't need a sidebar or `TabView` pane structure for two items. The Local Folder
-segment is selectable now (not disabled) — a disabled segment reads as permanently
-unavailable, where the goal is "coming soon." `SettingsModel` gains a published
+segment is selectable (not disabled). `SettingsModel` gains a published
 `destination: SyncDestination` bound to the picker and persisted via
-`SyncDestinationStore`; nothing else about it changes. Selecting Local Folder does not
-touch the active (server) sync engine — there's nothing to switch to yet.
+`SyncDestinationStore`. Local Folder stores a security-scoped bookmark for the chosen
+directory and reconciles immediately when either the destination or folder changes.
 
 **Why model this now instead of waiting for the folder-sync ticket:** so the folder
 ticket adds a destination and a form, not a picker, a form, *and* a Settings
@@ -173,16 +171,12 @@ other change here is purely "move existing Settings to a window."
 - `SyncDestination` enum + `SyncDestinationStore` in Core, unit-tested (round-trip,
   default-to-`.server`).
 - `SettingsView` gains the segmented destination picker (labels "FilesNest Server" /
-  "Local Folder"); `.localFolder` is selectable and renders a "coming soon"
-  placeholder, no local-folder logic. General settings (Launch at login) move outside
+  "Local Folder"); `.localFolder` presents a security-scoped folder chooser and its
+  selected path. General settings (Launch at login) move outside
   the destination-specific area.
 
 **Out (future, separate ticket):**
-- Local folder sync itself — picking a folder (`NSOpenPanel`/security-scoped
-  bookmark), a `SyncEngine`/`AssetUploader` implementation that writes to disk
-  instead of `ServerClient`, and whatever `SyncCoordinator` changes that implies.
-  This doc only reserves the picker and the enum case so that ticket doesn't also
-  have to touch Settings' shape.
+- Further local-folder enhancements.
 
 ## 5. Testing strategy
 
@@ -192,19 +186,20 @@ other change here is purely "move existing Settings to a window."
   locally-bound ⌘, (menu open) all open the window; Dock icon appears while Settings
   is open and disappears when it closes; window is independently closable/resizable
   and doesn't block the panel; first launch with no saved credentials opens it
-  automatically; destination picker persists across relaunch; selecting Local Folder
-  shows the "coming soon" placeholder and does not affect the active (server) sync
-  engine; placeholder Dock icon renders correctly at all required sizes.
+  automatically; destination picker and selected folder persist across relaunch; selecting
+  Local Folder permits choosing a writable folder, unavailable folders surface an error, and
+  changing the destination or folder cancels and reconciles the active sync; placeholder Dock
+  icon renders correctly at all required sizes.
 
 ## 6. Open items
 
-1. **Destination switch mid-flight.** If a user switches `.server` → `.localFolder`
-   once folder sync exists, does the server engine pause, or do both run assessed
-   independently? Deferred to the folder-sync ticket — out of scope here since
-   `.localFolder` has no engine yet.
+1. **Destination switch mid-flight — resolved.** Destination changes call the
+   existing reconciliation hook immediately. `LiveSyncEngine` cancels the
+   in-flight run, and the next reconciliation constructs the coordinator for
+   the newly selected destination. Server and local-folder runs therefore do
+   not continue concurrently or share an in-flight operation.
 2. **System-wide ⌘, reliability.** Whether the hidden anchor `Window` + activation-policy
    toggle make a genuinely global ⌘, (i.e. while the menu is closed and no FilesNest
    window has focus) work, or only the locally-bound menu-item shortcut is dependable
    — resolve empirically during implementation; the design doesn't depend on the
    global case working.
-

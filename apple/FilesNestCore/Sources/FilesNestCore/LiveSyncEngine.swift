@@ -38,6 +38,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
     /// Determines whether the active sync destination is fully configured.
     /// Defaults to the historical credential-only check for existing callers.
     public typealias Readiness = @Sendable () async -> Bool
+    public typealias ResumeReadiness = @Sendable () async -> Bool
 
     private enum Command: Sendable {
         case start, pause, resume, syncNow
@@ -53,6 +54,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
 
     private let credentials: any CredentialStore
     private let isReady: Readiness
+    private let isResumeReady: ResumeReadiness
     private let state: any SyncStateStore
     private let perform: Perform
     private let resume: Resume?
@@ -104,9 +106,11 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 assess: (@Sendable (_ range: SyncRange, _ progress: AssessProgress) async throws -> Assessment)? = nil,
                 cachedAssessment: (@Sendable () -> Assessment?)? = nil,
                 isReady: Readiness? = nil,
+                isResumeReady: @escaping ResumeReadiness = { true },
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.credentials = credentials
         self.isReady = isReady ?? { (try? await credentials.basicCredentials()) != nil }
+        self.isResumeReady = isResumeReady
         self.state = state
         self.perform = perform
         self.resume = resume
@@ -170,7 +174,7 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         case .start:   await doStart()
         case .reconcile: await doReconcile()
         case .pause:   doPause()
-        case .resume:  doResume()
+        case .resume:  await doResume()
         case .syncNow: doSyncNow(range: .all)      // manual Sync Now is always a full sync
         case .progress(let gen, let p):
             if gen == generation {
@@ -292,9 +296,10 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
                 startIdleCount(range: .all, autoSync: false)
             } else {
                 let saved = state.loadRemainingUploads()
-                if !saved.isEmpty, resume != nil {
+                if !saved.isEmpty, resume != nil, await isResumeReady() {
                     doResumeUpload(saved, needsVerification: true) // cold launch: catch up, then verify stale state
                 } else {
+                    if !saved.isEmpty { state.clearRemainingUploads() }
                     startIdleCount(range: .all, autoSync: true)  // launch/restart catch-up (option A) — always full
                 }
             }
@@ -317,13 +322,13 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
         lastProgress = nil                            // cleared on this non-syncing transition (invariant)
     }
 
-    private func doResume() {
+    private func doResume() async {
         log("cmd resume (status=\(currentStatus))")
         // Only meaningful from `.paused` — where there is no active child to strand. Bumping the
         // generation during an active sync would orphan its in-flight child.
         guard case .paused = currentStatus else { return }
         let saved = state.loadRemainingUploads()
-        if !saved.isEmpty, resume != nil {
+        if !saved.isEmpty, resume != nil, await isResumeReady() {
             assessChild?.cancel(); assessChild = nil
             // A saved plan is still the fastest safe way to complete the work known at Pause.
             // If Photos changed meanwhile, follow with an incremental check from the original
@@ -335,11 +340,12 @@ public final class LiveSyncEngine: SyncEngine, @unchecked Sendable {
             pendingLibraryChange = false
             doResumeUpload(saved, needsVerification: false, followUpRange: followUpRange)
         } else {
+            if !saved.isEmpty { state.clearRemainingUploads() }
             generation &+= 1
             assessChild?.cancel(); assessChild = nil  // defensive; no count is in flight while paused
             lastProgress = nil                        // resumed work is a fresh run; no stale remaining
             setStatus(.watching(lastSync: lastSync))
-            drainPendingChangeIfAny()                 // honor a change that arrived while paused
+            startIdleCount(range: .all, autoSync: true) // mismatched queue must re-ground the active destination
         }
     }
 

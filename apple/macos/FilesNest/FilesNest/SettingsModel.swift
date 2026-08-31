@@ -1,6 +1,22 @@
 import SwiftUI
 import Combine
+import AppKit
 import FilesNestCore
+
+@MainActor
+protocol LocalFolderPicker { func chooseFolder() -> URL? }
+
+@MainActor
+struct OpenPanelLocalFolderPicker: LocalFolderPicker {
+    func chooseFolder() -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose Folder"
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+}
 
 @MainActor
 final class SettingsModel: ObservableObject {
@@ -12,16 +28,20 @@ final class SettingsModel: ObservableObject {
             guard destination != oldValue else { return }
             markDraftAsEdited()
             destinationStore.save(destination)
+            onSaved?()
         }
     }
     @Published var testResult: ConnectionResult?
     @Published var isConnecting = false
     @Published var saveError: String?
+    @Published private(set) var selectedFolderPath: String?
 
     private let urlStore: any ServerURLStore
     private let credStore: any CredentialSavingStore
     private let destinationStore: any SyncDestinationStore
     private let probe: ConnectionProbe
+    private let localFolderStore: any LocalFolderStore
+    private let folderPicker: any LocalFolderPicker
     private var hasLoadedInitialValues = false
     private var hasDraftEdits = false
     private var isApplyingInitialValues = false
@@ -31,13 +51,33 @@ final class SettingsModel: ObservableObject {
         urlStore: any ServerURLStore,
         credStore: any CredentialSavingStore,
         destinationStore: any SyncDestinationStore,
-        probe: ConnectionProbe
+        probe: ConnectionProbe,
+        localFolderStore: any LocalFolderStore,
+        folderPicker: any LocalFolderPicker = OpenPanelLocalFolderPicker()
     ) {
         self.urlStore = urlStore
         self.credStore = credStore
         self.destinationStore = destinationStore
         self.probe = probe
+        self.localFolderStore = localFolderStore
+        self.folderPicker = folderPicker
         self._destination = Published(initialValue: destinationStore.load())
+        self._selectedFolderPath = Published(initialValue: resolveLocalFolder(store: localFolderStore)?.path)
+    }
+
+    func chooseLocalFolder() {
+        guard let url = folderPicker.chooseFolder() else { return }
+        do {
+            let bookmark = try url.bookmarkData(options: [.withSecurityScope],
+                                                includingResourceValuesForKeys: nil,
+                                                relativeTo: nil)
+            localFolderStore.save(bookmark)
+            selectedFolderPath = url.path
+            saveError = nil
+            onSaved?()
+        } catch {
+            saveError = "Couldn't save the selected folder: \(error)"
+        }
     }
 
     var hasCredentials: Bool { !username.isEmpty && !password.isEmpty }

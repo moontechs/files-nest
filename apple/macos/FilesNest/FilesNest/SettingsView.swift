@@ -20,7 +20,7 @@ struct SettingsView: View {
                 case .server:
                     serverSettings
                 case .localFolder:
-                    localFolderPlaceholder
+                    localFolderSettings
                 }
             }
 
@@ -62,13 +62,20 @@ struct SettingsView: View {
         }
     }
 
-    private var localFolderPlaceholder: some View {
+    private var localFolderSettings: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label("Local folder sync is coming soon", systemImage: "externaldrive.badge.timemachine")
+            Label("Local folder", systemImage: "externaldrive.badge.timemachine")
                 .font(.headline)
-            Text("You’ll be able to back up directly to a folder or connected drive.")
+            Text(model.selectedFolderPath ?? "No folder selected")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .lineLimit(2)
+            Button("Choose Folder…") { model.chooseLocalFolder() }
+                .buttonStyle(.borderedProminent)
+            if let saveError = model.saveError {
+                Label(saveError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.red).lineLimit(2)
+            }
         }
         .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
     }

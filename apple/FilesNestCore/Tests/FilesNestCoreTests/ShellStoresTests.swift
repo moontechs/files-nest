@@ -35,20 +35,51 @@ struct ShellStoresTests {
         #expect(store.load() == .server)
     }
 
+    @Test func remainingUploadsMustMatchTheirDestination() {
+        let suite = UserDefaults(suiteName: "destination.resume.\(UUID().uuidString)")!
+        let folders = UserDefaultsLocalFolderStore(defaults: suite)
+        let bookmark = Data([1, 2, 3])
+
+        #expect(remainingUploadsBelong(to: .server, savedDestination: nil, localFolderStore: folders))
+        #expect(!remainingUploadsBelong(to: .server, savedDestination: bookmark, localFolderStore: folders))
+        #expect(!remainingUploadsBelong(to: .localFolder, savedDestination: bookmark, localFolderStore: folders))
+
+        folders.save(bookmark)
+        #expect(remainingUploadsBelong(to: .localFolder, savedDestination: bookmark, localFolderStore: folders))
+    }
+
     @Test func destinationReadinessRequiresServerURLAndCredentials() async {
         let suite = UserDefaults(suiteName: "destination.\(UUID().uuidString)")!
         let urlStore = UserDefaultsServerURLStore(defaults: suite)
+        let localFolderStore = UserDefaultsLocalFolderStore(defaults: suite)
         let credentials = BasicCredentials(username: "u", password: "p")
 
         #expect(!(await isDestinationReady(.server, urlStore: urlStore,
-                                           credStore: StaticCredentialStore(credentials))))
+                                           credStore: StaticCredentialStore(credentials), localFolderStore: localFolderStore)))
         urlStore.save(URL(string: "https://nest.home.example")!)
         #expect(await isDestinationReady(.server, urlStore: urlStore,
-                                         credStore: StaticCredentialStore(credentials)))
+                                         credStore: StaticCredentialStore(credentials), localFolderStore: localFolderStore))
         #expect(!(await isDestinationReady(.server, urlStore: urlStore,
-                                           credStore: StaticCredentialStore(nil))))
+                                           credStore: StaticCredentialStore(nil), localFolderStore: localFolderStore)))
         #expect(!(await isDestinationReady(.localFolder, urlStore: urlStore,
-                                           credStore: StaticCredentialStore(credentials))))
+                                           credStore: StaticCredentialStore(credentials), localFolderStore: localFolderStore)))
+    }
+
+    @Test func localFolderReadinessRequiresExistingWritableBookmarkedDirectory() async throws {
+        let suite = UserDefaults(suiteName: "destination.folder.\(UUID().uuidString)")!
+        let urlStore = UserDefaultsServerURLStore(defaults: suite)
+        let localFolderStore = UserDefaultsLocalFolderStore(defaults: suite)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("filesnest-ready-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let bookmark = try directory.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
+        localFolderStore.save(bookmark)
+
+        #expect(await isDestinationReady(.localFolder, urlStore: urlStore,
+                                         credStore: StaticCredentialStore(nil), localFolderStore: localFolderStore))
+        try FileManager.default.removeItem(at: directory)
+        #expect(!(await isDestinationReady(.localFolder, urlStore: urlStore,
+                                           credStore: StaticCredentialStore(nil), localFolderStore: localFolderStore)))
     }
 
     @Test func cachingCredentialStoreCoalescesConcurrentReads() async throws {
