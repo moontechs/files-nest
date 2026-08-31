@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -151,6 +152,17 @@ func TestE2E_Lifecycle(t *testing.T) {
 			"local_identifier must be preserved through lifecycle")
 		require.Equal(t, "IMG_9876.jpg", rec.Filename,
 			"filename must be preserved through lifecycle")
+
+		// The organized filename must carry the stable upload-ID suffix
+		// (never the tusd backend ID): <stem>_<upload.ID><ext>. This is the
+		// always-on naming convention this plan introduces — see
+		// docs/adr/0009-unify-organized-filename-suffix.md.
+		require.Equal(t, "IMG_9876_"+uploadID+".jpg", path.Base(rec.OrganizedPath),
+			"organized filename must be <stem>_<upload.ID><ext>, got %q", rec.OrganizedPath)
+		require.Contains(t, rec.OrganizedPath, "_"+uploadID,
+			"organized path must embed the upload.ID suffix")
+		require.NotContains(t, rec.OrganizedPath, "_"+rec.BackendID,
+			"organized path must not embed the mutable backend_id")
 	})
 
 	// -----------------------------------------------------------------------

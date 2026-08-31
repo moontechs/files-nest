@@ -971,24 +971,27 @@ func (h *Handler) finalizeExistingUpload(
 // moveCompletedFile moves a fully-uploaded file from the tusd incoming dir to
 // the organized tree and returns the final organized-path plan.
 //
-// The collision check inside PlanDestination (os.Stat) and the rename inside
-// MoveFile must be atomic with respect to other concurrent completions for a
-// different upload that shares the same creation date and filename (e.g. two
-// libraries both exporting IMG_1234.jpg on the same day). Without
-// serialization each completion could see no file at the computed path,
-// compute identical destinations, and the second rename would silently
-// overwrite the first upload's data. The Mover's organized-tree mutex (held
-// across plan + intent + rename) closes that TOCTOU window.
+// PlanDestination always appends a stable _<upload.ID> suffix, so two distinct
+// live records can never compute the same destination path — each record's ID
+// is unique, and the store layer already deduplicates records by local
+// identifier (PutUploadIfAbsent) before a second record could exist. The plan
+// + intent + rename sequence still runs under the Mover's organized-tree mutex
+// so the safety-net stat in PlanDestination and the rename stay atomic with
+// respect to other concurrent completion and recovery moves touching the same
+// tree.
 //
 // Retry safety: if a previous completion attempt for this upload already
-// persisted a completion intent, reuse its destination paths verbatim. A prior
-// attempt may have succeeded in moving the file but failed before the DB
-// update; recomputing the destination now would see the already-moved file as
-// a collision and suffix it with the backend_id, producing a NEW path that
-// does not match where the file actually lives — orphaning the data and
-// breaking recovery. Reusing the intent's paths keeps retries consistent with
-// the original attempt and lets MoveFile's idempotency (src missing + dst
-// present → success) take effect.
+// persisted a completion intent, reuse its destination paths verbatim. The
+// destination the planner computes is now fully deterministic — the
+// unconditional _<upload.ID> suffix depends on no disk state and no backend_id
+// (the tusd backend ID, which changes across backend_lost re-registration) —
+// so recomputing it on a retry always reproduces the same path. Intent reuse
+// is therefore kept as a deliberate simplicity/consistency choice, avoiding a
+// redundant re-plan (and its safety-net stat) on every retry, rather than as
+// a correctness requirement for a specific failure mode; it also lets
+// MoveFile's idempotency (src missing + dst present → success) take effect
+// unchanged when a prior attempt moved the file but failed before the DB
+// update.
 //
 // The completion intent is persisted (via saveIntent) BEFORE the rename, still
 // under the mutex, so a crash between the intent write and the move remains
@@ -1038,7 +1041,7 @@ func (h *Handler) moveCompletedFile(
 	}
 
 	planned, err := h.mover.PlanAndMove(
-		srcPath, upload.CreationDate, upload.CreatedAt, upload.Filename, upload.BackendID, saveIntent)
+		srcPath, upload.CreationDate, upload.CreatedAt, upload.Filename, upload.ID, saveIntent)
 	if err != nil {
 		log.Printf("ERROR completion move failed for %s: %v", upload.ID, err)
 		writeError(w, http.StatusInternalServerError, "failed to move file")

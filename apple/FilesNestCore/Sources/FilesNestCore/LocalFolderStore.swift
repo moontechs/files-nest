@@ -38,7 +38,7 @@ public final class UserDefaultsLocalFolderStore: LocalFolderStore, @unchecked Se
 public func resolveLocalFolder(store: LocalFolderStore) -> URL? {
     guard let bookmark = store.load(), !bookmark.isEmpty else { return nil }
 
-    guard let resolved = resolveLocalFolder(bookmark: bookmark) else { return nil }
+    guard let resolved = resolveLocalFolderBookmark(bookmark) else { return nil }
 
     if resolved.isStale,
        let refreshed = try? resolved.url.bookmarkData(

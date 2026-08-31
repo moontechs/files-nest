@@ -17,7 +17,12 @@ import (
 // crashes between the file move, the DB update, and the tusd cleanup, the
 // completion intent enables the server to recover on startup.
 type CompletionIntent struct {
-	ID           string `json:"id"`
+	ID string `json:"id"`
+	// BackendID records which tusd backend a completed upload's bytes originally
+	// moved through. Retained only as debugging/audit context and for
+	// best-effort tusd sidecar cleanup during crash recovery — it is no longer
+	// read by any path-planning logic (organized destinations are suffixed with
+	// the stable ID, not the backend ID).
 	BackendID    string `json:"backend_id"`
 	Src          string `json:"src"`
 	Dst          string `json:"dst"`

@@ -16,7 +16,7 @@ struct LocalFolderPlannerTests {
 
     @Test func expectedPathIsDeterministicAndDateOrganized() {
         let path = LocalFolderPlanner.expectedPath(for: asset("A"), destinationRoot: root)
-        #expect(path.lastPathComponent == "IMG_\(safeID(\"A#photo\")).jpg")
+        #expect(path.lastPathComponent == "IMG_\(safeID("A#photo")).jpg")
         #expect(path == LocalFolderPlanner.expectedPath(for: asset("A"), destinationRoot: root))
     }
 
