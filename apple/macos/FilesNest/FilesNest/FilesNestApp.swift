@@ -167,11 +167,16 @@ struct FilesNestApp: App {
         Task { await engine.start() }
 
         let appModel = AppModel(engine: engine)
+        let probe = UITesting.isEnabled ? UITesting.makeConnectionProbe() : ConnectionProbe()
+        let folderPicker = UITesting.isEnabled ? UITesting.makeFolderPicker() : nil
+        let folderBookmarkCreator = UITesting.isEnabled ? UITesting.makeFolderBookmark(for:) : nil
         let settingsModel = SettingsModel(urlStore: urlStore,
                                           credStore: credStore,
                                           destinationStore: destinationStore,
-                                          probe: ConnectionProbe(),
-                                          localFolderStore: localFolderStore)
+                                          probe: probe,
+                                          localFolderStore: localFolderStore,
+                                          folderPicker: folderPicker,
+                                          folderBookmarkCreator: folderBookmarkCreator)
         settingsModel.onSaved = { appModel.restart() }
         self.destinationStore = destinationStore
         self.urlStore = urlStore

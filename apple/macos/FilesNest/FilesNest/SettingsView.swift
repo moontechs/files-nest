@@ -77,6 +77,7 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
+                .accessibilityIdentifier("settings.selectedFolder")
             Button("Choose Folder…") { model.chooseLocalFolder() }
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("settings.chooseFolder")
@@ -91,22 +92,28 @@ struct SettingsView: View {
 
     @ViewBuilder private var testPill: some View {
         switch model.testResult {
-        case .ok: Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+        case .ok:
+            Label("Connected", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .accessibilityIdentifier("settings.connectionResult")
         case .unauthorized:
             connectionFailure("The server rejected these credentials.",
-                              detail: "Check the username and password, then try again.")
+                              detail: "Check the username and password, then try again.",
+                              accessibilityIdentifier: "settings.connectionResult")
         case .unreachable(let message):
             connectionFailure("Couldn’t reach the server.",
-                              detail: "Check the address, network connection, and that the server is online. \(message)")
+                              detail: "Check the address, network connection, and that the server is online. \(message)",
+                              accessibilityIdentifier: "settings.connectionResult")
         case nil: EmptyView()
         }
     }
 
-    private func connectionFailure(_ title: String, detail: String) -> some View {
+    private func connectionFailure(_ title: String, detail: String,
+                                   accessibilityIdentifier: String) -> some View {
         HStack(alignment: .top, spacing: 4) {
             Image(systemName: "xmark.circle.fill")
             VStack(alignment: .leading, spacing: 1) {
-                Text(title)
+                Text(title).accessibilityIdentifier(accessibilityIdentifier)
                 Text(detail).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
             }
         }
