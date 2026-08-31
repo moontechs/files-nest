@@ -46,21 +46,25 @@ func TestParseCreationDate(t *testing.T) {
 		{
 			name:  "empty string",
 			input: "",
+			want:  time.Time{},
 			ok:    false,
 		},
 		{
 			name:  "garbage string",
 			input: "not-a-date",
+			want:  time.Time{},
 			ok:    false,
 		},
 		{
 			name:  "whitespace-only string",
 			input: "   ",
+			want:  time.Time{},
 			ok:    false,
 		},
 		{
 			name:  "RFC3339 without seconds is rejected",
 			input: "2024-03-15T10:30Z",
+			want:  time.Time{},
 			ok:    false,
 		},
 	}
@@ -130,12 +134,13 @@ func TestCopyFile(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "source")
 	dst := filepath.Join(dir, "destination")
-	if err := os.WriteFile(src, []byte("copy me"), 0o640); err != nil {
+	if err := os.WriteFile(src, []byte("copy me"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := copyFile(src, dst); err != nil {
 		t.Fatalf("copyFile: %v", err)
 	}
+	//nolint:gosec // G304: dst is a t.TempDir() path built above, not user input
 	data, err := os.ReadFile(dst)
 	if err != nil || string(data) != "copy me" {
 		t.Fatalf("destination: data=%q err=%v", data, err)
@@ -144,25 +149,45 @@ func TestCopyFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat destination: %v", err)
 	}
-	if info.Mode().Perm() != 0o640 {
-		t.Errorf("mode: got %o, want 640", info.Mode().Perm())
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("mode: got %o, want 600", info.Mode().Perm())
 	}
 }
 
+var errInjectedCopyFailure = errors.New("injected failure")
+
 func TestCopyFileErrors(t *testing.T) {
-	failure := errors.New("injected failure")
+	failure := errInjectedCopyFailure
 	cases := []struct {
 		name string
 		ops  fileOps
 		want string
 	}{
-		{name: "open source", ops: fakeFileOps{openErr: failure}, want: "open source"},
-		{name: "create destination", ops: fakeFileOps{createErr: failure}, want: "create destination"},
-		{name: "copy data", ops: fakeFileOps{reader: errorReader{err: failure}}, want: "copy data"},
-		{name: "sync destination", ops: fakeFileOps{writer: &fakeWriter{syncErr: failure}}, want: "sync destination"},
-		{name: "close destination", ops: fakeFileOps{writer: &fakeWriter{closeErr: failure}}, want: "close destination"},
-		{name: "stat source", ops: fakeFileOps{statErr: failure}, want: "stat source after copy"},
-		{name: "chmod destination", ops: fakeFileOps{chmodErr: failure}, want: "chmod destination"},
+		{name: "open source", ops: fakeFileOps{
+			openErr: failure, createErr: nil, reader: nil, writer: nil, statErr: nil, chmodErr: nil,
+		}, want: "open source"},
+		{name: "create destination", ops: fakeFileOps{
+			openErr: nil, createErr: failure, reader: nil, writer: nil, statErr: nil, chmodErr: nil,
+		}, want: "create destination"},
+		{name: "copy data", ops: fakeFileOps{
+			openErr: nil, createErr: nil, reader: errorReader{err: failure}, writer: nil, statErr: nil, chmodErr: nil,
+		}, want: "copy data"},
+		{name: "sync destination", ops: fakeFileOps{
+			openErr: nil, createErr: nil, reader: nil,
+			writer:  &fakeWriter{Buffer: bytes.Buffer{}, syncErr: failure, closeErr: nil},
+			statErr: nil, chmodErr: nil,
+		}, want: "sync destination"},
+		{name: "close destination", ops: fakeFileOps{
+			openErr: nil, createErr: nil, reader: nil,
+			writer:  &fakeWriter{Buffer: bytes.Buffer{}, syncErr: nil, closeErr: failure},
+			statErr: nil, chmodErr: nil,
+		}, want: "close destination"},
+		{name: "stat source", ops: fakeFileOps{
+			openErr: nil, createErr: nil, reader: nil, writer: nil, statErr: failure, chmodErr: nil,
+		}, want: "stat source after copy"},
+		{name: "chmod destination", ops: fakeFileOps{
+			openErr: nil, createErr: nil, reader: nil, writer: nil, statErr: nil, chmodErr: failure,
+		}, want: "chmod destination"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -198,7 +223,7 @@ func (o fakeFileOps) Create(string) (syncWriteCloser, error) {
 		return nil, o.createErr
 	}
 	if o.writer == nil {
-		o.writer = &fakeWriter{}
+		o.writer = &fakeWriter{Buffer: bytes.Buffer{}, syncErr: nil, closeErr: nil}
 	}
 	return o.writer, nil
 }
@@ -214,6 +239,7 @@ func (o fakeFileOps) Chmod(string, os.FileMode) error { return o.chmodErr }
 
 type fakeWriter struct {
 	bytes.Buffer
+
 	syncErr  error
 	closeErr error
 }

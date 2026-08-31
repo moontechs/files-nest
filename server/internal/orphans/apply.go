@@ -12,14 +12,18 @@ import (
 // Result.Candidates so callers can see the full attempt set.
 func Apply(candidates []Candidate) Result {
 	var result Result
+
 	result.Candidates = candidates
 
-	for _, c := range candidates {
-		if err := os.Remove(c.Path); err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("remove %s: %w", c.Path, err))
+	for _, candidate := range candidates {
+		err := os.Remove(candidate.Path)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("remove %s: %w", candidate.Path, err))
+
 			continue
 		}
-		result.Removed = append(result.Removed, c)
+
+		result.Removed = append(result.Removed, candidate)
 	}
 
 	return result

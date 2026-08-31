@@ -1,18 +1,21 @@
-package api
+package api_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/moontechs/files-nest/server/internal/api"
 )
 
 // TestConcurrencyLimiter_SingleRequestSucceeds verifies that a request
 // through an otherwise-idle limiter is admitted and next is invoked.
 func TestConcurrencyLimiter_SingleRequestSucceeds(t *testing.T) {
-	l := NewConcurrencyLimiter(1)
+	l := api.NewConcurrencyLimiter(1)
 
 	called := make(chan struct{}, 1)
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -20,7 +23,7 @@ func TestConcurrencyLimiter_SingleRequestSucceeds(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodPatch, "/uploads/abc/data", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPatch, "/uploads/abc/data", nil)
 	rec := httptest.NewRecorder()
 	l.Middleware(next).ServeHTTP(rec, req)
 
@@ -40,7 +43,7 @@ func TestConcurrencyLimiter_SingleRequestSucceeds(t *testing.T) {
 // by blocking inside next until released.
 func TestConcurrencyLimiter_CapacityEnforced(t *testing.T) {
 	const capN = 3
-	l := NewConcurrencyLimiter(capN)
+	l := api.NewConcurrencyLimiter(capN)
 
 	entered := make(chan struct{}, capN)
 	release := make(chan struct{})
@@ -52,21 +55,19 @@ func TestConcurrencyLimiter_CapacityEnforced(t *testing.T) {
 	h := l.Middleware(next)
 
 	var wg sync.WaitGroup
-	for i := 0; i < capN; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			req := httptest.NewRequest(http.MethodPatch, "/uploads/abc/data", nil)
+	for range capN {
+		wg.Go(func() {
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodPatch, "/uploads/abc/data", nil)
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
 			if rec.Code != http.StatusOK {
 				t.Errorf("held request status = %d, want 200", rec.Code)
 			}
-		}()
+		})
 	}
 
 	// Wait until all N requests are inside next (all slots occupied).
-	for i := 0; i < capN; i++ {
+	for range capN {
 		select {
 		case <-entered:
 		case <-time.After(5 * time.Second):
@@ -75,7 +76,7 @@ func TestConcurrencyLimiter_CapacityEnforced(t *testing.T) {
 	}
 
 	// The (N+1)th request must be rejected immediately.
-	req := httptest.NewRequest(http.MethodPatch, "/uploads/abc/data", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPatch, "/uploads/abc/data", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
@@ -103,7 +104,7 @@ func TestConcurrencyLimiter_CapacityEnforced(t *testing.T) {
 // TestConcurrencyLimiter_SlotReleased verifies that after a held request
 // completes and releases its slot, a subsequent request is admitted.
 func TestConcurrencyLimiter_SlotReleased(t *testing.T) {
-	l := NewConcurrencyLimiter(1)
+	l := api.NewConcurrencyLimiter(1)
 
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
@@ -118,7 +119,7 @@ func TestConcurrencyLimiter_SlotReleased(t *testing.T) {
 	// Occupy the single slot.
 	go func() {
 		defer close(done)
-		req := httptest.NewRequest(http.MethodPatch, "/uploads/abc/data", nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPatch, "/uploads/abc/data", nil)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 	}()
@@ -130,7 +131,7 @@ func TestConcurrencyLimiter_SlotReleased(t *testing.T) {
 	}
 
 	// A second request while the slot is held must be rejected.
-	req := httptest.NewRequest(http.MethodPatch, "/uploads/abc/data", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPatch, "/uploads/abc/data", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
@@ -145,7 +146,7 @@ func TestConcurrencyLimiter_SlotReleased(t *testing.T) {
 	<-done
 
 	// A subsequent request must now succeed.
-	req2 := httptest.NewRequest(http.MethodPatch, "/uploads/abc/data", nil)
+	req2 := httptest.NewRequestWithContext(context.Background(), http.MethodPatch, "/uploads/abc/data", nil)
 	rec2 := httptest.NewRecorder()
 	h.ServeHTTP(rec2, req2)
 	if rec2.Code != http.StatusOK {

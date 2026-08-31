@@ -23,10 +23,19 @@ import (
 )
 
 const (
-	readHeaderTimeout      = 15 * time.Second
-	idleTimeout            = 60 * time.Second
-	valueLogGCDiscardRatio = 0.5
-	orphanMinCandidateAge  = 3 * time.Hour
+	readHeaderTimeout        = 15 * time.Second
+	idleTimeout              = 60 * time.Second
+	valueLogGCDiscardRatio   = 0.5
+	orphanMinCandidateAge    = 3 * time.Hour
+	gcOrphansDefaultInterval = 48 * time.Hour
+	// gcOrphansBreakerFloor is the minimum absolute candidate count allowed
+	// before gcOrphansCycle's circuit breaker trips, regardless of how small
+	// the known-complete set is (see gcOrphansCycle).
+	gcOrphansBreakerFloor = 50
+
+	logLevelInfo  = "info"
+	logLevelDebug = "debug"
+	logLevelTrace = "trace"
 )
 
 // errPartialBackupCredentials is returned when only one of BACKUP_USER /
@@ -47,30 +56,8 @@ func run() error {
 	storagePath := getEnv("STORAGE_PATH", "./data")
 	port := getEnv("PORT", "8080")
 
-	// Concurrency limit for in-flight PATCH /uploads/{id}/data requests.
-	// A missing/invalid/zero-or-negative configured value falls back to the
-	// default of 4 with a logged warning: NewConcurrencyLimiter uses the value
-	// as a buffered-channel capacity, so 0 would make every upload rejected
-	// with no distinguishing signal (see ADR-0003 for the reject-over-limit
-	// decision).
-	maxConcurrentUploads, err := strconv.Atoi(getEnv("MAX_CONCURRENT_UPLOADS", "4"))
-	if err != nil || maxConcurrentUploads <= 0 {
-		log.Printf("WARN invalid MAX_CONCURRENT_UPLOADS=%q (must be a positive integer), "+
-			"falling back to default of 4", getEnv("MAX_CONCURRENT_UPLOADS", "4"))
-		maxConcurrentUploads = 4
-	}
-	limiter := api.NewConcurrencyLimiter(maxConcurrentUploads)
-
-	// Interval for the background orphan-file cleanup cycle. A
-	// missing/invalid/non-positive configured value falls back to the default
-	// of 48h with a logged warning, mirroring the MAX_CONCURRENT_UPLOADS
-	// fallback-with-warning pattern.
-	gcOrphansInterval, err := time.ParseDuration(getEnv("GC_ORPHANS_INTERVAL", "48h"))
-	if err != nil || gcOrphansInterval <= 0 {
-		log.Printf("WARN invalid GC_ORPHANS_INTERVAL=%q (must be a positive duration like 48h), "+
-			"falling back to default of 48h", getEnv("GC_ORPHANS_INTERVAL", "48h"))
-		gcOrphansInterval = 48 * time.Hour
-	}
+	limiter := api.NewConcurrencyLimiter(maxConcurrentUploadsFromEnv())
+	gcOrphansInterval := gcOrphansIntervalFromEnv()
 
 	// Open BadgerDB
 	dbPath := filepath.Join(storagePath, "db")
@@ -180,18 +167,56 @@ func run() error {
 	return nil
 }
 
+// maxConcurrentUploadsFromEnv reads the concurrency limit for in-flight
+// PATCH /uploads/{id}/data requests from MAX_CONCURRENT_UPLOADS. A
+// missing/invalid/zero-or-negative configured value falls back to the
+// default of 4 with a logged warning: NewConcurrencyLimiter uses the value
+// as a buffered-channel capacity, so 0 would make every upload rejected
+// with no distinguishing signal (see ADR-0003 for the reject-over-limit
+// decision).
+func maxConcurrentUploadsFromEnv() int {
+	const defaultMaxConcurrentUploads = 4
+
+	maxConcurrentUploads, err := strconv.Atoi(getEnv("MAX_CONCURRENT_UPLOADS", "4"))
+	if err != nil || maxConcurrentUploads <= 0 {
+		log.Printf("WARN invalid MAX_CONCURRENT_UPLOADS=%q (must be a positive integer), "+
+			"falling back to default of 4", getEnv("MAX_CONCURRENT_UPLOADS", "4"))
+
+		return defaultMaxConcurrentUploads
+	}
+
+	return maxConcurrentUploads
+}
+
+// gcOrphansIntervalFromEnv reads the interval for the background orphan-file
+// cleanup cycle from GC_ORPHANS_INTERVAL. A missing/invalid/non-positive
+// configured value falls back to the default of 48h with a logged warning,
+// mirroring the maxConcurrentUploadsFromEnv fallback-with-warning pattern.
+func gcOrphansIntervalFromEnv() time.Duration {
+	gcOrphansInterval, err := time.ParseDuration(getEnv("GC_ORPHANS_INTERVAL", "48h"))
+	if err != nil || gcOrphansInterval <= 0 {
+		log.Printf("WARN invalid GC_ORPHANS_INTERVAL=%q (must be a positive duration like 48h), "+
+			"falling back to default of 48h", getEnv("GC_ORPHANS_INTERVAL", "48h"))
+
+		return gcOrphansDefaultInterval
+	}
+
+	return gcOrphansInterval
+}
+
 // logOptionsFromEnv maps LOG_LEVEL ("info", "debug", "trace") to lgr
 // options. An unrecognized value falls back to "info" with a warning.
 func logOptionsFromEnv(level string) []lgr.Option {
 	opts := []lgr.Option{lgr.Msec, lgr.CallerFile}
 
 	switch level {
-	case "", "info":
-	case "debug":
+	case "", logLevelInfo:
+	case logLevelDebug:
 		opts = append(opts, lgr.Debug)
-	case "trace":
+	case logLevelTrace:
 		opts = append(opts, lgr.Trace)
 	default:
+		//nolint:gosec // G706: level is process-local startup config (env var), not remote/network input
 		log.Printf("WARN invalid LOG_LEVEL=%q, falling back to info", level)
 	}
 
@@ -266,6 +291,7 @@ func gcOrphansCycle(db *store.Store, storagePath string, minAge time.Duration) {
 	result, err := orphans.Scan(db, storagePath)
 	if err != nil {
 		log.Printf("ERROR gc-orphans: scan failed: %v", err)
+
 		return // this cycle only; the ticker will try again next interval
 	}
 
@@ -275,10 +301,11 @@ func gcOrphansCycle(db *store.Store, storagePath string, minAge time.Duration) {
 	// floor of 50) show up as candidates, Scan's known-path matching probably
 	// regressed. Skip the delete and log loudly rather than risk mass
 	// deletion; the next cycle tries again from scratch.
-	if breaker := max(50, result.KnownComplete/5); len(candidates) > breaker {
+	if breaker := max(gcOrphansBreakerFloor, result.KnownComplete/5); len(candidates) > breaker {
 		log.Printf("WARN gc-orphans: %d candidates exceeds circuit breaker "+
 			"(%d, known-complete=%d) — skipping delete this cycle",
 			len(candidates), breaker, result.KnownComplete)
+
 		return
 	}
 
@@ -286,12 +313,15 @@ func gcOrphansCycle(db *store.Store, storagePath string, minAge time.Duration) {
 	for _, c := range applied.Removed {
 		log.Printf("gc-orphans: removed orphan %s", c.Path)
 	}
+
 	for _, e := range result.Errors {
 		log.Printf("ERROR gc-orphans: error: %v", e)
 	}
+
 	if len(result.Errors) > 0 {
 		log.Printf("ERROR gc-orphans: %d scan errors this cycle (see above)", len(result.Errors))
 	}
+
 	for _, e := range applied.Errors {
 		log.Printf("ERROR gc-orphans: error: %v", e)
 	}

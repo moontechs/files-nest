@@ -740,7 +740,9 @@ stable concurrency settings and requires 100% efficacy and mutator coverage.
 
 The repo ships a plain shell pre-commit hook at `.githooks/pre-commit` (no new
 dependency) that blocks a commit when staged changes touch `server/` and the
-linter reports any violation. Install it once per clone, from the repo root:
+linter reports any violation. The same hook also gates `apple/` changes with
+`swift test` — see `apple/CLAUDE.md`. Install it once per clone, from the
+repo root:
 
 ```bash
 git config core.hooksPath .githooks

@@ -18,12 +18,12 @@ type ConcurrencyLimiter struct {
 	slots chan struct{}
 }
 
-// NewConcurrencyLimiter returns a limiter allowing at most max
-// concurrent in-flight requests. max must be >= 1; the caller
+// NewConcurrencyLimiter returns a limiter allowing at most maxConcurrent
+// concurrent in-flight requests. maxConcurrent must be >= 1; the caller
 // (main.go) is responsible for validating the configured value
 // before constructing the limiter.
-func NewConcurrencyLimiter(max int) *ConcurrencyLimiter {
-	return &ConcurrencyLimiter{slots: make(chan struct{}, max)}
+func NewConcurrencyLimiter(maxConcurrent int) *ConcurrencyLimiter {
+	return &ConcurrencyLimiter{slots: make(chan struct{}, maxConcurrent)}
 }
 
 // Cap returns the configured concurrency limit of the limiter. It is
@@ -48,6 +48,7 @@ func (l *ConcurrencyLimiter) Middleware(next http.Handler) http.Handler {
 			log.Printf("ERROR rejected upload: over concurrency limit (cap=%d)", l.Cap())
 			w.Header().Set("Retry-After", "1")
 			writeError(w, http.StatusServiceUnavailable, "too many concurrent uploads")
+
 			return
 		}
 

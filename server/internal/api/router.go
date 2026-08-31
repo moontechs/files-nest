@@ -102,12 +102,14 @@ func requestLogMiddleware(next http.Handler) http.Handler {
 
 		duration := time.Since(start)
 		level := "DEBUG "
+
 		switch {
 		case lrw.statusCode >= http.StatusInternalServerError:
 			level = "ERROR "
 		case lrw.statusCode >= http.StatusBadRequest:
 			level = "WARN "
 		}
+
 		log.Printf(level+"%s %s %d %s", strconv.Quote(r.Method), strconv.Quote(r.URL.Path), lrw.statusCode, duration)
 	})
 }

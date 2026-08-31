@@ -142,29 +142,36 @@ func TestCompletionIntent_SaveAndGet_AllFields(t *testing.T) {
 				t.Fatal("GetCompletionIntent returned nil")
 			}
 
-			// Verify all fields match
-			if got.ID != tt.intent.ID {
-				t.Errorf("ID: got %q, want %q", got.ID, tt.intent.ID)
-			}
-			if got.BackendID != tt.intent.BackendID {
-				t.Errorf("BackendID: got %q, want %q", got.BackendID, tt.intent.BackendID)
-			}
-			if got.Src != tt.intent.Src {
-				t.Errorf("Src: got %q, want %q", got.Src, tt.intent.Src)
-			}
-			if got.Dst != tt.intent.Dst {
-				t.Errorf("Dst: got %q, want %q", got.Dst, tt.intent.Dst)
-			}
-			if got.DstRel != tt.intent.DstRel {
-				t.Errorf("DstRel: got %q, want %q", got.DstRel, tt.intent.DstRel)
-			}
-			if got.CreationDate != tt.intent.CreationDate {
-				t.Errorf("CreationDate: got %q, want %q", got.CreationDate, tt.intent.CreationDate)
-			}
-			if got.CreatedAt != tt.intent.CreatedAt {
-				t.Errorf("CreatedAt: got %q, want %q", got.CreatedAt, tt.intent.CreatedAt)
-			}
+			assertCompletionIntentEqual(t, got, tt.intent)
 		})
+	}
+}
+
+// assertCompletionIntentEqual reports a t.Errorf for every field of got that
+// differs from want.
+func assertCompletionIntentEqual(t *testing.T, got, want *store.CompletionIntent) {
+	t.Helper()
+
+	if got.ID != want.ID {
+		t.Errorf("ID: got %q, want %q", got.ID, want.ID)
+	}
+	if got.BackendID != want.BackendID {
+		t.Errorf("BackendID: got %q, want %q", got.BackendID, want.BackendID)
+	}
+	if got.Src != want.Src {
+		t.Errorf("Src: got %q, want %q", got.Src, want.Src)
+	}
+	if got.Dst != want.Dst {
+		t.Errorf("Dst: got %q, want %q", got.Dst, want.Dst)
+	}
+	if got.DstRel != want.DstRel {
+		t.Errorf("DstRel: got %q, want %q", got.DstRel, want.DstRel)
+	}
+	if got.CreationDate != want.CreationDate {
+		t.Errorf("CreationDate: got %q, want %q", got.CreationDate, want.CreationDate)
+	}
+	if got.CreatedAt != want.CreatedAt {
+		t.Errorf("CreatedAt: got %q, want %q", got.CreatedAt, want.CreatedAt)
 	}
 }
 

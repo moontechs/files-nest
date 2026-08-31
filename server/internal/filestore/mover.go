@@ -296,7 +296,8 @@ func MoveFile(src, dst, creationDate string) error {
 		return fmt.Errorf("create destination directory %s: %w", filepath.Dir(dst), err)
 	}
 
-	if err := renameOrCopy(src, dst); err != nil {
+	err = renameOrCopy(src, dst)
+	if err != nil {
 		return err
 	}
 
@@ -329,7 +330,8 @@ func applyCreationTimestamp(dst, creationDate string) {
 		return
 	}
 
-	if err := os.Chtimes(dst, t, t); err != nil {
+	err := os.Chtimes(dst, t, t)
+	if err != nil {
 		log.Printf("ERROR filestore: chtimes %s failed: %v", dst, err)
 	}
 }
@@ -405,32 +407,54 @@ type syncWriteCloser interface {
 }
 
 type fileOps interface {
-	Open(string) (readCloser, error)
-	Create(string) (syncWriteCloser, error)
-	Stat(string) (os.FileInfo, error)
-	Chmod(string, os.FileMode) error
+	Open(name string) (readCloser, error)
+	Create(name string) (syncWriteCloser, error)
+	Stat(name string) (os.FileInfo, error)
+	Chmod(name string, mode os.FileMode) error
 }
 
 type osFileOps struct{}
 
 func (osFileOps) Open(name string) (readCloser, error) {
-	return os.Open(name)
+	// name is always a server-derived path (tusd incoming dir or the
+	// organized tree via SanitizeFilename/SafePathSegment), never raw user
+	// input — see copyFileWithOps below.
+	f, err := os.Open(name) //nolint:gosec // G304: path is server-derived, not user-controlled
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", name, err)
+	}
+
+	return f, nil
 }
 
 func (osFileOps) Create(name string) (syncWriteCloser, error) {
-	return os.Create(name)
+	f, err := os.Create(name) //nolint:gosec // G304: path is server-derived, not user-controlled
+	if err != nil {
+		return nil, fmt.Errorf("create %s: %w", name, err)
+	}
+
+	return f, nil
 }
 
 func (osFileOps) Stat(name string) (os.FileInfo, error) {
-	return os.Stat(name)
+	info, err := os.Stat(name)
+	if err != nil {
+		return nil, fmt.Errorf("stat %s: %w", name, err)
+	}
+
+	return info, nil
 }
 
 func (osFileOps) Chmod(name string, mode os.FileMode) error {
-	return os.Chmod(name, mode)
+	err := os.Chmod(name, mode)
+	if err != nil {
+		return fmt.Errorf("chmod %s: %w", name, err)
+	}
+
+	return nil
 }
 
 func copyFileWithOps(src, dst string, ops fileOps) error {
-	//nolint:gosec // src/dst are built from sanitized components (SafeID,
 	// SanitizeFilename, SafePathSegment) or server-generated tusd paths, never raw user input
 	srcFile, err := ops.Open(src)
 	if err != nil {
@@ -438,7 +462,6 @@ func copyFileWithOps(src, dst string, ops fileOps) error {
 	}
 	defer func() { _ = srcFile.Close() }()
 
-	//nolint:gosec // dst is a sanitized organized-tree path computed by PlanDestination
 	dstFile, err := ops.Create(dst)
 	if err != nil {
 		return fmt.Errorf("create destination: %w", err)

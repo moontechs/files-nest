@@ -76,6 +76,7 @@ func Scan(db *store.Store, storagePath string) (Result, error) {
 	if err != nil {
 		return result, fmt.Errorf("orphans.Scan: list complete uploads: %w", err)
 	}
+
 	result.KnownComplete = len(records)
 
 	known := make(map[string]struct{}, len(records))
@@ -83,12 +84,13 @@ func Scan(db *store.Store, storagePath string) (Result, error) {
 		if rec.OrganizedPath == "" {
 			continue
 		}
+
 		known[filepath.Join(storagePath, rec.OrganizedPath)] = struct{}{}
 	}
 
 	organizedRoot := filepath.Join(storagePath, "organized")
 
-	err = filepath.WalkDir(organizedRoot, func(path string, d fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(organizedRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			// An error opening the organized root itself (the first callback
 			// invocation, from the initial os.Lstat) is fatal.
@@ -97,10 +99,11 @@ func Scan(db *store.Store, storagePath string) (Result, error) {
 			}
 			// Errors on nested entries are best-effort: record and continue.
 			result.Errors = append(result.Errors, walkErr)
+
 			return nil
 		}
 
-		if d.IsDir() {
+		if entry.IsDir() {
 			return nil
 		}
 
@@ -109,22 +112,25 @@ func Scan(db *store.Store, storagePath string) (Result, error) {
 			return nil
 		}
 
-		info, err := d.Info()
+		info, err := entry.Info()
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("stat %s: %w", path, err))
+
 			return nil
 		}
 
-		ct, err := ctime(info)
+		createdAt, err := ctime(info)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("ctime %s: %w", path, err))
+
 			return nil
 		}
 
 		result.Candidates = append(result.Candidates, Candidate{
 			Path:  path,
-			CTime: ct,
+			CTime: createdAt,
 		})
+
 		return nil
 	})
 	if err != nil {

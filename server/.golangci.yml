@@ -91,6 +91,7 @@ linters:
           - LocalIdentifierC
           - CreationDateC
           - BundleIDC
+          - MaxConcurrentUploads
 
     # Structs below are legitimately constructed with partial or empty
     # literals: external library types have many optional/advanced fields,
@@ -110,6 +111,19 @@ linters:
         - 'github\.com/moontechs/files-nest/server/internal/api\.AuthConfig'
         - 'github\.com/moontechs/files-nest/server/internal/store\.Upload'
         - 'github\.com/moontechs/files-nest/server/internal/store\.CompletionIntent'
+
+    # fileOps.Open/Create return these on purpose: fakeFileOps (tests) swaps in
+    # instrumented fakes behind the same interface, so the abstraction itself
+    # is the point, not a leak.
+    ireturn:
+      allow:
+        - error
+        - anon
+        - empty
+        - stdlib
+        - generic
+        - readCloser
+        - syncWriteCloser
 
     mnd:
       ignored-numbers:
