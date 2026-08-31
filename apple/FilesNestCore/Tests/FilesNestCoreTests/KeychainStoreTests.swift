@@ -1,3 +1,4 @@
+#if canImport(Security)
 import Testing
 import Foundation
 @testable import FilesNestCore
@@ -82,3 +83,4 @@ struct KeychainStoreTests {
                 == BasicCredentials(username: "alice", password: "second"))
     }
 }
+#endif

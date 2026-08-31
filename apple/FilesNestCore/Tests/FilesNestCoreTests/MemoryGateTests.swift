@@ -1,5 +1,8 @@
 import Testing
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import FilesNestCore
 
 /// The slice's central guarantee: memory is a function of BLOB size, never of

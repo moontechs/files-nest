@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 public struct ServerClient: Sendable {
     public static let defaultMaxRetries = 15
@@ -114,6 +117,12 @@ public struct ServerClient: Sendable {
 
     @discardableResult
     private func sendOnce(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        // Darwin's URLSession observes the enclosing Task's cancellation and
+        // throws promptly from `data(for:)`; swift-corelibs-foundation on Linux
+        // does not reliably do the same, so a request racing a `task.cancel()`
+        // can complete normally there instead of being abandoned. Check
+        // explicitly rather than depending on that platform-specific cooperation.
+        try Task.checkCancellation()
         let data: Data
         let response: URLResponse
         do {

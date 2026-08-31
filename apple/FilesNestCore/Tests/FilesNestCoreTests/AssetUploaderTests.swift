@@ -1,5 +1,8 @@
 import Testing
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import FilesNestCore
 
 /// Each test instance uses a UNIQUE host, so a request lingering from another test (or a

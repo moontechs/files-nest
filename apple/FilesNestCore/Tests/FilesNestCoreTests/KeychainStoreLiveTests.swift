@@ -1,3 +1,4 @@
+#if canImport(Security)
 import Testing
 import Foundation
 import Security
@@ -29,3 +30,4 @@ struct KeychainStoreLiveTests {
         #expect(try await store.basicCredentials() == nil)
     }
 }
+#endif

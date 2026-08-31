@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import FilesNestCore
 
 /// Stateful in-memory stand-in for the Go server, driven through MockURLProtocol

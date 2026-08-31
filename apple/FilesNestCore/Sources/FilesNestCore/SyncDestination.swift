@@ -63,6 +63,7 @@ public func isDestinationReady(
         guard urlStore.load() != nil else { return false }
         return (try? await credStore.basicCredentials()) != nil
     case .localFolder:
+        #if canImport(Darwin)
         guard let url = resolveLocalFolder(store: localFolderStore) else { return false }
         let accessing = url.startAccessingSecurityScopedResource()
         defer {
@@ -70,5 +71,11 @@ public func isDestinationReady(
         }
         return FileManager.default.fileExists(atPath: url.path)
             && FileManager.default.isWritableFile(atPath: url.path)
+        #else
+        // Local Folder sync is security-scoped-bookmark based, an Apple-only
+        // sandboxing concept (see LocalFolderStore.swift) — not ready on a
+        // platform that can never resolve a folder in the first place.
+        return false
+        #endif
     }
 }

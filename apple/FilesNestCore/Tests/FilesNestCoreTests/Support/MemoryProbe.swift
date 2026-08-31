@@ -1,7 +1,6 @@
-import Foundation
 #if canImport(Darwin)
+import Foundation
 import Darwin
-#endif
 
 /// Samples the process's resident physical footprint.
 ///
@@ -67,3 +66,4 @@ enum MemoryProbe {
         return await recorder.peak
     }
 }
+#endif

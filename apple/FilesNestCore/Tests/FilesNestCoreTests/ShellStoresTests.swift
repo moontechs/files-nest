@@ -1,6 +1,5 @@
 import Testing
 import Foundation
-import os
 @testable import FilesNestCore
 
 struct ShellStoresTests {
@@ -65,6 +64,9 @@ struct ShellStoresTests {
                                            credStore: StaticCredentialStore(credentials), localFolderStore: localFolderStore)))
     }
 
+    #if canImport(Darwin)
+    // Security-scoped bookmarks are Apple-only (see LocalFolderStore.swift);
+    // isDestinationReady(.localFolder, ...) is unconditionally false elsewhere.
     @Test func localFolderReadinessRequiresExistingWritableBookmarkedDirectory() async throws {
         let suite = UserDefaults(suiteName: "destination.folder.\(UUID().uuidString)")!
         let urlStore = UserDefaultsServerURLStore(defaults: suite)
@@ -81,6 +83,7 @@ struct ShellStoresTests {
         #expect(!(await isDestinationReady(.localFolder, urlStore: urlStore,
                                            credStore: StaticCredentialStore(nil), localFolderStore: localFolderStore)))
     }
+    #endif
 
     @Test func cachingCredentialStoreCoalescesConcurrentReads() async throws {
         let wrapped = DelayedCredentialStore(
@@ -97,14 +100,15 @@ struct ShellStoresTests {
 }
 
 private final class DelayedCredentialStore: CredentialSavingStore, @unchecked Sendable {
-    private let count = OSAllocatedUnfairLock(initialState: 0)
+    private let lock = NSLock()
+    private var count = 0
     private let credentials: BasicCredentials
-    var readCount: Int { count.withLock { $0 } }
+    var readCount: Int { lock.withLock { count } }
 
     init(credentials: BasicCredentials) { self.credentials = credentials }
 
     func basicCredentials() async throws -> BasicCredentials? {
-        count.withLock { $0 += 1 }
+        lock.withLock { count += 1 }
         try await Task.sleep(for: .milliseconds(20))
         return credentials
     }

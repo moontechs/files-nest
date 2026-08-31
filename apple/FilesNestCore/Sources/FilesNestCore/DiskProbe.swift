@@ -40,8 +40,18 @@ public enum DiskProbe {
 
     /// Bytes available for "important" usage on the volume containing `url`.
     /// Sandbox-safe: reads a volume resource value, not directory contents.
+    ///
+    /// `.volumeAvailableCapacityForImportantUsageKey` is an Apple-only resource
+    /// key (no App Sandbox on Linux either, so nothing to be sandbox-safe
+    /// about there); the Linux branch reads the same figure via the older,
+    /// portable `attributesOfFileSystem` API instead.
     public static func volumeFreeSpace(at url: URL) throws -> Int64 {
+        #if canImport(Darwin)
         let values = try url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         return Int64(values.volumeAvailableCapacityForImportantUsage ?? 0)
+        #else
+        let attributes = try FileManager.default.attributesOfFileSystem(forPath: url.path)
+        return (attributes[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
+        #endif
     }
 }

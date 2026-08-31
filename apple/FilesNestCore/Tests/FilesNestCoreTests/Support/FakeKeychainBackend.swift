@@ -1,3 +1,4 @@
+#if canImport(Security)
 import Foundation
 import Security
 import Testing
@@ -104,3 +105,4 @@ final class FakeKeychainBackend: KeychainBackend, @unchecked Sendable {
         return errSecSuccess
     }
 }
+#endif

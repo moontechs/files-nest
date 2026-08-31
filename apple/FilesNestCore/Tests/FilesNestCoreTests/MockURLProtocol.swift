@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = (URLRequest) throws -> (HTTPURLResponse, Data)

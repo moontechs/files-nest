@@ -1,5 +1,8 @@
 import Testing
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import FilesNestCore
 
 /// Serialized: every test registers the same per-host handler (`h.test`), and Swift

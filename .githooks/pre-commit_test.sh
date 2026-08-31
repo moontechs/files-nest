@@ -2,12 +2,14 @@
 #
 # Self-check for .githooks/pre-commit.
 #
-# Exercises the three behaviors the hook must guarantee:
+# Exercises the behaviors the hook must guarantee:
 #   1. a staged server/ file with a lint violation blocks the commit
-#   2. staging only non-server/ files does not invoke golangci-lint and the
-#      commit succeeds
+#   2. staging only unrelated files does not invoke golangci-lint or
+#      swift test, and the commit succeeds
 #   3. a missing golangci-lint binary makes the hook fail closed with an
 #      install hint (it never silently skips the gate)
+#   4. a staged apple/ file with a failing swift test blocks the commit
+#   5. a missing swift binary makes the hook fail closed with an install hint
 #
 # Run from the repo root:
 #   ./.githooks/pre-commit_test.sh
@@ -69,31 +71,40 @@ grep -q 'golangci-lint reported violations' "$tmp_root/s1.log" \
 pass "scenario 1: staged server/ violation blocks the commit"
 
 # ---------------------------------------------------------------------------
-# Scenario 2: staging only non-server/ files skips the linter; commit passes.
+# Scenario 2: staging only unrelated files skips both linter and swift test;
+# commit passes.
 # ---------------------------------------------------------------------------
 repo2="$tmp_root/repo2"
 make_repo "$repo2"
 printf '# test\n' > "$repo2/README.md"
 git -C "$repo2" add README.md
 
-# A stub golangci-lint that records (and fails) if it is ever invoked.
+# Stub binaries that record (and fail) if they are ever invoked.
 stub_bin="$tmp_root/stub-bin"
 mkdir -p "$stub_bin"
 cat > "$stub_bin/golangci-lint" <<'EOF'
 #!/usr/bin/env bash
-echo "golangci-lint was invoked" > "$STUB_INVOKED"
+echo "golangci-lint was invoked" > "$STUB_LINT_INVOKED"
 exit 99
 EOF
 chmod +x "$stub_bin/golangci-lint"
-STUB_INVOKED="$tmp_root/stub-invoked"
+cat > "$stub_bin/swift" <<'EOF'
+#!/usr/bin/env bash
+echo "swift was invoked" > "$STUB_SWIFT_INVOKED"
+exit 99
+EOF
+chmod +x "$stub_bin/swift"
+STUB_LINT_INVOKED="$tmp_root/stub-lint-invoked"
+STUB_SWIFT_INVOKED="$tmp_root/stub-swift-invoked"
 
-if ! PATH="$stub_bin:$PATH" STUB_INVOKED="$STUB_INVOKED" \
+if ! PATH="$stub_bin:$PATH" STUB_LINT_INVOKED="$STUB_LINT_INVOKED" STUB_SWIFT_INVOKED="$STUB_SWIFT_INVOKED" \
      git -C "$repo2" -c core.hooksPath="$REPO_ROOT/.githooks" commit -m "docs only" >"$tmp_root/s2.log" 2>&1; then
   cat "$tmp_root/s2.log" >&2
   fail "scenario 2: docs-only commit should have succeeded"
 fi
-[ ! -e "$STUB_INVOKED" ] || fail "scenario 2: golangci-lint was invoked for a non-server/ commit"
-pass "scenario 2: non-server/ commit succeeds without invoking golangci-lint"
+[ ! -e "$STUB_LINT_INVOKED" ] || fail "scenario 2: golangci-lint was invoked for an unrelated commit"
+[ ! -e "$STUB_SWIFT_INVOKED" ] || fail "scenario 2: swift was invoked for an unrelated commit"
+pass "scenario 2: unrelated commit succeeds without invoking golangci-lint or swift"
 
 # ---------------------------------------------------------------------------
 # Scenario 3: missing golangci-lint fails closed with an install hint.
@@ -104,15 +115,71 @@ mkdir -p "$repo3/server"
 printf 'package main\n' > "$repo3/server/main.go"
 git -C "$repo3" add server/
 
-# Empty PATH: the hook must fail via bash builtins before needing git/grep.
-# Invoke bash by absolute path so the empty PATH can't prevent launching it.
+# Minimal PATH (/usr/bin only, no Homebrew): git/grep/bash are present but
+# golangci-lint is not, matching a real "linter not installed" machine.
 BASH_BIN="$(command -v bash)"
-if (cd "$repo3" && PATH= "$BASH_BIN" "$HOOK") >"$tmp_root/s3.log" 2>&1; then
+if (cd "$repo3" && PATH="/usr/bin" "$BASH_BIN" "$HOOK") >"$tmp_root/s3.log" 2>&1; then
   cat "$tmp_root/s3.log" >&2
   fail "scenario 3: hook exited 0 with golangci-lint missing from PATH"
 fi
 grep -q 'golangci-lint was not found' "$tmp_root/s3.log" \
   || fail "scenario 3: install-hint message missing from hook output"
 pass "scenario 3: missing golangci-lint fails closed with install hint"
+
+# ---------------------------------------------------------------------------
+# Scenario 4: a staged apple/ file with a failing swift test blocks the
+# commit.
+# ---------------------------------------------------------------------------
+repo4="$tmp_root/repo4"
+make_repo "$repo4"
+mkdir -p "$repo4/apple/FilesNestCore"
+printf 'placeholder\n' > "$repo4/apple/FilesNestCore/Package.swift"
+mkdir -p "$repo4/apple/macos"
+printf 'placeholder\n' > "$repo4/apple/macos/Some.swift"
+git -C "$repo4" add apple/
+
+# A stub swift, scoped to this scenario's PATH, that always fails.
+stub_bin4="$tmp_root/stub-bin4"
+mkdir -p "$stub_bin4"
+cat > "$stub_bin4/swift" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" = "test" ] || exit 0
+exit 1
+EOF
+chmod +x "$stub_bin4/swift"
+
+if PATH="$stub_bin4:$PATH" git -C "$repo4" -c core.hooksPath="$REPO_ROOT/.githooks" \
+     commit -m "should be blocked" >"$tmp_root/s4.log" 2>&1; then
+  cat "$tmp_root/s4.log" >&2
+  fail "scenario 4: commit with a failing swift test was NOT blocked"
+fi
+grep -q 'swift test failed' "$tmp_root/s4.log" \
+  || fail "scenario 4: block message missing from hook output"
+pass "scenario 4: staged apple/ file with a failing swift test blocks the commit"
+
+# ---------------------------------------------------------------------------
+# Scenario 5: missing swift fails closed with an install hint.
+# ---------------------------------------------------------------------------
+repo5="$tmp_root/repo5"
+make_repo "$repo5"
+mkdir -p "$repo5/apple/FilesNestCore"
+printf 'placeholder\n' > "$repo5/apple/FilesNestCore/Package.swift"
+git -C "$repo5" add apple/
+
+# /usr/bin/swift is a stub that errors without full Xcode installed, but its
+# mere presence satisfies `command -v swift` — exclude it explicitly by
+# building a minimal PATH from git/grep only.
+minimal_bin="$tmp_root/minimal-bin"
+mkdir -p "$minimal_bin"
+ln -s "$(command -v git)" "$minimal_bin/git"
+ln -s "$(command -v grep)" "$minimal_bin/grep"
+
+if (cd "$repo5" && PATH="$minimal_bin" "$BASH_BIN" "$HOOK") >"$tmp_root/s5.log" 2>&1; then
+  cat "$tmp_root/s5.log" >&2
+  fail "scenario 5: hook exited 0 with swift missing from PATH"
+fi
+grep -q 'swift was not found' "$tmp_root/s5.log" \
+  || fail "scenario 5: install-hint message missing from hook output"
+pass "scenario 5: missing swift fails closed with install hint"
 
 printf '\nAll pre-commit hook checks passed.\n'

@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 import Testing
 import Foundation
 @testable import FilesNestCore
@@ -40,3 +41,4 @@ import Foundation
         #expect(growth < 16 * 1024 * 1024)
     }
 }
+#endif

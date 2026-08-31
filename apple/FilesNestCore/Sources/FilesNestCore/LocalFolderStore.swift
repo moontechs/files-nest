@@ -32,6 +32,8 @@ public final class UserDefaultsLocalFolderStore: LocalFolderStore, @unchecked Se
     }
 }
 
+#if canImport(Darwin)
+
 /// Resolves the selected folder and refreshes its bookmark when macOS marks it
 /// stale. Keeping this operation in one place ensures readiness and syncing
 /// use identical bookmark semantics.
@@ -71,3 +73,13 @@ private func resolveLocalFolderBookmark(_ bookmark: Data) -> (url: URL, isStale:
     }
     return (url, isStale)
 }
+
+#else
+
+// Security-scoped bookmarks are an Apple sandboxing concept with no Linux
+// equivalent, and Local Folder sync is not a Linux product target (see
+// ../../PRODUCT.md) — there is nothing to resolve here, ever.
+public func resolveLocalFolder(store: LocalFolderStore) -> URL? { nil }
+public func resolveLocalFolder(bookmark: Data) -> URL? { nil }
+
+#endif

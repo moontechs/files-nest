@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 public enum ConnectionResult: Sendable, Equatable {
     case ok                    // reachable and authenticated

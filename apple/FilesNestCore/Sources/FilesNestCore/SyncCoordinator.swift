@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Reconciles the library against the server: enumerate → page → diff → upload
 /// queue → delete queue → structured report. Composes the concrete ServerClient

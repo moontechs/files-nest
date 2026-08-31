@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 /// Memoizes one credential lookup for the life of the app process.
 ///
@@ -8,7 +7,11 @@ import os
 /// first reads into one Keychain operation.
 public final class CachingCredentialStore: CredentialSavingStore, @unchecked Sendable {
     private let wrapped: any CredentialSavingStore
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    // NSLock, not OSAllocatedUnfairLock: this type needs to build on Linux too
+    // (swift test for FilesNestCore runs there), and NSLock is the one lock
+    // primitive available on every platform Foundation supports.
+    private let lock = NSLock()
+    private var state = State()
 
     private struct State: Sendable {
         var cached: BasicCredentials?
@@ -26,7 +29,7 @@ public final class CachingCredentialStore: CredentialSavingStore, @unchecked Sen
             case task(Task<BasicCredentials?, Error>)
         }
 
-        let load: Load = state.withLock { state in
+        let load: Load = lock.withLock {
             if state.hasLoaded {
                 return .cached(state.cached)
             }
@@ -44,21 +47,21 @@ public final class CachingCredentialStore: CredentialSavingStore, @unchecked Sen
 
         do {
             let credentials = try await task.value
-            state.withLock { state in
+            lock.withLock {
                 state.cached = credentials
                 state.hasLoaded = true
                 state.inFlight = nil
             }
             return credentials
         } catch {
-            state.withLock { $0.inFlight = nil }
+            lock.withLock { state.inFlight = nil }
             throw error
         }
     }
 
     public func save(_ credentials: BasicCredentials) throws {
         try wrapped.save(credentials)
-        state.withLock { state in
+        lock.withLock {
             state.cached = credentials
             state.hasLoaded = true
         }
