@@ -17,25 +17,27 @@ product scope is macOS — see `../PRODUCT.md`).
 
 ## Commands
 
-From `apple/FilesNestCore/`:
+From `apple/`:
 
-- `swift build` — build the package.
-- `swift test` — run `FilesNestCoreTests`.
+- `make build` — build the macOS Debug app.
+- `make core-test` — run host-free `FilesNestCoreTests`.
+- `make test-app` — run the app-hosted macOS unit tests.
+- `make test-ui` — build, launch, and drive the real macOS app through its first-run Settings flows.
+- `make test` — run the core and app-hosted unit tests (not UI tests).
 
-The macOS app (`macos/FilesNest/FilesNest.xcodeproj`) has two test targets,
-same as `swift test` but app-hosted, so they need `xcodebuild` (no CLI
-wrapper here):
+The macOS app (`macos/FilesNest/FilesNest.xcodeproj`) has two test targets:
 
 - `FilesNestTests` — app-hosted unit tests (e.g. `SettingsModelTests`).
 - `FilesNestUITests` — XCUITest end-to-end tests: builds and launches the
   real `.app` and drives it via the accessibility tree (`XCUIApplication`).
-  Currently just the default Xcode-generated stubs; add real coverage here
-  the way `SettingsModelTests` covers the model layer.
+  It covers the first-run path into Settings, destination selection, and
+  invalid server-address feedback.
 
-Run either with:
+The Makefile is the preferred entry point. Run either target directly with:
 
 ```bash
-xcodebuild -project macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest test -destination 'platform=macOS'
+xcodebuild -project macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest -destination 'platform=macOS' -only-testing:FilesNestTests test
+xcodebuild -project macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest -destination 'platform=macOS' -only-testing:FilesNestUITests test
 ```
 
 There's no CI for the macOS app — everything above runs locally only. See

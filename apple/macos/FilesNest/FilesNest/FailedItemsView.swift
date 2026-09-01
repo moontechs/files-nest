@@ -12,8 +12,9 @@ struct FailedItemsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Button { onDone() } label: { Label("Back", systemImage: "chevron.left") }
+                Button("Back", systemImage: "chevron.left") { onDone() }
                     .buttonStyle(.link)
+                    .accessibilityIdentifier("failed.back")
                 Spacer()
             }
             Text("Items that need attention").font(.title3.weight(.semibold))
@@ -35,6 +36,7 @@ struct FailedItemsView: View {
                                         .foregroundStyle(.secondary).lineLimit(2)
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                             }
+                            .accessibilityIdentifier("failed.item.\(item.key.encoded)")
                         }
                     }
                 }.frame(maxHeight: 190)
@@ -42,6 +44,7 @@ struct FailedItemsView: View {
                     Spacer()
                     Button("Try Again") { onRetry() }
                         .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("failed.retry")
                 }
             }
         }

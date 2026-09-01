@@ -42,6 +42,7 @@ final class SettingsModel: ObservableObject {
     private let probe: ConnectionProbe
     private let localFolderStore: any LocalFolderStore
     private let folderPicker: any LocalFolderPicker
+    private let folderBookmarkCreator: (URL) throws -> Data
     private var hasLoadedInitialValues = false
     private var hasDraftEdits = false
     private var isApplyingInitialValues = false
@@ -53,7 +54,8 @@ final class SettingsModel: ObservableObject {
         destinationStore: any SyncDestinationStore,
         probe: ConnectionProbe,
         localFolderStore: any LocalFolderStore,
-        folderPicker: (any LocalFolderPicker)? = nil
+        folderPicker: (any LocalFolderPicker)? = nil,
+        folderBookmarkCreator: ((URL) throws -> Data)? = nil
     ) {
         self.urlStore = urlStore
         self.credStore = credStore
@@ -61,6 +63,11 @@ final class SettingsModel: ObservableObject {
         self.probe = probe
         self.localFolderStore = localFolderStore
         self.folderPicker = folderPicker ?? OpenPanelLocalFolderPicker()
+        self.folderBookmarkCreator = folderBookmarkCreator ?? { url in
+            try url.bookmarkData(options: [.withSecurityScope],
+                                 includingResourceValuesForKeys: nil,
+                                 relativeTo: nil)
+        }
         self._destination = Published(initialValue: destinationStore.load())
         self._selectedFolderPath = Published(initialValue: resolveLocalFolder(store: localFolderStore)?.path)
     }
@@ -68,9 +75,7 @@ final class SettingsModel: ObservableObject {
     func chooseLocalFolder() {
         guard let url = folderPicker.chooseFolder() else { return }
         do {
-            let bookmark = try url.bookmarkData(options: [.withSecurityScope],
-                                                includingResourceValuesForKeys: nil,
-                                                relativeTo: nil)
+            let bookmark = try folderBookmarkCreator(url)
             localFolderStore.save(bookmark)
             selectedFolderPath = url.path
             saveError = nil

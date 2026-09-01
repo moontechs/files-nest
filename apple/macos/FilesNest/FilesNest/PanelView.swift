@@ -56,6 +56,7 @@ struct PanelView: View {
             Text(statusLabel)
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(statusColor)
+                .accessibilityIdentifier("panel.status")
         }
         .padding(.horizontal, 16)
         .padding(.top, 14)
@@ -78,7 +79,7 @@ struct PanelView: View {
                         .accessibilityHidden(true)
                 }
             }
-            Text(title).font(.title3.weight(.semibold))
+            Text(title).font(.title3.weight(.semibold)).accessibilityIdentifier("panel.title")
             Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 .multilineTextAlignment(.center)
         }
@@ -134,6 +135,7 @@ struct PanelView: View {
             Button { withAnimation(slide) { showingFailed = true } } label: {
                 tile("\(count)", "Failed", .orange)
             }.buttonStyle(.plain)
+             .accessibilityIdentifier("panel.failedItems")
         } else {
             tile("0", "Failed", .primary)
         }
@@ -164,19 +166,24 @@ struct PanelView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .frame(maxWidth: .infinity, alignment: .center)
+                    .accessibilityIdentifier("panel.setup")
             } else if isError {
                 HStack(spacing: 8) {
                     Button("Retry") { model.syncNow() }
                         .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("panel.retry")
                     Button("Settings") { SettingsPresenter.open(openSettings) }
+                        .accessibilityIdentifier("panel.errorSettings")
                 }
             } else {
                 HStack(spacing: 8) {
                     Button(isPaused ? "Resume" : "Pause") { isPaused ? model.resume() : model.pause() }
                         .disabled(isPaused ? !model.status.canResume : !model.status.canPause)
+                        .accessibilityIdentifier("panel.pauseResume")
                     Button("Sync Now") { model.syncNow() }
                         .buttonStyle(.borderedProminent)
                         .disabled(!model.status.canSyncNow)
+                        .accessibilityIdentifier("panel.syncNow")
                 }
             }
         }
