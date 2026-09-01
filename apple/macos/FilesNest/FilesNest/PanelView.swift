@@ -173,6 +173,7 @@ struct PanelView: View {
                         .buttonStyle(.borderedProminent)
                         .accessibilityIdentifier("panel.retry")
                     Button("Settings") { SettingsPresenter.open(openSettings) }
+                        .accessibilityIdentifier("panel.errorSettings")
                 }
             } else {
                 HStack(spacing: 8) {

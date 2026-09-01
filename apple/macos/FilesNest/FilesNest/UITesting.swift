@@ -5,8 +5,19 @@ enum UITesting {
     enum Fixture: String {
         case standard
         case syncing
+        case counting
+        case verifying
+        case reconnecting
+        case protected
+        case needsAttention
         case error
         case failed
+    }
+
+    enum FolderScenario: String {
+        case selected
+        case cancelled
+        case bookmarkFailure
     }
 
     static let isEnabled: Bool = {
@@ -18,16 +29,25 @@ enum UITesting {
 
     static let scriptedFolderName = "FilesNestUITestsLocalFolder"
 
-    static let fixture: Fixture = {
+    nonisolated private static func argumentValue(after flag: String) -> String? {
         let arguments = ProcessInfo.processInfo.arguments
-        guard let index = arguments.firstIndex(of: "-uiFixture"), arguments.indices.contains(index + 1) else {
-            return .standard
+        guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else {
+            return nil
         }
-        return Fixture(rawValue: arguments[index + 1]) ?? .standard
+        return arguments[index + 1]
+    }
+
+    static let fixture: Fixture = {
+        Fixture(rawValue: argumentValue(after: "-uiFixture") ?? "") ?? .standard
+    }()
+
+    static let folderScenario: FolderScenario = {
+        FolderScenario(rawValue: argumentValue(after: "-uiFolderScenario") ?? "") ?? .selected
     }()
 
     static func makeDefaults() -> UserDefaults {
-        let suiteName = "com.moontechs.FilesNest.ui-testing.\(UUID().uuidString)"
+        let session = argumentValue(after: "-uiTestSession") ?? UUID().uuidString
+        let suiteName = "com.moontechs.FilesNest.ui-testing.\(session)"
         return UserDefaults(suiteName: suiteName)!
     }
 
@@ -39,14 +59,19 @@ enum UITesting {
 
     @MainActor
     static func makeFolderPicker() -> any LocalFolderPicker {
+        guard folderScenario != .cancelled else { return UITestLocalFolderPicker(url: nil) }
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent(scriptedFolderName, isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return UITestLocalFolderPicker(url: folder)
     }
 
-    nonisolated static func makeFolderBookmark(for url: URL) throws -> Data {
-        Data(url.path.utf8)
+    static func makeFolderBookmark(for url: URL) throws -> Data {
+        guard folderScenario != .bookmarkFailure else {
+            throw NSError(domain: "FilesNestUITests", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "The test bookmark store is unavailable."])
+        }
+        return Data(url.path.utf8)
     }
 
     fileprivate static func connectionResult(for url: URL?) -> UITestConnectionResult {
@@ -104,6 +129,16 @@ final class UITestSyncEngine: SyncEngine, @unchecked Sendable {
         switch fixture {
         case .syncing:
             publish(.syncing(progress), summary: readySummary)
+        case .counting:
+            publish(.counting(done: 2, total: 5, purpose: .survey), summary: readySummary)
+        case .verifying:
+            publish(.counting(done: 4, total: 5, purpose: .verify), summary: readySummary)
+        case .reconnecting:
+            publish(.reconnecting(reconnectingProgress), summary: readySummary)
+        case .protected:
+            publish(.watching(lastSync: Date(timeIntervalSince1970: 0)), summary: protectedSummary)
+        case .needsAttention:
+            publish(.watching(lastSync: nil), summary: readySummary)
         case .error:
             publish(.error(message: "The server is unavailable."), summary: readySummary)
         case .failed:
@@ -125,8 +160,18 @@ final class UITestSyncEngine: SyncEngine, @unchecked Sendable {
                      bytesRemaining: 51_000_000, currentItemID: "ui-test-photo", inFlight: 1)
     }
 
+    private var reconnectingProgress: SyncProgress {
+        SyncProgress(completed: 2, total: 5, currentItemName: "IMG_2045.HEIC",
+                     bytesRemaining: 51_000_000, currentItemID: "ui-test-photo", inFlight: 0,
+                     retry: RetryProgress(retryAt: Date().addingTimeInterval(30), waitingRequests: 2))
+    }
+
     private var readySummary: SyncSummary {
         SyncSummary(backedUp: 12, pending: 3, failed: [], resourceTotal: 15)
+    }
+
+    private var protectedSummary: SyncSummary {
+        SyncSummary(backedUp: 15, pending: 0, failed: [], resourceTotal: 15)
     }
 
     private var failedSummary: SyncSummary {
@@ -185,14 +230,20 @@ private final class UITestLocalFolderPicker: LocalFolderPicker {
 }
 
 final class UITestCredentialStore: CredentialSavingStore, @unchecked Sendable {
-    private let lock = NSLock()
-    private var value: BasicCredentials?
+    private let defaults: UserDefaults
+    private let usernameKey = "com.filesnest.uiTesting.username"
+    private let passwordKey = "com.filesnest.uiTesting.password"
+
+    init(defaults: UserDefaults) { self.defaults = defaults }
 
     func basicCredentials() async throws -> BasicCredentials? {
-        lock.withLock { value }
+        guard let username = defaults.string(forKey: usernameKey),
+              let password = defaults.string(forKey: passwordKey) else { return nil }
+        return BasicCredentials(username: username, password: password)
     }
 
     func save(_ credentials: BasicCredentials) throws {
-        lock.withLock { value = credentials }
+        defaults.set(credentials.username, forKey: usernameKey)
+        defaults.set(credentials.password, forKey: passwordKey)
     }
 }

@@ -17,7 +17,7 @@ struct FilesNestApp: App {
         let defaults   = UITesting.isEnabled ? UITesting.makeDefaults() : UserDefaults.standard
         let urlStore   = UserDefaultsServerURLStore(defaults: defaults)
         let credStore: any CredentialSavingStore = UITesting.isEnabled
-            ? UITestCredentialStore()
+            ? UITestCredentialStore(defaults: defaults)
             : CachingCredentialStore(wrapping: KeychainStore())
         let destinationStore = UserDefaultsSyncDestinationStore(defaults: defaults)
         let localFolderStore = UserDefaultsLocalFolderStore(defaults: defaults)
