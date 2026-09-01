@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# files-nest pre-commit hook: lint the Go server and test the Swift core when
-# staged changes touch them.
+# files-nest pre-commit hook: lint + test the Go server and test the Swift
+# core when staged changes touch them.
 #
 # Each gate is a no-op unless at least one staged file lives under its
 # folder. When server/ files are staged, it lints the whole module (not just
-# the staged hunks) with the strict config in server/.golangci.yml. When
-# apple/ files are staged, it runs `swift test` for the host-free
+# the staged hunks) with the strict config in server/.golangci.yml, then runs
+# `go test ./...`. When apple/ files are staged, it runs `swift test` for the host-free
 # FilesNestCore package (xcodebuild/UI tests are not run here — they need an
 # interactive Keychain approval `xcodebuild test` can't get from a hook, so
 # run those yourself in Xcode). Either gate blocks the commit on failure.
@@ -45,6 +45,17 @@ if printf '%s\n' "$staged" | grep -q '^server/'; then
       'Fix them, then re-stage and commit again:' \
       '  cd server && make lint-fix   # auto-fix what can be fixed' \
       '  cd server && make lint       # verify zero violations remain' >&2
+    exit 1
+  fi
+
+  printf '%s\n' 'pre-commit: staged changes under server/ — running go test ./...'
+
+  if ! (cd server && go test ./... -count=1); then
+    printf '%s\n' \
+      '' \
+      'ERROR: go test failed in server/.' \
+      'Fix the failing tests, then re-stage and commit again:' \
+      '  cd server && make test' >&2
     exit 1
   fi
 fi
