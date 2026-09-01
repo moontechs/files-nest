@@ -41,11 +41,13 @@ func FilterMinAge(candidates []Candidate, minAge time.Duration, now time.Time) [
 	if len(candidates) == 0 {
 		return nil
 	}
+
 	kept := make([]Candidate, 0, len(candidates))
 	for _, c := range candidates {
 		if now.Sub(c.CTime) >= minAge {
 			kept = append(kept, c)
 		}
 	}
+
 	return kept
 }

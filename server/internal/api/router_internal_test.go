@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -35,7 +36,7 @@ func TestRequestLogMiddlewareLevels(t *testing.T) {
 			handler := requestLogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tt.status)
 			}))
-			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
 			handler.ServeHTTP(httptest.NewRecorder(), req)
 
 			if got := logs.String(); !strings.Contains(got, tt.level) {
@@ -51,7 +52,7 @@ func TestRecoveryMiddlewareLogsError(t *testing.T) {
 		panic("boom")
 	}))
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/panic", nil))
+	handler.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/panic", nil))
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)

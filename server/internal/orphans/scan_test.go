@@ -1,8 +1,10 @@
 package orphans_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -42,7 +44,7 @@ func writeFile(t *testing.T, storagePath, rel string) string {
 	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 		t.Fatalf("mkdir %s: %v", filepath.Dir(p), err)
 	}
-	if err := os.WriteFile(p, []byte("content"), 0o640); err != nil {
+	if err := os.WriteFile(p, []byte("content"), 0o600); err != nil {
 		t.Fatalf("write %s: %v", p, err)
 	}
 	return p
@@ -77,12 +79,7 @@ func candidatePaths(result orphans.Result) []string {
 }
 
 func containsPath(paths []string, p string) bool {
-	for _, x := range paths {
-		if x == p {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(paths, p)
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +172,8 @@ func TestScan_UnreadableSubdirectoryRecordedAndSiblingsScanned(t *testing.T) {
 	if err := os.Chmod(badDir, 0o000); err != nil {
 		t.Fatalf("chmod badDir: %v", err)
 	}
+	// Restore traversable perms so t.TempDir's own cleanup can remove badDir.
+	//nolint:gosec // G302: dir needs +x to be traversable, not a data file
 	t.Cleanup(func() { _ = os.Chmod(badDir, 0o750) })
 
 	result, err := orphans.Scan(s, storagePath)
@@ -192,8 +191,8 @@ func TestScan_UnreadableSubdirectoryRecordedAndSiblingsScanned(t *testing.T) {
 }
 
 func writeFileAt(dir, name string) error {
-	if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o640); err != nil {
-		return err
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", filepath.Join(dir, name), err)
 	}
 	return nil
 }

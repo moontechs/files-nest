@@ -23,6 +23,8 @@ import (
 // aren't incidentally rate-limited. See newRouterWithLimiterForTest for tests
 // that need to exercise a specific cap.
 func newRouterForTest(t *testing.T) http.Handler {
+	t.Helper()
+
 	return newRouterWithLimiterForTest(t, api.NewConcurrencyLimiter(1000))
 }
 
@@ -112,7 +114,7 @@ func createUploadViaRouter(t *testing.T, router http.Handler, localID string) st
 // is closed. This forces genuine in-flight overlap through the real router
 // instead of relying on goroutine scheduling.
 func blockingPatchBody(entered chan<- struct{}, release <-chan struct{}) io.Reader {
-	return &blockingReader{entered: entered, release: release}
+	return &blockingReader{entered: entered, release: release, done: false}
 }
 
 type blockingReader struct {
@@ -121,7 +123,7 @@ type blockingReader struct {
 	done    bool
 }
 
-func (b *blockingReader) Read(p []byte) (int, error) {
+func (b *blockingReader) Read(_ []byte) (int, error) {
 	if !b.done {
 		b.done = true
 		b.entered <- struct{}{}
@@ -136,28 +138,28 @@ func (b *blockingReader) Read(p []byte) (int, error) {
 // requests are admitted. This confirms the limiter is actually applied to the
 // route, not just unit-tested in isolation.
 func TestRouter_ConcurrencyLimitAppliedToPatchData(t *testing.T) {
-	const cap = 2
-	router := newRouterWithLimiterForTest(t, api.NewConcurrencyLimiter(cap))
+	const maxConcurrent = 2
+	router := newRouterWithLimiterForTest(t, api.NewConcurrencyLimiter(maxConcurrent))
 
-	// Create cap+1 distinct uploads via the router so each held PATCH runs
+	// Create maxConcurrent+1 distinct uploads via the router so each held PATCH runs
 	// against a real (distinct) upload and the handler would succeed if allowed.
-	ids := make([]string, 0, cap+1)
-	for i := 0; i < cap+1; i++ {
+	ids := make([]string, 0, maxConcurrent+1)
+	for i := range maxConcurrent + 1 {
 		ids = append(ids, createUploadViaRouter(t, router, fmt.Sprintf("WIRE-%d/L0/000", i)))
 	}
 
-	// Fire cap concurrent PATCHes whose bodies block after entering, holding
+	// Fire maxConcurrent concurrent PATCHes whose bodies block after entering, holding
 	// every concurrency slot open.
-	entered := make(chan struct{}, cap)
+	entered := make(chan struct{}, maxConcurrent)
 	release := make(chan struct{})
 
 	var wg sync.WaitGroup
-	heldCodes := make([]int, cap)
-	heldBodies := make([]io.Reader, cap)
-	for i := 0; i < cap; i++ {
+	heldCodes := make([]int, maxConcurrent)
+	heldBodies := make([]io.Reader, maxConcurrent)
+	for i := range maxConcurrent {
 		heldBodies[i] = blockingPatchBody(entered, release)
 	}
-	for i := 0; i < cap; i++ {
+	for i := range maxConcurrent {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -172,8 +174,8 @@ func TestRouter_ConcurrencyLimitAppliedToPatchData(t *testing.T) {
 		}(i)
 	}
 
-	// Wait until all cap requests have entered the handler (slots occupied).
-	for i := 0; i < cap; i++ {
+	// Wait until all maxConcurrent requests have entered the handler (slots occupied).
+	for range maxConcurrent {
 		select {
 		case <-entered:
 		case <-time.After(5 * time.Second):
@@ -181,9 +183,9 @@ func TestRouter_ConcurrencyLimitAppliedToPatchData(t *testing.T) {
 		}
 	}
 
-	// The (cap+1)th concurrent PATCH must be rejected by the router's limiter.
+	// The (maxConcurrent+1)th concurrent PATCH must be rejected by the router's limiter.
 	overReq := httptest.NewRequestWithContext(
-		context.Background(), http.MethodPatch, "/uploads/"+ids[cap]+"/data", strings.NewReader("data"))
+		context.Background(), http.MethodPatch, "/uploads/"+ids[maxConcurrent]+"/data", strings.NewReader("data"))
 	overReq.Header.Set("Content-Type", "application/offset+octet-stream")
 	overReq.Header.Set("Tus-Resumable", "1.0.0")
 	overReq.Header.Set("Upload-Offset", "0")
@@ -207,10 +209,10 @@ func TestRouter_ConcurrencyLimitAppliedToPatchData(t *testing.T) {
 }
 
 // TestRouter_ConfigEndpoint verifies the authenticated GET /config endpoint
-// returns the limiter's cap as {maxConcurrentUploads:<n>} with JSON content.
+// returns the limiter's maxConcurrent as {maxConcurrentUploads:<n>} with JSON content.
 func TestRouter_ConfigEndpoint(t *testing.T) {
-	const cap = 4
-	limiter := api.NewConcurrencyLimiter(cap)
+	const maxConcurrent = 4
+	limiter := api.NewConcurrencyLimiter(maxConcurrent)
 	router := newRouterWithLimiterForTest(t, limiter)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/config", nil)
@@ -229,8 +231,8 @@ func TestRouter_ConfigEndpoint(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("config body not JSON: %v", err)
 	}
-	if body.MaxConcurrentUploads != cap {
-		t.Errorf("config maxConcurrentUploads = %d, want %d", body.MaxConcurrentUploads, cap)
+	if body.MaxConcurrentUploads != maxConcurrent {
+		t.Errorf("config maxConcurrentUploads = %d, want %d", body.MaxConcurrentUploads, maxConcurrent)
 	}
 }
 

@@ -54,26 +54,26 @@ type Handler struct {
 // Keeping the contract at its consumer allows handler tests to exercise
 // otherwise unreachable cleanup-error paths without a live Badger failure.
 type uploadStore interface {
-	DeleteCompletionIntent(string) error
-	GetCompletionIntent(string) (*store.CompletionIntent, error)
-	GetUpload(string) (*store.Upload, error)
-	ListByDateRange(time.Time, time.Time, store.Status, int, string) ([]*store.Upload, string, error)
-	PutUploadIfAbsent(*store.Upload) (*store.Upload, bool, error)
-	ReRegister(string, string) (*store.Upload, error)
-	SaveCompletionIntent(*store.CompletionIntent) error
-	UpdateComplete(string, string) (*store.Upload, error)
-	UpdateStatus(string, store.Status) (*store.Upload, error)
+	DeleteCompletionIntent(id string) error
+	GetCompletionIntent(id string) (*store.CompletionIntent, error)
+	GetUpload(id string) (*store.Upload, error)
+	ListByDateRange(from, to time.Time, status store.Status, limit int, cursor string) ([]*store.Upload, string, error)
+	PutUploadIfAbsent(upload *store.Upload) (*store.Upload, bool, error)
+	ReRegister(id, backendID string) (*store.Upload, error)
+	SaveCompletionIntent(intent *store.CompletionIntent) error
+	UpdateComplete(id, relPath string) (*store.Upload, error)
+	UpdateStatus(id string, status store.Status) (*store.Upload, error)
 }
 
 // uploadBackend is the portion of the tusd backend used by Handler.
 type uploadBackend interface {
-	CreateUpload(context.Context, string) (string, error)
-	FilePath(context.Context, string) (string, error)
-	ForwardPatch(context.Context, string, io.Reader, int64, string) (int64, error)
-	GetInfo(context.Context, string) (*uploadbackend.UploadInfo, error)
-	GetOffset(context.Context, string) (int64, error)
-	IsComplete(context.Context, string) (bool, error)
-	TerminateOrCleanup(context.Context, string) error
+	CreateUpload(ctx context.Context, metadata string) (string, error)
+	FilePath(ctx context.Context, backendID string) (string, error)
+	ForwardPatch(ctx context.Context, backendID string, body io.Reader, offset int64, uploadLength string) (int64, error)
+	GetInfo(ctx context.Context, backendID string) (*uploadbackend.UploadInfo, error)
+	GetOffset(ctx context.Context, backendID string) (int64, error)
+	IsComplete(ctx context.Context, backendID string) (bool, error)
+	TerminateOrCleanup(ctx context.Context, backendID string) error
 }
 
 var (

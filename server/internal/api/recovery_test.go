@@ -14,6 +14,8 @@ import (
 	"github.com/moontechs/files-nest/server/internal/uploadbackend"
 )
 
+const unmovedSrcContent = "source content not yet moved"
+
 // ---------------------------------------------------------------------------
 // Test setup helpers
 // ---------------------------------------------------------------------------
@@ -194,7 +196,7 @@ func TestRecover_Intent_NotYetMoved(t *testing.T) {
 	src := filepath.Join(storageDir, "incoming", backendID)
 
 	// Create the source file (simulating a pending move).
-	writeTestFile(t, src, "source content not yet moved")
+	writeTestFile(t, src, unmovedSrcContent)
 
 	// Save a completion intent.
 	intent := createIntent(id, src, dst, dstRel, backendID)
@@ -236,8 +238,8 @@ func TestRecover_Intent_NotYetMoved(t *testing.T) {
 	if !fileExists(dst) {
 		t.Error("destination file should exist after recovery")
 	}
-	if got := fileContent(t, dst); got != "source content not yet moved" {
-		t.Errorf("destination content: got %q, want %q", got, "source content not yet moved")
+	if got := fileContent(t, dst); got != unmovedSrcContent {
+		t.Errorf("destination content: got %q, want %q", got, unmovedSrcContent)
 	}
 
 	// Verify the source file was removed.
@@ -277,7 +279,7 @@ func TestRecover_Intent_NotYetMoved_SetsCreationDate(t *testing.T) {
 	// date years in the past so the assertion can distinguish "capture
 	// date applied" from "recovery-time mtime kept".
 	captureDate := "2021-11-30T05:45:00Z"
-	writeTestFile(t, src, "source content not yet moved")
+	writeTestFile(t, src, unmovedSrcContent)
 
 	// Save a completion intent with CreationDate populated (as it would be
 	// for any intent persisted after this feature shipped).
@@ -309,8 +311,8 @@ func TestRecover_Intent_NotYetMoved_SetsCreationDate(t *testing.T) {
 	if !fileExists(dst) {
 		t.Fatal("destination file should exist after recovery")
 	}
-	if got := fileContent(t, dst); got != "source content not yet moved" {
-		t.Fatalf("destination content: got %q, want %q", got, "source content not yet moved")
+	if got := fileContent(t, dst); got != unmovedSrcContent {
+		t.Fatalf("destination content: got %q, want %q", got, unmovedSrcContent)
 	}
 
 	// Verify the moved file's mtime reflects CreationDate, not recovery
@@ -355,7 +357,7 @@ func TestRecover_Intent_NotYetMoved_EmptyCreationDate(t *testing.T) {
 	src := filepath.Join(storageDir, "incoming", backendID)
 
 	// Create the source file (simulating a pending move).
-	writeTestFile(t, src, "source content not yet moved")
+	writeTestFile(t, src, unmovedSrcContent)
 
 	// Save a completion intent with CreationDate left empty (pre-feature
 	// intent recovered after an upgrade).
@@ -389,8 +391,8 @@ func TestRecover_Intent_NotYetMoved_EmptyCreationDate(t *testing.T) {
 	if !fileExists(dst) {
 		t.Fatal("destination file should exist after recovery")
 	}
-	if got := fileContent(t, dst); got != "source content not yet moved" {
-		t.Fatalf("destination content: got %q, want %q", got, "source content not yet moved")
+	if got := fileContent(t, dst); got != unmovedSrcContent {
+		t.Fatalf("destination content: got %q, want %q", got, unmovedSrcContent)
 	}
 
 	// Verify the moved file keeps a recovery-time mtime (Chtimes skipped).

@@ -5,6 +5,7 @@ package filestore_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -15,16 +16,24 @@ import (
 	"github.com/moontechs/files-nest/server/internal/filestore"
 )
 
+var errInjectedMoverTestFailure = errors.New("injected test failure")
+
+const (
+	testCreationDate = "2024-03-15T10:30:00Z"
+	testAlsoGarbage  = "also-garbage"
+)
+
 func TestPlanAndMoveBeforeMoveCallback(t *testing.T) {
 	t.Run("nil error proceeds", func(t *testing.T) {
 		m := openTestMover(t)
 		src := filepath.Join(m.StoragePath(), "incoming", "callback-ok")
 		writeFile(t, src, []byte("content"))
 		called := false
-		plan, err := m.PlanAndMove(src, "2024-01-02T00:00:00Z", "", "file.txt", "id", func(got filestore.PlanDestResult) error {
-			called = got.Rel == "organized/2024/01/02/file_id.txt"
-			return nil
-		})
+		plan, err := m.PlanAndMove(src, "2024-01-02T00:00:00Z", "", "file.txt", "id",
+			func(got filestore.PlanDestResult) error {
+				called = got.Rel == "organized/2024/01/02/file_id.txt"
+				return nil
+			})
 		if err != nil || !called {
 			t.Fatalf("PlanAndMove: plan=%+v err=%v callback=%v", plan, err, called)
 		}
@@ -35,8 +44,9 @@ func TestPlanAndMoveBeforeMoveCallback(t *testing.T) {
 		m := openTestMover(t)
 		src := filepath.Join(m.StoragePath(), "incoming", "callback-error")
 		writeFile(t, src, []byte("content"))
-		want := errors.New("persist intent")
-		plan, err := m.PlanAndMove(src, "2024-01-02T00:00:00Z", "", "file.txt", "id", func(filestore.PlanDestResult) error { return want })
+		want := fmt.Errorf("persist intent: %w", errInjectedMoverTestFailure)
+		plan, err := m.PlanAndMove(src, "2024-01-02T00:00:00Z", "", "file.txt", "id",
+			func(filestore.PlanDestResult) error { return want })
 		if !errors.Is(err, want) || plan.Abs == "" {
 			t.Fatalf("PlanAndMove: plan=%+v err=%v", plan, err)
 		}
@@ -57,17 +67,25 @@ func TestMoveToPlanedBeforeMoveCallback(t *testing.T) {
 	m := openTestMover(t)
 	src := filepath.Join(m.StoragePath(), "incoming", "retry")
 	writeFile(t, src, []byte("content"))
-	plan := filestore.PlanDestResult{Rel: "organized/2024/01/02/retry.txt", Abs: filepath.Join(m.StoragePath(), "organized/2024/01/02/retry.txt")}
+	plan := filestore.PlanDestResult{
+		Abs:      filepath.Join(m.StoragePath(), "organized/2024/01/02/retry.txt"),
+		Rel:      "organized/2024/01/02/retry.txt",
+		DateUsed: "",
+	}
 
 	called := false
-	if err := m.MoveToPlaned(src, plan, func(got filestore.PlanDestResult) error { called = got == plan; return nil }); err != nil || !called {
+	err := m.MoveToPlaned(src, plan, func(got filestore.PlanDestResult) error {
+		called = got == plan
+		return nil
+	})
+	if err != nil || !called {
 		t.Fatalf("MoveToPlaned success: err=%v callback=%v", err, called)
 	}
 
 	src = filepath.Join(m.StoragePath(), "incoming", "retry-error")
 	writeFile(t, src, []byte("content"))
-	want := errors.New("refresh intent")
-	err := m.MoveToPlaned(src, plan, func(filestore.PlanDestResult) error { return want })
+	want := fmt.Errorf("refresh intent: %w", errInjectedMoverTestFailure)
+	err = m.MoveToPlaned(src, plan, func(filestore.PlanDestResult) error { return want })
 	if !errors.Is(err, want) {
 		t.Fatalf("MoveToPlaned error: got %v, want %v", err, want)
 	}
@@ -337,7 +355,7 @@ func TestRemoveOrganizedFile_PermissionDenied(t *testing.T) {
 func TestPlanDestination_BasicRFC3339(t *testing.T) {
 	m := openTestMover(t)
 
-	plan := m.PlanDestination("2024-03-15T10:30:00Z", "", "IMG_1234.jpg", "tusd-abc")
+	plan := m.PlanDestination(testCreationDate, "", "IMG_1234.jpg", "tusd-abc")
 	wantRel := "organized/2024/03/15/IMG_1234_tusd-abc.jpg"
 	if plan.Rel != wantRel {
 		t.Errorf("rel: got %q, want %q", plan.Rel, wantRel)
@@ -403,7 +421,7 @@ func TestPlanDestination_PreexistingPlainFileUnaffected(t *testing.T) {
 
 	// The plan is fully deterministic: <stem>_<id><ext>, regardless of
 	// what exists on disk.
-	plan := m.PlanDestination("2024-03-15T10:30:00Z", "", "IMG_1234.jpg", "tusd-collision")
+	plan := m.PlanDestination(testCreationDate, "", "IMG_1234.jpg", "tusd-collision")
 	expectedRel := "organized/2024/03/15/IMG_1234_tusd-collision.jpg"
 	if plan.Rel != expectedRel {
 		t.Errorf("rel: got %q, want %q", plan.Rel, expectedRel)
@@ -686,7 +704,7 @@ func TestMoveFileStandalone_ValidCreationDateSetsMtime(t *testing.T) {
 	dst := filepath.Join(dir, "dst.txt")
 	writeFile(t, src, []byte("content"))
 
-	creationDate := "2024-03-15T10:30:00Z"
+	creationDate := testCreationDate
 	if err := filestore.MoveFile(src, dst, creationDate); err != nil {
 		t.Fatalf("MoveFile failed: %v", err)
 	}
@@ -935,7 +953,7 @@ func TestPlanDestination_CreationDateNotParseableCreatedAtPreferred(t *testing.T
 func TestPlanDestination_EmptyFilename(t *testing.T) {
 	m := openTestMover(t)
 
-	plan := m.PlanDestination("2024-03-15T10:30:00Z", "", "", "tusd-empty-file")
+	plan := m.PlanDestination(testCreationDate, "", "", "tusd-empty-file")
 	// filepath.Join removes empty components.
 	if plan.Rel != "organized/2024/03/15" {
 		t.Errorf("rel: got %q, want %q", plan.Rel, "organized/2024/03/15")
@@ -957,12 +975,14 @@ func TestPlanDestination_DateUsed(t *testing.T) {
 	}{
 		{
 			desc:         "valid creationDate is used verbatim",
-			creationDate: "2024-03-15T10:30:00Z",
-			wantDateUsed: "2024-03-15T10:30:00Z",
+			creationDate: testCreationDate,
+			createdAt:    "",
+			wantDateUsed: testCreationDate,
 		},
 		{
 			desc:         "valid date-only creationDate is used verbatim",
 			creationDate: "2024-06-20",
+			createdAt:    "",
 			wantDateUsed: "2024-06-20",
 		},
 		{
@@ -973,6 +993,7 @@ func TestPlanDestination_DateUsed(t *testing.T) {
 		},
 		{
 			desc:         "falls back to createdAt when creationDate empty",
+			creationDate: "",
 			createdAt:    "2024-07-04T12:00:00Z",
 			wantDateUsed: "2024-07-04T12:00:00Z",
 		},
@@ -985,13 +1006,14 @@ func TestPlanDestination_DateUsed(t *testing.T) {
 		{
 			desc:         "raw unparseable creationDate kept when createdAt also unparseable",
 			creationDate: "garbage-date",
-			createdAt:    "also-garbage",
+			createdAt:    testAlsoGarbage,
 			wantDateUsed: "garbage-date",
 		},
 		{
 			desc:         "raw unparseable createdAt kept when creationDate empty",
-			createdAt:    "also-garbage",
-			wantDateUsed: "also-garbage",
+			creationDate: "",
+			createdAt:    testAlsoGarbage,
+			wantDateUsed: testAlsoGarbage,
 		},
 	}
 
@@ -1021,7 +1043,7 @@ func TestPlanDestination_LongFilenameStemTruncatedSuffixAndExtensionIntact(t *te
 		t.Fatalf("test setup: wanted %d-byte filename, got %d", maxFilenameSegmentLen, len(filename))
 	}
 
-	plan := m.PlanDestination("2024-03-15T10:30:00Z", "", filename, id)
+	plan := m.PlanDestination(testCreationDate, "", filename, id)
 
 	got := filepath.Base(plan.Rel)
 	if len(got) > maxFilenameSegmentLen {
@@ -1050,7 +1072,7 @@ func TestPlanDestination_LongFilenameWithinLimitKeepsWholeStem(t *testing.T) {
 	stem := "IMG_" + strings.Repeat("b", 100)
 	filename := stem + ".jpg"
 
-	plan := m.PlanDestination("2024-03-15T10:30:00Z", "", filename, id)
+	plan := m.PlanDestination(testCreationDate, "", filename, id)
 
 	want := stem + "_" + id + ".jpg"
 	if got := filepath.Base(plan.Rel); got != want {
@@ -1078,7 +1100,7 @@ func TestPlanDestination_PreexistingFileAtDestinationWarns(t *testing.T) {
 	existingAbs := filepath.Join(m.StoragePath(), "organized/2024/03/15", filename)
 	writeFile(t, existingAbs, []byte("foreign"))
 
-	plan := m.PlanDestination("2024-03-15T10:30:00Z", "", "IMG_1234.jpg", suffixFilenameTestID)
+	plan := m.PlanDestination(testCreationDate, "", "IMG_1234.jpg", suffixFilenameTestID)
 
 	// The WARN stat is a safety net only: the planned paths are unchanged.
 	wantRel := "organized/2024/03/15/" + filename
@@ -1094,7 +1116,7 @@ func TestPlanAndMoveOverwritesForeignFileAtDestination(t *testing.T) {
 	m := openTestMover(t)
 
 	// A foreign file already sitting at the deterministic destination path.
-	planned := m.PlanDestination("2024-03-15T10:30:00Z", "", "IMG_1234.jpg", suffixFilenameTestID)
+	planned := m.PlanDestination(testCreationDate, "", "IMG_1234.jpg", suffixFilenameTestID)
 	writeFile(t, planned.Abs, []byte("foreign content"))
 
 	// Moving a real upload to the same path silently overwrites it (the WARN
@@ -1102,7 +1124,7 @@ func TestPlanAndMoveOverwritesForeignFileAtDestination(t *testing.T) {
 	src := filepath.Join(m.StoragePath(), "incoming", "tusd-overwrite")
 	writeFile(t, src, []byte("real upload"))
 
-	result, err := m.PlanAndMove(src, "2024-03-15T10:30:00Z", "", "IMG_1234.jpg", suffixFilenameTestID, nil)
+	result, err := m.PlanAndMove(src, testCreationDate, "", "IMG_1234.jpg", suffixFilenameTestID, nil)
 	if err != nil {
 		t.Fatalf("PlanAndMove failed: %v", err)
 	}

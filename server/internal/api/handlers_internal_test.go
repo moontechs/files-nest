@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -16,13 +17,19 @@ import (
 	"github.com/moontechs/files-nest/server/internal/uploadbackend"
 )
 
+var errInjectedTestFailure = errors.New("injected test failure")
+
 func TestHandleCreateUpload_LogsCleanupFailureAfterStoreFailure(t *testing.T) {
-	h, st, _ := newInternalTestHandler(t)
-	storeFailure := errors.New("store failure")
-	cleanupFailure := errors.New("cleanup failure")
-	h.store = failingStore{Store: st, putErr: storeFailure}
+	h, st := newInternalTestHandler(t)
+	storeFailure := fmt.Errorf("store failure: %w", errInjectedTestFailure)
+	cleanupFailure := fmt.Errorf("cleanup failure: %w", errInjectedTestFailure)
+	h.store = failingStore{Store: st, putErr: storeFailure, reRegisterErr: nil}
+	backend, ok := h.backend.(*uploadbackend.TUSHandler)
+	if !ok {
+		t.Fatalf("h.backend is not *uploadbackend.TUSHandler: %T", h.backend)
+	}
 	h.backend = failingBackend{
-		TUSHandler:   h.backend.(*uploadbackend.TUSHandler),
+		TUSHandler:   backend,
 		terminateErr: cleanupFailure,
 	}
 
@@ -38,7 +45,7 @@ func TestHandleCreateUpload_LogsCleanupFailureAfterStoreFailure(t *testing.T) {
 }
 
 func TestHandleCreateUpload_LogsCleanupFailureAfterReRegisterFailure(t *testing.T) {
-	h, st, _ := newInternalTestHandler(t)
+	h, st := newInternalTestHandler(t)
 	const localID = "REREGISTER-FAIL/L0/000"
 	if rec := createUploadRequestForTest(h, localID); rec.Code != http.StatusCreated {
 		t.Fatalf("initial create status = %d: %s", rec.Code, rec.Body.String())
@@ -52,10 +59,15 @@ func TestHandleCreateUpload_LogsCleanupFailureAfterReRegisterFailure(t *testing.
 		t.Fatalf("UpdateStatus: %v", err)
 	}
 
-	cleanupFailure := errors.New("cleanup failure")
-	h.store = failingStore{Store: st, reRegisterErr: errors.New("re-register failure")}
+	cleanupFailure := fmt.Errorf("cleanup failure: %w", errInjectedTestFailure)
+	reRegisterFailure := fmt.Errorf("re-register failure: %w", errInjectedTestFailure)
+	h.store = failingStore{Store: st, putErr: nil, reRegisterErr: reRegisterFailure}
+	backend, ok := h.backend.(*uploadbackend.TUSHandler)
+	if !ok {
+		t.Fatalf("h.backend is not *uploadbackend.TUSHandler: %T", h.backend)
+	}
 	h.backend = failingBackend{
-		TUSHandler:   h.backend.(*uploadbackend.TUSHandler),
+		TUSHandler:   backend,
 		terminateErr: cleanupFailure,
 	}
 	logs, restoreLogs := captureLogs(t)
@@ -69,7 +81,7 @@ func TestHandleCreateUpload_LogsCleanupFailureAfterReRegisterFailure(t *testing.
 	}
 }
 
-func newInternalTestHandler(t *testing.T) (*Handler, *store.Store, *uploadbackend.TUSHandler) {
+func newInternalTestHandler(t *testing.T) (*Handler, *store.Store) {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "db"))
 	if err != nil {
@@ -81,13 +93,13 @@ func newInternalTestHandler(t *testing.T) (*Handler, *store.Store, *uploadbacken
 	if err != nil {
 		t.Fatalf("uploadbackend.New: %v", err)
 	}
-	return NewHandler(st, bk, storagePath), st, bk
+	return NewHandler(st, bk, storagePath), st
 }
 
 func createUploadRequestForTest(h *Handler, localID string) *httptest.ResponseRecorder {
 	body := `{"local_identifier":"` + localID +
 		`","filename":"test.jpg","creation_date":"2024-03-15T00:00:00Z"}`
-	req := httptest.NewRequest(http.MethodPost, "/uploads", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/uploads", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	h.HandleCreateUpload(rec, req)
@@ -104,6 +116,7 @@ func captureLogs(t *testing.T) (*bytes.Buffer, func()) {
 
 type failingStore struct {
 	*store.Store
+
 	putErr        error
 	reRegisterErr error
 }
@@ -112,18 +125,27 @@ func (s failingStore) PutUploadIfAbsent(upload *store.Upload) (*store.Upload, bo
 	if s.putErr != nil {
 		return nil, false, s.putErr
 	}
-	return s.Store.PutUploadIfAbsent(upload)
+	existing, created, err := s.Store.PutUploadIfAbsent(upload)
+	if err != nil {
+		return nil, false, fmt.Errorf("put upload if absent: %w", err)
+	}
+	return existing, created, nil
 }
 
 func (s failingStore) ReRegister(id, backendID string) (*store.Upload, error) {
 	if s.reRegisterErr != nil {
 		return nil, s.reRegisterErr
 	}
-	return s.Store.ReRegister(id, backendID)
+	upload, err := s.Store.ReRegister(id, backendID)
+	if err != nil {
+		return nil, fmt.Errorf("re-register: %w", err)
+	}
+	return upload, nil
 }
 
 type failingBackend struct {
 	*uploadbackend.TUSHandler
+
 	terminateErr error
 }
 

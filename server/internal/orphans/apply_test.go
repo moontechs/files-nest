@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/moontechs/files-nest/server/internal/orphans"
 )
@@ -13,14 +14,14 @@ func TestApply_AllCandidatesRemoved(t *testing.T) {
 	dir := t.TempDir()
 
 	candidates := []orphans.Candidate{
-		{Path: filepath.Join(dir, "a.jpg")},
-		{Path: filepath.Join(dir, "sub", "b.jpg")},
+		{Path: filepath.Join(dir, "a.jpg"), CTime: time.Time{}},
+		{Path: filepath.Join(dir, "sub", "b.jpg"), CTime: time.Time{}},
 	}
 	for _, c := range candidates {
 		if err := os.MkdirAll(filepath.Dir(c.Path), 0o750); err != nil {
 			t.Fatalf("mkdir %s: %v", filepath.Dir(c.Path), err)
 		}
-		if err := os.WriteFile(c.Path, []byte("x"), 0o640); err != nil {
+		if err := os.WriteFile(c.Path, []byte("x"), 0o600); err != nil {
 			t.Fatalf("write %s: %v", c.Path, err)
 		}
 	}
@@ -55,13 +56,13 @@ func TestApply_MissingFileErrorButOthersRemoved(t *testing.T) {
 
 	gone := filepath.Join(dir, "already-gone.jpg")
 	good := filepath.Join(dir, "still-here.jpg")
-	if err := os.WriteFile(good, []byte("x"), 0o640); err != nil {
+	if err := os.WriteFile(good, []byte("x"), 0o600); err != nil {
 		t.Fatalf("write %s: %v", good, err)
 	}
 
 	candidates := []orphans.Candidate{
-		{Path: gone}, // file does not exist -> os.Remove fails
-		{Path: good},
+		{Path: gone, CTime: time.Time{}}, // file does not exist -> os.Remove fails
+		{Path: good, CTime: time.Time{}},
 	}
 
 	result := orphans.Apply(candidates)
