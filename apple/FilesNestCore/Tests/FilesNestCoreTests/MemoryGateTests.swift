@@ -48,6 +48,21 @@ import FoundationNetworking
 /// cannot see it either, for the churn reason above. That gap is known and
 /// unclosed; `footprintSmokeCheck` would still catch a gross whole-asset buffer.
 ///
+/// Namespace grouping every test that reads process-wide `phys_footprint`
+/// (directly, or indirectly via allocation churn that would pollute a
+/// sibling's reading of it), so Swift Testing's default parallel-suite
+/// scheduling can never run two of them at once. `.serialized` on a single
+/// suite only serializes that suite's own tests — a concurrently-running
+/// sibling suite's allocations still contaminate a `phys_footprint` reading,
+/// because the counter is process-wide, not per-suite. Nesting both suites
+/// here and marking this outer suite `.serialized` too cascades that
+/// guarantee across both. See `MemoryProbeTests` for the concrete failure
+/// this fixes (its trivial-work growth assertion flaked whenever this
+/// suite's 3 GB-video case happened to run at the same time).
+@Suite(.serialized) enum ProcessFootprintTests {}
+
+extension ProcessFootprintTests {
+
 /// Serialized: reuses one per-host handler (`Self.host`), and `phys_footprint` is
 /// process-wide so parallel tests contaminate the readings.
 @Suite(.serialized)
@@ -163,4 +178,6 @@ struct MemoryGateTests {
         #expect(large.maxAlive == small.maxAlive)
         #expect(large.maxAlive <= Self.maxExpectedLiveBlobs)
     }
+}
+
 }

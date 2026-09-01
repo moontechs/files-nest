@@ -6,7 +6,11 @@ import Foundation
 /// Serialized: `phys_footprint` is process-wide, so tests running in parallel
 /// contaminate each other's readings. Observed concretely — the trivial-work
 /// test measured 134 MB of growth because a sibling test allocated 128 MB
-/// concurrently.
+/// concurrently. Nested under `ProcessFootprintTests` (see MemoryGateTests.swift)
+/// so that guarantee also holds against MemoryGateTests's own large
+/// allocations, not just against tests within this suite.
+extension ProcessFootprintTests {
+
 @Suite(.serialized) struct MemoryProbeTests {
 
     @Test func footprintReturnsPositiveValue() throws {
@@ -40,5 +44,7 @@ import Foundation
         }
         #expect(growth < 16 * 1024 * 1024)
     }
+}
+
 }
 #endif
