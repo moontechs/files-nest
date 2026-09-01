@@ -1,6 +1,7 @@
 .ralpix
 
 server/bin/
+server/dist/
 
 # ---- macOS ----
 .DS_Store
