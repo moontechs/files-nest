@@ -24,3 +24,13 @@ touching — most tasks only need one.
 
 When making a non-trivial design decision, check `docs/adr/` first for an
 existing decision before re-deciding it.
+
+## Contribution gates
+
+Run `scripts/agent-setup.sh` once per fresh checkout before committing. It
+wires up the local pre-commit hook (`git config core.hooksPath .githooks`)
+and checks the tools that hook needs — including installing Swift via
+`swiftly` if you're on Linux without it. The hook then gates commits per
+folder: staged changes under `server/` get `golangci-lint run ./...` + `go
+test ./...`; staged changes under `apple/` get `swift test` for
+`FilesNestCore`. Either failing blocks the commit.
