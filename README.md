@@ -31,15 +31,7 @@ brew install --cask filesnest
 
 Grab the latest signed and notarized `.dmg` from [Releases](https://github.com/moontechs/files-nest/releases).
 
-**Build from source**
-
-```bash
-git clone https://github.com/moontechs/files-nest.git
-cd files-nest/apple
-make build
-```
-
-Requires macOS 14+. See [`apple/CLAUDE.md`](apple/CLAUDE.md) for development setup.
+Requires macOS 14+.
 
 ## Self-hosting the server
 
