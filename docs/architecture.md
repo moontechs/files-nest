@@ -109,7 +109,7 @@ uploading ──── PATCH /status complete ──→ complete
 uploading / complete / backend_lost ──── DELETE /uploads/:id ──→ deleted
 ```
 
-- `backend_lost` is set by the **server** when a HEAD or PATCH proxy call returns 404 from the upload backend (e.g. after tusd restart). The Mac app is responsible for recovery: delete the record and POST /uploads again.
+- `backend_lost` is set by the **server** when a HEAD or PATCH proxy call returns 404 from the upload backend (e.g. after tusd restart). The Mac app recovers by POSTing to `/uploads` again with the same `localIdentifier` — the server re-registers a fresh tusd upload against the existing record; no DELETE is required.
 - `PATCH /uploads/:id/status` only accepts `complete`. Any other value returns 400. Deletion goes through `DELETE /uploads/:id` exclusively — using PATCH for deletion would skip the TUS Termination call and leak disk space in the upload backend.
 - Records are created with `uploading` immediately on POST — no `pending` state. Crashes never leave orphaned pre-creation records.
 
