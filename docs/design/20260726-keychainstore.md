@@ -79,10 +79,43 @@ stored properties are `String`s and a `Sendable` `KeychainBackend`.
   part of the secret tuple, and keeping it in the encrypted value (rather than
   split into a searchable attribute like `kSecAttrAccount`) avoids leaking it into
   Keychain metadata and keeps read/write symmetric — one decode, one encode.
-- **Accessibility:** `kSecAttrAccessibleAfterFirstUnlock` — available to
-  background sync after the first unlock post-boot, not restricted to foreground.
-- **Data-protection keychain:** `kSecUseDataProtectionKeychain = true` for
-  iOS-parity semantics and predictable behavior across both platforms.
+- **Accessibility:** `save` sets `kSecAttrAccessibleAfterFirstUnlock`, intending
+  availability to background sync after the first unlock post-boot. Note the
+  file-based keychain ignores this attribute — see below.
+- **Keychain flavor:** the **legacy file-based keychain**, *not* the
+  data-protection keychain. `kSecUseDataProtectionKeychain = true` would give
+  iOS-parity semantics, but on macOS it requires a `keychain-access-groups`
+  entitlement, which requires a provisioning profile — which a self-hosted,
+  non-App-Store, Developer ID-signed app does not have. Trade-offs accepted: no
+  Secure Enclave / biometric item protection (unused here), `kSecAttrAccessible`
+  is ignored, and access is gated by a code-signature ACL (below). See TN3137.
+
+### Code-signature ACLs and the re-signing prompt
+
+The file-based keychain gates each item with an ACL bound to the **code signature
+of the app that created it**. When the same logical app is later signed with a
+*different* identity, macOS treats it as a different application and prompts:
+
+> FilesNest wants to use your confidential information stored in
+> "com.filesnest.credentials" in your keychain.
+
+…requiring the login keychain password. **Always Allow** adds the new binary to
+the item's ACL permanently; **Allow** grants one-time access and re-prompts on
+the next launch.
+
+This is expected behavior, not a defect, and it fires whenever the signing
+identity changes:
+
+- Going from a locally built (`Apple Development`) app to a distributed
+  (`Developer ID Application`) one. First observed moving from dev builds to the
+  notarized 0.4.0 DMG on 2026-09-03, against an item created 2026-08-22.
+- Renewing or replacing the Developer ID certificate. The current one expires
+  **2027-02-01**; the first release signed with its replacement will re-prompt
+  every user who already has a stored credential.
+
+Fresh installs never see it: with no pre-existing item, the app creates it and
+owns the ACL from the start. Only users carrying a credential written by a
+differently-signed build are affected.
 
 ### Operations
 

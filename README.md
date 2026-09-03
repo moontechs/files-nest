@@ -29,8 +29,18 @@ Settings — or sync to a local folder instead.
 
 ```bash
 brew tap moontechs/files-nest https://github.com/moontechs/files-nest
+brew trust moontechs/files-nest
 brew install --cask filesnest
 ```
+
+Homebrew 6 refuses to load casks from non-official taps until you explicitly
+trust them, failing with `Refusing to load cask ... from untrusted tap`. The
+`brew trust` line above clears that for this tap; use
+`brew trust --cask moontechs/files-nest/filesnest` to trust only this one cask
+instead. Your choice is recorded in `~/.homebrew/trust.json`.
+
+On Homebrew 5.x and older the command doesn't exist (`Unknown command: trust`)
+and nothing enforces trust — skip that line and tap/install directly.
 
 **Direct download**
 
