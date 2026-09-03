@@ -21,6 +21,7 @@ Mirror your Mac's Photos library to a server you own. No subscriptions, no third
 - Sync counts, progress, and a clear view of failed items
 - Credentials stored in the macOS Keychain, never on disk in plain text
 - Point it at any server you host — nothing leaves your infrastructure
+- Or skip the server entirely: sync straight to a local folder or mounted drive (external disk, NAS share)
 
 ## Install the macOS app
 
