@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Testing
 @testable import FilesNest
 import FilesNestCore
@@ -6,6 +7,11 @@ import FilesNestCore
 @Suite(.serialized)
 @MainActor
 struct SettingsModelTests {
+    @Test func localFolderPickerAllowsCreatingNewFolders() {
+        let panel = OpenPanelLocalFolderPicker.makePanel()
+        #expect(panel.canCreateDirectories)
+    }
+
     @Test func destinationLoadsImmediatelyAndPersistsChanges() {
         let destinationStore = InMemoryDestinationStore(destination: .localFolder)
         let model = makeModel(destinationStore: destinationStore)

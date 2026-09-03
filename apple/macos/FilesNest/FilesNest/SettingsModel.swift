@@ -8,12 +8,18 @@ protocol LocalFolderPicker { func chooseFolder() -> URL? }
 
 @MainActor
 struct OpenPanelLocalFolderPicker: LocalFolderPicker {
-    func chooseFolder() -> URL? {
+    static func makePanel() -> NSOpenPanel {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose Folder"
+        return panel
+    }
+
+    func chooseFolder() -> URL? {
+        let panel = Self.makePanel()
         return panel.runModal() == .OK ? panel.url : nil
     }
 }
