@@ -4,22 +4,13 @@ Mirror your Mac's Photos library to a server you own. No subscriptions, no third
 
 **This is a one-way sync, not an archival backup.** The server mirrors what's currently in your Photos library — if you delete a photo on your Mac, its copy on the server is removed too (iCloud is untouched either way). If you want a copy that survives you deleting the original, keep that in mind before relying on this as your only backup.
 
-<table>
-<tr>
-<td align="center" width="33%">
-<img src="imgs/menubar-sync-status.png" width="260" alt="Menu bar sync status popover"><br>
-Menu bar popover — live sync progress, counts, pause/resume.
-</td>
-<td align="center" width="33%">
-<img src="imgs/settings-server.png" width="260" alt="Settings window, FilesNest server destination"><br>
-Settings — point at your self-hosted FilesNest server.
-</td>
-<td align="center" width="33%">
-<img src="imgs/settings-local-folder.png" width="260" alt="Settings window, local folder destination"><br>
-Settings — or sync to a local folder instead.
-</td>
-</tr>
-</table>
+<p align="center">
+<img src="imgs/menubar-sync-status.png" width="260" alt="Menu bar sync status popover">
+<img src="imgs/settings-server.png" width="260" alt="Settings window, FilesNest server destination">
+<img src="imgs/settings-local-folder.png" width="260" alt="Settings window, local folder destination">
+</p>
+
+<p align="center"><sub>Menu bar popover — live sync progress, counts, pause/resume &nbsp;·&nbsp; Settings — self-hosted FilesNest server &nbsp;·&nbsp; Settings — or sync to a local folder</sub></p>
 
 ## Features
 
