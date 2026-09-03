@@ -1,6 +1,6 @@
 # FilesNest
 
-Mirror your Mac's Photos library to a server you own. No subscriptions, no third-party cloud, no local database on the client — your server is the single source of truth.
+Mirror your Mac's Photos library to storage you control — a self-hosted server, a local folder, or a mounted drive. No local database on the client — your server is the single source of truth.
 
 **This is a one-way sync, not an archival backup.** The server mirrors what's currently in your Photos library — if you delete a photo on your Mac, its copy on the server is removed too (iCloud is untouched either way). If you want a copy that survives you deleting the original, keep that in mind before relying on this as your only backup.
 
