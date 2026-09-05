@@ -20,6 +20,7 @@ import (
 	"github.com/moontechs/files-nest/server/internal/orphans"
 	"github.com/moontechs/files-nest/server/internal/store"
 	"github.com/moontechs/files-nest/server/internal/uploadbackend"
+	xslog "golang.org/x/exp/slog"
 )
 
 const (
@@ -51,7 +52,9 @@ func main() {
 }
 
 func run() error {
-	lgr.SetupStdLogger(logOptionsFromEnv(getEnv("LOG_LEVEL", "info"))...)
+	logLevel := getEnv("LOG_LEVEL", "info")
+	lgr.SetupStdLogger(logOptionsFromEnv(logLevel)...)
+	configureTusdLogger(logLevel)
 
 	storagePath := getEnv("STORAGE_PATH", "./data")
 	port := getEnv("PORT", "8080")
@@ -202,6 +205,19 @@ func gcOrphansIntervalFromEnv() time.Duration {
 	}
 
 	return gcOrphansInterval
+}
+
+// configureTusdLogger sets the minimum level for tusd's own slog-based
+// logging (internal/uploadbackend.New wires tusd to xslog.Default(), which
+// bypasses lgr entirely). tusd logs per-chunk/per-request lifecycle noise at
+// INFO, so only WARN and above pass through unless debug/trace is requested.
+func configureTusdLogger(level string) {
+	tusdLevel := xslog.LevelWarn
+	if level == logLevelDebug || level == logLevelTrace {
+		tusdLevel = xslog.LevelInfo
+	}
+
+	xslog.SetDefault(xslog.New(xslog.NewTextHandler(os.Stderr, &xslog.HandlerOptions{Level: tusdLevel})))
 }
 
 // logOptionsFromEnv maps LOG_LEVEL ("info", "debug", "trace") to lgr
