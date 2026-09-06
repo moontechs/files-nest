@@ -53,8 +53,12 @@ func main() {
 
 func run() error {
 	logLevel := getEnv("LOG_LEVEL", "info")
-	lgr.SetupStdLogger(logOptionsFromEnv(logLevel)...)
+	// configureTusdLogger must run before SetupStdLogger: xslog.SetDefault
+	// unconditionally calls log.SetOutput to bridge the std "log" package to
+	// its own handler, which would otherwise hijack every log.Printf call in
+	// this file (not just tusd's) once SetupStdLogger wired it to lgr.
 	configureTusdLogger(logLevel)
+	lgr.SetupStdLogger(logOptionsFromEnv(logLevel)...)
 
 	storagePath := getEnv("STORAGE_PATH", "./data")
 	port := getEnv("PORT", "8080")
