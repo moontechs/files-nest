@@ -509,6 +509,10 @@ func extractTusdError(rec *httptest.ResponseRecorder) error {
 		return errUnsupportedVersion
 	}
 
+	if rec.Code >= http.StatusBadRequest && rec.Code < http.StatusInternalServerError {
+		return &ClientError{Status: rec.Code, Body: body}
+	}
+
 	// Generic error with body text if available.
 	if body != "" {
 		return fmt.Errorf("%w: %s", errTusdGeneric, body)

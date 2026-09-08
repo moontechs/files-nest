@@ -112,7 +112,17 @@ func TestExtractTusdError(t *testing.T) {
 		status   int
 		sentinel error
 		body     string
+		client   bool
 	}{
+		{
+			name: "not found sentinel", status: http.StatusNotFound, sentinel: ErrNotFound, body: "missing upload",
+		},
+		{
+			name: "conflict sentinel", status: http.StatusConflict, sentinel: errTusdConflict, body: "offset conflict",
+		},
+		{
+			name: "locked sentinel", status: http.StatusLocked, sentinel: ErrLocked, body: "upload locked",
+		},
 		{
 			name:     "not implemented",
 			status:   http.StatusNotImplemented,
@@ -125,6 +135,8 @@ func TestExtractTusdError(t *testing.T) {
 			sentinel: errTusdVersionMismatch,
 			body:     "unsupported tus version",
 		},
+		{name: "bad request with body", status: http.StatusBadRequest, body: "ERR_INVALID_UPLOAD_LENGTH", client: true},
+		{name: "bad request without body", status: http.StatusBadRequest, client: true},
 	}
 
 	for _, tt := range tests {
@@ -134,14 +146,30 @@ func TestExtractTusdError(t *testing.T) {
 			_, _ = rec.Body.WriteString(tt.body)
 
 			err := extractTusdError(rec)
+			if tt.client {
+				var clientErr *ClientError
+				if !errors.As(err, &clientErr) || clientErr.Status != tt.status || clientErr.Body != strings.TrimSpace(tt.body) {
+					t.Fatalf("error = %#v, want ClientError{%d, %q}", err, tt.status, tt.body)
+				}
+				return
+			}
 			if !errors.Is(err, tt.sentinel) {
 				t.Fatalf("extractTusdError() error = %v, want wrapping %v", err, tt.sentinel)
 			}
-			if !strings.Contains(err.Error(), tt.body) {
+			if tt.body != "" && !strings.Contains(err.Error(), tt.body) {
 				t.Errorf("error = %q, want body text %q", err, tt.body)
 			}
 		})
 	}
+
+	t.Run("server error remains generic", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		rec.WriteHeader(http.StatusInternalServerError)
+		_, _ = rec.Body.WriteString("internal failure")
+		if err := extractTusdError(rec); !errors.Is(err, errTusdGeneric) {
+			t.Fatalf("error = %v, want errTusdGeneric", err)
+		}
+	})
 }
 
 // newTUSHandlerWithLogger builds a TUSHandler with a custom *slog.Logger

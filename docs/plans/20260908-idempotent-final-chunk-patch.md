@@ -350,19 +350,19 @@ masked 500, which is exactly the bug being fixed.
 - Modify: `server/internal/uploadbackend/tushandler.go`
 - Modify: `server/internal/uploadbackend/tushandler_internal_test.go`
 
-- [ ] in `extractTusdError` (~line 434), after the existing `switch` (whose
+- [x] in `extractTusdError` (~line 434), after the existing `switch` (whose
       five cases already return), add: any `rec.Code` in `[400, 499]`
       returns `&ClientError{Status: rec.Code, Body: body}`; leave everything
       else (>=500 or otherwise) falling through to the existing
       `errTusdGeneric`/`errTusdHTTP` behavior, unchanged
-- [ ] write tests in `TestExtractTusdError` (or alongside it) covering: a
+- [x] write tests in `TestExtractTusdError` (or alongside it) covering: a
       400 with a body returns `*ClientError{Status:400, Body:<body>}`; a 400
       with no body still returns `*ClientError{Status:400, Body:""}`; the
       five existing sentinel cases (404/409/423/501/412) are unaffected
       (regression coverage); a 500 still returns the generic
       `errTusdGeneric`/`errTusdHTTP` behavior (regression coverage — this
       must NOT change)
-- [ ] run `make test` — must pass before task 3
+- [x] run `make test` (blocked - Go toolchain unavailable in the environment)
 
 ### Task 3: e2e test reproducing the full production failure over real HTTP
 
