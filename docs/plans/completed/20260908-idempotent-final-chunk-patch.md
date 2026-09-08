@@ -39,8 +39,8 @@ any remaining edge case surfaces the real status instead.
   fetches the backend's current offset via `h.backend.GetOffset` before
   forwarding the PATCH; on `ForwardPatch` error, only recognizes
   `uploadbackend.ErrNotFound` and `uploadbackend.ErrInvalidOffset` before
-  falling into a generic `500`. **This function is not modified by this
-  plan** — see Solution Overview for why.
+  falling into a generic `500`. This plan adds a `ClientError` passthrough
+  branch while leaving its other behavior unchanged.
 - `server/internal/uploadbackend/tushandler.go`:
   - `ForwardPatch` (~line 202) sets the `Upload-Length` header on the
     outgoing tusd request whenever the caller passes a non-empty
@@ -362,20 +362,17 @@ masked 500, which is exactly the bug being fixed.
       (regression coverage); a 500 still returns the generic
       `errTusdGeneric`/`errTusdHTTP` behavior (regression coverage — this
       must NOT change)
-- [x] run `make test` (blocked - Go toolchain unavailable in the environment)
+- [x] run `make test` (validated during review with the pinned Go toolchain)
 
 ### Task 3: e2e test reproducing the full production failure over real HTTP
 
 **Files:**
 - Modify: `server/e2e/resume_test.go`
 
-- [x] add an unexported `faultInjectingReader` type in this file: fails on
-      its **very first** `Read` call (returns `(0, syntheticErr)` — not "N
-      bytes then error"), so **zero bytes** are ever handed to the server,
-      guaranteeing `Offset` cannot have advanced regardless of internal
-      buffering/copy granularity. (This is a deliberate correction from an
-      earlier draft that risked a flaky/wrong assertion by allowing partial
-      bytes through before erroring.)
+- [x] use `testing/iotest.ErrReader` for the final PATCH body so every read
+      returns `(0, syntheticErr)` — not "N bytes then error" — and **zero
+      bytes** are ever handed to the server, guaranteeing `Offset` cannot have
+      advanced regardless of internal buffering/copy granularity.
 - [x] new test `TestResume_FinalChunkRetryAfterPartialWriteFailure`:
   1. create an upload (existing `CreateTestUpload` helper pattern in this
      file), PATCH one non-final chunk normally (no `Upload-Length`)
@@ -389,7 +386,7 @@ masked 500, which is exactly the bug being fixed.
   4. retry: `PatchUploadData` with a normal `bytes.Reader` of the same
      final-chunk bytes, same offset, same `Upload-Length` string — assert
      `204` and `UploadOffset` equals the final total size
-- [x] run `make e2e` (blocked - Go toolchain unavailable in the environment)
+- [ ] run `make e2e` (not run: Docker was unavailable in the environment)
 
 ### Task 4: Verify acceptance criteria
 
@@ -401,9 +398,9 @@ masked 500, which is exactly the bug being fixed.
       `tushandler_test.go`/`recovery_test.go` are untouched (confirms the
       "no signature change" design held)
 - [x] verify no `apple/` files were touched
-- [x] run full test suite: `make test` (from `server/`) (skipped - Go toolchain unavailable)
-- [x] run e2e tests: `make e2e` (from `server/`) (skipped - Docker unavailable)
-- [x] run `make lint` (from `server/`) — zero-tolerance, must be clean (skipped - golangci-lint unavailable)
+- [x] run full test suite: `make test` (from `server/`) (validated during review with the pinned Go toolchain)
+- [ ] run e2e tests: `make e2e` (from `server/`) (not run: Docker unavailable)
+- [x] run `make lint` (from `server/`) — zero-tolerance, must be clean (validated during review with the pinned toolchain)
 
 ### Task 5: [Final] Update documentation
 
@@ -414,5 +411,5 @@ masked 500, which is exactly the bug being fixed.
 
 ## Post-Completion
 
-None — this is a self-contained server bug fix verified entirely by the
-project's own unit, handler-level, and e2e test suites.
+The unit and handler-level suites were validated during review. The e2e suite
+remains to be run in an environment with Docker available.

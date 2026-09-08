@@ -207,9 +207,10 @@ func (h *TUSHandler) GetOffset(ctx context.Context, backendID string) (int64, er
 // ---------------------------------------------------------------------------
 
 // ForwardPatch streams data from body to the tusd upload at the given offset.
-// If uploadLength is non-empty, it declares the final upload length (used for
-// deferred-length uploads to finalize the size). Returns the new offset after
-// the chunk is written, or an error.
+// If uploadLength is non-empty, it declares the final upload length used to
+// finalize a deferred-length upload. A matching re-declaration is dropped
+// before forwarding; a different value returns a 409 ClientError. Returns the
+// new offset after the chunk is written, or an error.
 func (h *TUSHandler) ForwardPatch(
 	ctx context.Context, backendID string, body io.Reader, offset int64, uploadLength string,
 ) (int64, error) {

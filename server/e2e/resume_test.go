@@ -19,25 +19,13 @@ package e2e
 import (
 	"bytes"
 	"errors"
-	"io"
 	"net/http"
 	"strconv"
 	"testing"
+	"testing/iotest"
 
 	"github.com/stretchr/testify/require"
 )
-
-type faultInjectingReader struct {
-	failed bool
-}
-
-func (r *faultInjectingReader) Read([]byte) (int, error) {
-	if r.failed {
-		return 0, io.EOF
-	}
-	r.failed = true
-	return 0, errors.New("synthetic request-body read failure")
-}
 
 // ---------------------------------------------------------------------------
 // Basic offset tracking
@@ -204,7 +192,7 @@ func TestResume_ResumeAfterInterruption(t *testing.T) {
 
 // TestResume_FinalChunkRetryAfterPartialWriteFailure reproduces a failed
 // final PATCH after tusd has persisted the declared length but before it has
-// persisted any bytes. The retry must be allowed to omit the already-recorded
+// persisted any bytes. The retry must accept the same already-recorded
 // Upload-Length header and complete normally.
 func TestResume_FinalChunkRetryAfterPartialWriteFailure(t *testing.T) {
 	localID := MakeLocalIdentifier(t, t.Name())
@@ -219,7 +207,7 @@ func TestResume_FinalChunkRetryAfterPartialWriteFailure(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, status, "initial PATCH should return 204")
 	require.Equal(t, int64(len(firstChunk)), patchResp.UploadOffset)
 
-	_, _, err = PatchUploadData(cr.ID, &faultInjectingReader{}, patchResp.UploadOffset,
+	_, _, err = PatchUploadData(cr.ID, iotest.ErrReader(errors.New("synthetic request-body read failure")), patchResp.UploadOffset,
 		strconv.FormatInt(totalLength, 10))
 	require.Error(t, err, "fault-injected final PATCH should fail at transport level")
 

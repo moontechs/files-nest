@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"golang.org/x/exp/slog"
@@ -21,10 +22,6 @@ import (
 	"github.com/tus/tusd/v2/pkg/handler"
 	"github.com/tus/tusd/v2/pkg/memorylocker"
 )
-
-type firstReadError struct{}
-
-func (firstReadError) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
 
 func TestForwardPatchFinalLengthRetry(t *testing.T) {
 	h, err := New(t.TempDir())
@@ -39,7 +36,7 @@ func TestForwardPatchFinalLengthRetry(t *testing.T) {
 	}
 
 	const finalSize = 11
-	_, err = h.ForwardPatch(ctx, id, firstReadError{}, 0, strconv.Itoa(finalSize))
+	_, err = h.ForwardPatch(ctx, id, iotest.ErrReader(io.ErrUnexpectedEOF), 0, strconv.Itoa(finalSize))
 	if err == nil {
 		t.Fatal("ForwardPatch with failing reader succeeded")
 	}
@@ -76,7 +73,7 @@ func TestForwardPatchFinalLengthMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateUpload: %v", err)
 	}
-	_, _ = h.ForwardPatch(ctx, id, firstReadError{}, 0, "11")
+	_, _ = h.ForwardPatch(ctx, id, iotest.ErrReader(io.ErrUnexpectedEOF), 0, "11")
 
 	_, err = h.ForwardPatch(ctx, id, bytes.NewReader([]byte("hello")), 0, "12")
 	var clientErr *ClientError
