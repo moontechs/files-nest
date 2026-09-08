@@ -302,20 +302,20 @@ identical.
 - Modify: `apple/FilesNestCore/Sources/FilesNestCore/ServerClientError.swift`
 - Modify: `apple/FilesNestCore/Tests/FilesNestCoreTests/ServerClientErrorTests.swift`
 
-- [ ] add the `readableDescription` extension shown in Technical Details,
+- [x] add the `readableDescription` extension shown in Technical Details,
       covering all 13 `ServerClientError` cases with bespoke text
-- [ ] write a table-driven test asserting each case's `readableDescription`
+- [x] write a table-driven test asserting each case's `readableDescription`
       is non-empty and does not contain the case's raw Swift identifier
       (catches a regression to debug-dump-style output)
-- [ ] write a test specifically for `.badRequest`/`.unexpectedStatus`
+- [x] write a test specifically for `.badRequest`/`.unexpectedStatus`
       confirming the server-provided message is interpolated into the
       output text (not dropped) when non-empty
-- [ ] write a test for `.badRequest(message: "")` and
+- [x] write a test for `.badRequest(message: "")` and
       `.unexpectedStatus(code:, message: Optional(""))` confirming no
       dangling `": "`/`": ."` artifact — falls back to the no-detail phrasing
-- [ ] write a test specifically for `.decoding`/`.transport` confirming
+- [x] write a test specifically for `.decoding`/`.transport` confirming
       their associated raw strings are **not** present in the output text
-- [ ] run `swift test --no-parallel` (from `apple/FilesNestCore/`) — must
+- [x] run `swift test --no-parallel` (from `apple/FilesNestCore/`) — must
       pass before task 2
 
 ### Task 2: `LocalFolderSyncError.readableDescription`

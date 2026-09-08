@@ -36,3 +36,48 @@ private func body(_ s: String) -> Data { #"{"error":"\#(s)"}"#.data(using: .utf8
 @Test func mapSuccessReturnsNil() {
     #expect(ServerClientError.map(status: 204, body: Data()) == nil)
 }
+
+@Test func readableDescriptionCoversEveryCase() {
+    let cases: [(String, ServerClientError)] = [
+        ("unauthorized", .unauthorized),
+        ("notFound", .notFound),
+        ("backendLost", .backendLost),
+        ("alreadyCompleted", .alreadyCompleted),
+        ("alreadyDeleted", .alreadyDeleted),
+        ("notUploading", .notUploading),
+        ("offsetConflict", .offsetConflict),
+        ("uploadIncomplete", .uploadIncomplete),
+        ("badRequest", .badRequest(message: "details")),
+        ("requestTooLarge", .requestTooLarge),
+        ("unexpectedStatus", .unexpectedStatus(code: 500, message: "details")),
+        ("decoding", .decoding("raw decoding details")),
+        ("transport", .transport("raw transport details")),
+        ("serviceUnavailable", .serviceUnavailable(retryAfter: 5)),
+    ]
+
+    for (identifier, error) in cases {
+        let description = error.readableDescription
+        #expect(!description.isEmpty)
+        #expect(!description.contains(identifier))
+    }
+}
+
+@Test func readableDescriptionIncludesNonEmptyServerMessages() {
+    #expect(ServerClientError.badRequest(message: "bad filename").readableDescription.contains("bad filename"))
+    #expect(ServerClientError.unexpectedStatus(code: 500, message: "failed to write upload data").readableDescription.contains("failed to write upload data"))
+}
+
+@Test func readableDescriptionOmitsEmptyServerMessageDetails() {
+    let badRequest = ServerClientError.badRequest(message: "").readableDescription
+    let unexpected = ServerClientError.unexpectedStatus(code: 500, message: "").readableDescription
+
+    #expect(badRequest == "The server rejected this request.")
+    #expect(unexpected == "Server error (500).")
+    #expect(!badRequest.contains(": ."))
+    #expect(!unexpected.contains(": "))
+}
+
+@Test func readableDescriptionHidesRawAssociatedErrorText() {
+    #expect(!ServerClientError.decoding("secret decoding payload").readableDescription.contains("secret decoding payload"))
+    #expect(!ServerClientError.transport("secret transport payload").readableDescription.contains("secret transport payload"))
+}
