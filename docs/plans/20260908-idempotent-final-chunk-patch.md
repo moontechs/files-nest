@@ -302,18 +302,18 @@ are mutually dependent — splitting them would leave an intermediate task
 where a real error case (the mismatch path) silently falls through to a
 masked 500, which is exactly the bug being fixed.
 
-- [ ] add the exported `ClientError{Status int; Body string}` type with an
+- [x] add the exported `ClientError{Status int; Body string}` type with an
       `Error() string` method (near the existing sentinel vars, ~line 28-39)
-- [ ] change `ForwardPatch` (~line 202) as shown in Technical Details: when
+- [x] change `ForwardPatch` (~line 202) as shown in Technical Details: when
       `uploadLength != ""`, call `h.GetInfo` first; if `!info.SizeIsDeferred`,
       compare the resent value to `info.Size` — match drops the header
       (idempotent no-op), mismatch returns `*ClientError{Status: 409, ...}`
       without calling tusd. Signature is unchanged.
-- [ ] in `forwardUploadData` (~line 1114-1132), add the `ClientError`
+- [x] in `forwardUploadData` (~line 1114-1132), add the `ClientError`
       passthrough branch shown in Technical Details, after the existing
       `ErrNotFound`/`ErrInvalidOffset` checks and before the generic
       fallback: `"WARN ..."` log + `writeError(w, ce.Status, ce.Body)`
-- [ ] write a `ForwardPatch`-level test (uploadbackend package) reproducing
+- [x] write a `ForwardPatch`-level test (uploadbackend package) reproducing
       the real bug: create an upload, `ForwardPatch` a chunk using a
       `Read`-erroring reader (fails on its first `Read` call — zero bytes
       persisted, matching Task 3's design) with a non-empty `uploadLength` —
@@ -322,16 +322,16 @@ masked 500, which is exactly the bug being fixed.
       `ForwardPatch` the same bytes with a normal reader, same
       `uploadLength` — assert it now succeeds (204-equivalent: no error,
       offset advances to the declared length)
-- [ ] write a `ForwardPatch`-level test for the mismatch path: same
+- [x] write a `ForwardPatch`-level test for the mismatch path: same
       declared-but-not-written setup, but retry with a *different*
       `uploadLength` value than originally declared — assert a
       `*ClientError{Status: 409, ...}` is returned and `GetInfo` shows the
       offset did **not** advance (mismatch is rejected before reaching tusd)
-- [ ] write a regression test: a fresh upload's *first* declare of
+- [x] write a regression test: a fresh upload's *first* declare of
       `Upload-Length` (size not yet deferred-false) still sets the header
       and succeeds normally — confirms the not-yet-declared path is
       untouched
-- [ ] write a handler-level test (`server/internal/api/handlers_test.go`,
+- [x] write a handler-level test (`server/internal/api/handlers_test.go`,
       pattern: `TestHandlePatchUploadData_MultiChunkWithFinalization`)
       reproducing `SizeIsDeferred=false && Offset<Size` through the full
       `Handler` (NOT "PATCH again after the upload is already fully
@@ -342,7 +342,7 @@ masked 500, which is exactly the bug being fixed.
       `h.HandlePatchUploadData`): retry with a matching `Upload-Length` →
       `204`; retry with a mismatched `Upload-Length` → the real `409` status
       reaches the response, not a masked `500`
-- [ ] run `make test` (from `server/`) — must pass before task 2
+- [x] run `make test` (from `server/`) — must pass before task 2
 
 ### Task 2: Honest 4xx classification in `extractTusdError`
 

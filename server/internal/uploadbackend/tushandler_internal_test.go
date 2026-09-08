@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,6 +21,90 @@ import (
 	"github.com/tus/tusd/v2/pkg/handler"
 	"github.com/tus/tusd/v2/pkg/memorylocker"
 )
+
+type firstReadError struct{}
+
+func (firstReadError) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+
+func TestForwardPatchFinalLengthRetry(t *testing.T) {
+	h, err := New(t.TempDir())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx := context.Background()
+	id, err := h.CreateUpload(ctx, "")
+	if err != nil {
+		t.Fatalf("CreateUpload: %v", err)
+	}
+
+	const finalSize = 11
+	_, err = h.ForwardPatch(ctx, id, firstReadError{}, 0, strconv.Itoa(finalSize))
+	if err == nil {
+		t.Fatal("ForwardPatch with failing reader succeeded")
+	}
+
+	info, err := h.GetInfo(ctx, id)
+	if err != nil {
+		t.Fatalf("GetInfo after failed patch: %v", err)
+	}
+	if info.SizeIsDeferred || info.Size != finalSize || info.Offset != 0 {
+		t.Fatalf("info after failed patch = %+v, want declared size %d and offset 0", info, finalSize)
+	}
+
+	_, err = h.ForwardPatch(ctx, id, bytes.NewReader([]byte("hello world")), 0, strconv.Itoa(finalSize))
+	if err != nil {
+		t.Fatalf("retry ForwardPatch: %v", err)
+	}
+	info, err = h.GetInfo(ctx, id)
+	if err != nil {
+		t.Fatalf("GetInfo after retry: %v", err)
+	}
+	if info.Offset != finalSize {
+		t.Errorf("offset after retry = %d, want %d", info.Offset, finalSize)
+	}
+}
+
+func TestForwardPatchFinalLengthMismatch(t *testing.T) {
+	h, err := New(t.TempDir())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx := context.Background()
+	id, err := h.CreateUpload(ctx, "")
+	if err != nil {
+		t.Fatalf("CreateUpload: %v", err)
+	}
+	_, _ = h.ForwardPatch(ctx, id, firstReadError{}, 0, "11")
+
+	_, err = h.ForwardPatch(ctx, id, bytes.NewReader([]byte("hello")), 0, "12")
+	var clientErr *ClientError
+	if !errors.As(err, &clientErr) || clientErr.Status != http.StatusConflict {
+		t.Fatalf("error = %v, want ClientError 409", err)
+	}
+	info, err := h.GetInfo(ctx, id)
+	if err != nil {
+		t.Fatalf("GetInfo: %v", err)
+	}
+	if info.Offset != 0 {
+		t.Errorf("offset after mismatch = %d, want 0", info.Offset)
+	}
+}
+
+func TestForwardPatchFirstFinalLengthDeclaration(t *testing.T) {
+	h, err := New(t.TempDir())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	id, err := h.CreateUpload(context.Background(), "")
+	if err != nil {
+		t.Fatalf("CreateUpload: %v", err)
+	}
+	if _, err := h.ForwardPatch(context.Background(), id, bytes.NewReader([]byte("hello")), 0, "5"); err != nil {
+		t.Fatalf("first final declaration: %v", err)
+	}
+}
 
 func TestExtractTusdError(t *testing.T) {
 	tests := []struct {

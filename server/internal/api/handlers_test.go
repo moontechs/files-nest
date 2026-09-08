@@ -26,6 +26,10 @@ var (
 	errConcurrentStatus = errors.New("concurrent patch unexpected status")
 )
 
+type firstReadFailure struct{}
+
+func (firstReadFailure) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+
 // ---------------------------------------------------------------------------
 // Test setup helpers
 // ---------------------------------------------------------------------------
@@ -1215,6 +1219,31 @@ func TestHandlePatchUploadData_Success(t *testing.T) {
 	tusVer := rec.Header().Get("Tus-Resumable")
 	if tusVer != "1.0.0" {
 		t.Errorf("expected Tus-Resumable 1.0.0, got %s", tusVer)
+	}
+}
+
+func TestHandlePatchUploadData_FinalLengthRetryAndMismatch(t *testing.T) {
+	h, _, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-RETRY/L0/000", "IMG_0001.jpg", creationDate)
+
+	const finalSize = 11
+	failure := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, strconv.Itoa(finalSize), firstReadFailure{})
+	if failure.Code != http.StatusInternalServerError {
+		t.Fatalf("failed PATCH expected 500, got %d: %s", failure.Code, failure.Body.String())
+	}
+
+	mismatch := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, "12", strings.NewReader("hello world"))
+	if mismatch.Code != http.StatusConflict {
+		t.Fatalf("mismatched retry expected 409, got %d: %s", mismatch.Code, mismatch.Body.String())
+	}
+	if strings.Contains(mismatch.Body.String(), "failed to write upload data") {
+		t.Fatal("mismatched retry was masked as a server error")
+	}
+
+	retry := tusPatchRequest(
+		h.HandlePatchUploadData, created.ID, 0, strconv.Itoa(finalSize), strings.NewReader("hello world"))
+	if retry.Code != http.StatusNoContent {
+		t.Fatalf("matching retry expected 204, got %d: %s", retry.Code, retry.Body.String())
 	}
 }
 

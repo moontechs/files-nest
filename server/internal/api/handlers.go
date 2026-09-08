@@ -1125,6 +1125,14 @@ func (h *Handler) forwardUploadData(
 			return
 		}
 
+		var clientErr *uploadbackend.ClientError
+		if errors.As(err, &clientErr) {
+			log.Printf("WARN ForwardPatch client error for backend %s: %v", upload.BackendID, err)
+			writeError(w, clientErr.Status, clientErr.Body)
+
+			return
+		}
+
 		log.Printf("ERROR ForwardPatch failed for backend %s: %v", upload.BackendID, err)
 		writeError(w, http.StatusInternalServerError, "failed to write upload data")
 
