@@ -29,3 +29,13 @@ public struct FailedItem: Sendable, Equatable {
         self.kind = kind
     }
 }
+
+func readableFailureReason(for error: Error) -> String {
+    if let error = error as? ServerClientError {
+        return error.readableDescription
+    }
+    if let error = error as? LocalFolderSyncError {
+        return error.readableDescription
+    }
+    return error.localizedDescription
+}

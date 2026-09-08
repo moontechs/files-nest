@@ -81,3 +81,19 @@ private func body(_ s: String) -> Data { #"{"error":"\#(s)"}"#.data(using: .utf8
     #expect(!ServerClientError.decoding("secret decoding payload").readableDescription.contains("secret decoding payload"))
     #expect(!ServerClientError.transport("secret transport payload").readableDescription.contains("secret transport payload"))
 }
+
+@Test func readableFailureReasonDispatchesServerClientError() {
+    let error = ServerClientError.notFound
+    #expect(readableFailureReason(for: error) == error.readableDescription)
+}
+
+@Test func readableFailureReasonDispatchesLocalFolderSyncError() {
+    let error = LocalFolderSyncError.unsafeDestination
+    #expect(readableFailureReason(for: error) == error.readableDescription)
+}
+
+@Test func readableFailureReasonFallsBackToLocalizedDescription() {
+    let error = NSError(domain: "FilesNestCoreTests", code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "A localized failure"])
+    #expect(readableFailureReason(for: error) == error.localizedDescription)
+}

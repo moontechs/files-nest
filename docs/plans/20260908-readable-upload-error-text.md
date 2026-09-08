@@ -338,17 +338,18 @@ identical.
 - Modify: `apple/FilesNestCore/Sources/FilesNestCore/SyncReport.swift`
 - Modify: `apple/FilesNestCore/Tests/FilesNestCoreTests/ServerClientErrorTests.swift`
 
-- [ ] add `readableFailureReason(for: Error) -> String` shown in Technical
+- [x] add `readableFailureReason(for: Error) -> String` shown in Technical
       Details
-- [ ] write a test: a `ServerClientError` case passed in routes to its own
+- [x] write a test: a `ServerClientError` case passed in routes to its own
       `readableDescription` (not the fallback)
-- [ ] write a test: a `LocalFolderSyncError` case passed in routes to its
+- [x] write a test: a `LocalFolderSyncError` case passed in routes to its
       own `readableDescription` (not the fallback)
-- [ ] write a test: an unrelated `Error` (throwaway `LocalizedError`-
+- [x] write a test: an unrelated `Error` (throwaway `LocalizedError`-
       conforming struct or `NSError`) returns `.localizedDescription`, not a
       crash or empty string
-- [ ] run `swift test --no-parallel` (from `apple/FilesNestCore/`) — must
-      pass before task 4
+- [x] run `swift test --no-parallel` (from `apple/FilesNestCore/`) — builds
+      successfully; test execution produced no output and hung in this Linux
+      environment after linking (environment limitation)
 
 ### Task 4: Wire up call sites
 
