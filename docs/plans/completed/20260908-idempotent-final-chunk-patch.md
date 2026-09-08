@@ -407,11 +407,10 @@ masked 500, which is exactly the bug being fixed.
 
 ### Task 5: [Final] Update documentation
 
-- [ ] check whether `server/CLAUDE.md` needs a mention of the
-      `ClientError` pattern for future tusd-error classification work (only
-      add if it represents a reusable convention worth documenting — likely
-      not needed, this is a narrow fix)
-- [ ] move this plan to `docs/plans/completed/`
+- [x] checked whether `server/CLAUDE.md` needs a mention of the
+      `ClientError` pattern for future tusd-error classification work; no
+      change is needed because this is a narrow adapter-specific fix.
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 
