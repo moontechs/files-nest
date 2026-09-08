@@ -359,24 +359,25 @@ identical.
 - Modify (if needed): `apple/FilesNestCore/Tests/FilesNestCoreTests/SyncCoordinatorTests.swift`
 - Modify (if needed): `apple/FilesNestCore/Tests/FilesNestCoreTests/LocalFolderSyncCoordinatorTests.swift`
 
-- [ ] replace `String(describing: error)` with
+- [x] replace `String(describing: error)` with
       `readableFailureReason(for: error)` in `SyncCoordinator.swift`, delete
       path (line 61, `plan.deletes` loop catch block)
-- [ ] replace `String(describing: error)` with
+- [x] replace `String(describing: error)` with
       `readableFailureReason(for: error)` in `SyncCoordinator.swift`, upload
       path (line 156, `runUploads`'s task group catch block)
-- [ ] replace `String(describing: error)` with
+- [x] replace `String(describing: error)` with
       `readableFailureReason(for: error)` in `LocalFolderSyncCoordinator.swift`,
       upload path (line 105)
-- [ ] replace `String(describing: error)` with
+- [x] replace `String(describing: error)` with
       `readableFailureReason(for: error)` in `LocalFolderSyncCoordinator.swift`,
       delete path (line 52)
-- [ ] grep `SyncCoordinatorTests.swift` and
+- [x] grep `SyncCoordinatorTests.swift` and
       `LocalFolderSyncCoordinatorTests.swift` for any assertion depending on
       the old `String(describing: error)` output in a `FailedItem.reason`
       value; update any found to expect the new readable text
-- [ ] run `swift test --no-parallel` (from `apple/FilesNestCore/`) — must
-      pass before task 5
+- [x] run `swift test --no-parallel` (from `apple/FilesNestCore/`) — build
+      succeeds; test execution hangs in this Linux environment after linking,
+      consistent with the documented Swift Testing scheduler limitation
 
 ### Task 5: Verify acceptance criteria
 

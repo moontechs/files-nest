@@ -58,7 +58,7 @@ public struct SyncCoordinator: Sendable {
             } catch {
                 failed.append(FailedItem(key: del.key,
                                          filename: del.key.encoded,
-                                         reason: String(describing: error),
+                                         reason: readableFailureReason(for: error),
                                          kind: .delete))
             }
         }
@@ -153,7 +153,7 @@ public struct SyncCoordinator: Sendable {
                         } catch {
                             return .failed(FailedItem(key: item.resource.key,
                                                       filename: item.resource.filename,
-                                                      reason: String(describing: error)))
+                                                      reason: readableFailureReason(for: error)))
                         }
                     }
                     emit()   // newest still-in-flight item becomes the reported current

@@ -62,7 +62,7 @@ public struct LocalFolderSyncCoordinator: Sendable {
             try Task.checkCancellation()
             try validateDestination()
             do { try FileManager.default.removeItem(at: item.path); deleted.append(item.key) }
-            catch { failed.append(FailedItem(key: item.key, filename: item.path.lastPathComponent, reason: String(describing: error), kind: .delete)) }
+            catch { failed.append(FailedItem(key: item.key, filename: item.path.lastPathComponent, reason: readableFailureReason(for: error), kind: .delete)) }
         }
         return SyncReport(uploaded: uploadResult.uploaded, deleted: deleted, failed: failed, skipped: resources.count - uploads.count)
     }
@@ -115,7 +115,7 @@ public struct LocalFolderSyncCoordinator: Sendable {
             }
             catch is CancellationError { throw CancellationError() }
             catch let error as LocalFolderSyncError where error == .unavailableDestination { throw error }
-            catch { failed.append(FailedItem(key: resource.key, filename: resource.filename, reason: String(describing: error))) }
+            catch { failed.append(FailedItem(key: resource.key, filename: resource.filename, reason: readableFailureReason(for: error))) }
         }
         onProgress(SyncProgress(completed: resources.count, total: resources.count, currentItemName: nil, bytesRemaining: nil))
         return (uploaded, failed)
