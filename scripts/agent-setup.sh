@@ -8,12 +8,28 @@
 #
 # Run manually with: scripts/agent-setup.sh
 
-set -u
+set -Eeuo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root" || exit 1
 
 status=0
+
+if ! command -v mise >/dev/null 2>&1; then
+  printf '%s\n' \
+    'ERROR: mise was not found on your PATH.' \
+    'This repo pins tool versions (golangci-lint) in mise.toml; install mise' \
+    '(https://mise.jdx.dev/getting-started.html) and re-run scripts/agent-setup.sh.' >&2
+  status=1
+else
+  printf '%s\n' 'mise: installing pinned tools (mise install --include-task-tools)...' >&2
+  if ! mise install --include-task-tools; then
+    printf '%s\n' \
+      'ERROR: "mise install --include-task-tools" failed.' \
+      'Fix the reported tool install error above, then re-run scripts/agent-setup.sh.' >&2
+    status=1
+  fi
+fi
 
 git config core.hooksPath .githooks
 configured="$(git config core.hooksPath)"
@@ -31,7 +47,18 @@ if [ ! -x "$repo_root/.githooks/pre-commit" ]; then
   status=1
 fi
 
-if ! command -v golangci-lint >/dev/null 2>&1; then
+# Resolve golangci-lint through mise rather than trusting PATH: shell
+# activation isn't guaranteed in this process, and exporting PATH here
+# wouldn't survive back to the parent shell anyway.
+if command -v mise >/dev/null 2>&1; then
+  if ! mise exec -- golangci-lint version >/dev/null 2>&1; then
+    printf '%s\n' \
+      'ERROR: golangci-lint is not available via "mise exec" after mise install.' \
+      'The pre-commit hook requires it to lint server/ changes — check mise.toml' \
+      'and re-run scripts/agent-setup.sh.' >&2
+    status=1
+  fi
+elif ! command -v golangci-lint >/dev/null 2>&1; then
   printf '%s\n' \
     'ERROR: golangci-lint was not found on your PATH.' \
     'The pre-commit hook requires it to lint server/ changes; install it now' \
@@ -40,36 +67,18 @@ if ! command -v golangci-lint >/dev/null 2>&1; then
   status=1
 fi
 
-if ! command -v swift >/dev/null 2>&1; then
-  if [ "$(uname -s)" = "Linux" ]; then
-    printf '%s\n' 'swift not found — installing via swiftly (https://swift.org/install)...' >&2
-    swiftly_dir="$(mktemp -d)"
-    if curl -fsSL -o "$swiftly_dir/swiftly.tar.gz" "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz" \
-      && tar zxf "$swiftly_dir/swiftly.tar.gz" -C "$swiftly_dir" \
-      && "$swiftly_dir/swiftly" init --quiet-shell-followup -y >&2; then
-      # shellcheck disable=SC1090
-      . "${SWIFTLY_HOME_DIR:-$HOME/.local/share/swiftly}/env.sh"
-    fi
-    rm -rf "$swiftly_dir"
-  fi
-
-  if ! command -v swift >/dev/null 2>&1; then
-    if [ "$(uname -s)" = "Linux" ]; then
-      printf '%s\n' \
-        'ERROR: swift is still not on PATH after attempting install via swiftly.' \
-        'apple/ changes would go completely unguarded locally on this host.' \
-        'Install the Swift toolchain by hand (https://swift.org/install), then re-run' \
-        'scripts/agent-setup.sh.' >&2
-      status=1
-    else
-      printf '%s\n' \
-        'WARNING: swift was not found on your PATH.' \
-        'apple/ changes will not be gated locally on this host (the Swift' \
-        'toolchain is Xcode-only) — CI remains the only gate for that side.' >&2
-    fi
-  else
-    printf '%s\n' "swift installed: $(swift --version 2>&1 | head -1)" >&2
-  fi
+# Not mise-managed: neither the core `swift` plugin (no Linux/arm64 build for
+# most versions) nor swiftly (needs system packages a worker container can't
+# apt-get as a non-root user) can reliably produce a working toolchain here.
+# Only check for a Swift already on PATH (Xcode CLT on macOS, or an image
+# that bakes one in) rather than attempting an install doomed to half-work.
+if command -v swift >/dev/null 2>&1; then
+  printf '%s\n' "swift installed: $(swift --version 2>&1 | head -1)" >&2
+else
+  printf '%s\n' \
+    'WARNING: swift was not found on your PATH.' \
+    'apple/ changes will not be gated locally on this host — CI remains the' \
+    'only gate for that side.' >&2
 fi
 
 exit "$status"
