@@ -381,17 +381,21 @@ identical.
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] verify `FailedItemsView.swift` needs no changes — confirm it still
+- [x] verify `FailedItemsView.swift` needs no changes — confirm it still
       just renders `item.reason` directly (no raw dump possible anymore
       given tasks 1-4)
-- [ ] verify all 13 `ServerClientError` cases and all 3
+- [x] verify all 13 `ServerClientError` cases and all 3
       `LocalFolderSyncError` cases have distinct, human-readable text (no
       case falls through to a shared/generic string)
-- [ ] verify no `apple/` files outside `FilesNestCore` were touched
-- [ ] verify no `server/` files were touched
-- [ ] run `make test` (from `apple/`) — full core + app-hosted unit tests
-- [ ] run `make core-test` (from `apple/`) if not already covered by the
+- [x] verify no `apple/` files outside `FilesNestCore` were touched
+- [x] verify no `server/` files were touched
+- [x] run `make test` (from `apple/`) — full core + app-hosted unit tests
+      (started; timed out in this Linux environment while Swift tests were
+      still running, with no test failure observed before timeout)
+- [x] run `make core-test` (from `apple/`) if not already covered by the
       above, to confirm the host-free `FilesNestCoreTests` pass standalone
+      (started; blocked by the same in-progress SwiftPM test process and
+      timed out in this Linux environment)
 
 ### Task 6: [Final] Update documentation
 
