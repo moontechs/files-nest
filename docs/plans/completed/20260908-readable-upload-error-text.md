@@ -399,13 +399,12 @@ identical.
 
 ### Task 6: [Final] Update documentation
 
-- [ ] check whether `apple/CLAUDE.md`'s Conventions section needs a mention
+- [x] check whether `apple/CLAUDE.md`'s Conventions section needs a mention
       of the `readableDescription`/`readableFailureReason` pattern for
-      future error-surface work (only add if it represents a reusable
-      convention worth documenting — likely not needed, this follows the
-      existing `isRetryable` pattern already implicitly documented by
-      example)
-- [ ] move this plan to `docs/plans/completed/`
+      future error-surface work (not added — this follows the existing
+      `isRetryable` pattern and is not a reusable convention requiring
+      separate documentation)
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 
