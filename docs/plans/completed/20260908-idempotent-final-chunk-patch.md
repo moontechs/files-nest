@@ -342,7 +342,7 @@ masked 500, which is exactly the bug being fixed.
       `h.HandlePatchUploadData`): retry with a matching `Upload-Length` →
       `204`; retry with a mismatched `Upload-Length` → the real `409` status
       reaches the response, not a masked `500`
-- [x] run `make test` (from `server/`) — must pass before task 2
+- [x] run `make test` (from `server/`) (passed during review after the Go toolchain was installed)
 
 ### Task 2: Honest 4xx classification in `extractTusdError`
 

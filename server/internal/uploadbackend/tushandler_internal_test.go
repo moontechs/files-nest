@@ -106,37 +106,80 @@ func TestForwardPatchFirstFinalLengthDeclaration(t *testing.T) {
 	}
 }
 
+//nolint:funlen // The table documents each tusd status-to-error mapping in one place.
 func TestExtractTusdError(t *testing.T) {
 	tests := []struct {
-		name     string
-		status   int
-		sentinel error
-		body     string
-		client   bool
+		name        string
+		status      int
+		sentinel    error
+		body        string
+		client      bool
+		bodyInError bool
 	}{
 		{
-			name: "not found sentinel", status: http.StatusNotFound, sentinel: ErrNotFound, body: "missing upload",
+			name:        "not found sentinel",
+			status:      http.StatusNotFound,
+			sentinel:    ErrNotFound,
+			body:        "missing upload",
+			client:      false,
+			bodyInError: false,
 		},
 		{
-			name: "conflict sentinel", status: http.StatusConflict, sentinel: errTusdConflict, body: "offset conflict",
+			name:        "conflict sentinel",
+			status:      http.StatusConflict,
+			sentinel:    errTusdConflict,
+			body:        "offset conflict",
+			client:      false,
+			bodyInError: true,
 		},
 		{
-			name: "locked sentinel", status: http.StatusLocked, sentinel: ErrLocked, body: "upload locked",
+			name:        "locked sentinel",
+			status:      http.StatusLocked,
+			sentinel:    ErrLocked,
+			body:        "upload locked",
+			client:      false,
+			bodyInError: false,
 		},
 		{
-			name:     "not implemented",
-			status:   http.StatusNotImplemented,
-			sentinel: errTusdNotImplemented,
-			body:     "feature is unavailable",
+			name:        "not implemented",
+			status:      http.StatusNotImplemented,
+			sentinel:    errTusdNotImplemented,
+			body:        "feature is unavailable",
+			client:      false,
+			bodyInError: true,
 		},
 		{
-			name:     "precondition failed",
-			status:   http.StatusPreconditionFailed,
-			sentinel: errTusdVersionMismatch,
-			body:     "unsupported tus version",
+			name:        "precondition failed",
+			status:      http.StatusPreconditionFailed,
+			sentinel:    errTusdVersionMismatch,
+			body:        "unsupported tus version",
+			client:      false,
+			bodyInError: true,
 		},
-		{name: "bad request with body", status: http.StatusBadRequest, body: "ERR_INVALID_UPLOAD_LENGTH", client: true},
-		{name: "bad request without body", status: http.StatusBadRequest, client: true},
+		{
+			name:        "bad request with body",
+			status:      http.StatusBadRequest,
+			sentinel:    nil,
+			body:        "ERR_INVALID_UPLOAD_LENGTH",
+			client:      true,
+			bodyInError: false,
+		},
+		{
+			name:        "bad request without body",
+			status:      http.StatusBadRequest,
+			sentinel:    nil,
+			body:        "",
+			client:      true,
+			bodyInError: false,
+		},
+		{
+			name:        "payload too large",
+			status:      http.StatusRequestEntityTooLarge,
+			sentinel:    nil,
+			body:        "upload too large",
+			client:      true,
+			bodyInError: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -156,7 +199,7 @@ func TestExtractTusdError(t *testing.T) {
 			if !errors.Is(err, tt.sentinel) {
 				t.Fatalf("extractTusdError() error = %v, want wrapping %v", err, tt.sentinel)
 			}
-			if tt.body != "" && !strings.Contains(err.Error(), tt.body) {
+			if tt.bodyInError && !strings.Contains(err.Error(), tt.body) {
 				t.Errorf("error = %q, want body text %q", err, tt.body)
 			}
 		})

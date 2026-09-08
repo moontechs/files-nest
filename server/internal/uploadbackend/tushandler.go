@@ -213,11 +213,34 @@ func (h *TUSHandler) GetOffset(ctx context.Context, backendID string) (int64, er
 func (h *TUSHandler) ForwardPatch(
 	ctx context.Context, backendID string, body io.Reader, offset int64, uploadLength string,
 ) (int64, error) {
-	var err error
+	declared, parseErr := strconv.ParseInt(uploadLength, 10, 64)
+	if uploadLength != "" && (parseErr != nil || declared < 0) {
+		return 0, &ClientError{
+			Status: http.StatusBadRequest,
+			Body:   "ERR_INVALID_UPLOAD_LENGTH: missing or invalid Upload-Length header",
+		}
+	}
 
-	uploadLength, err = h.prepareUploadLength(ctx, backendID, uploadLength)
-	if err != nil {
-		return 0, err
+	var info *UploadInfo
+
+	if uploadLength != "" {
+		var err error
+
+		info, err = h.GetInfo(ctx, backendID)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	if uploadLength != "" && !info.SizeIsDeferred {
+		if declared != info.Size {
+			return 0, &ClientError{
+				Status: http.StatusConflict,
+				Body:   fmt.Sprintf("Upload-Length mismatch: declared %d, resent %d", info.Size, declared),
+			}
+		}
+
+		uploadLength = ""
 	}
 
 	rec := newTusdRecorder()
@@ -358,37 +381,6 @@ func (h *TUSHandler) TerminateOrCleanup(ctx context.Context, backendID string) e
 	default:
 		return extractTusdError(rec.ResponseRecorder)
 	}
-}
-
-func (h *TUSHandler) prepareUploadLength(
-	ctx context.Context, backendID, uploadLength string,
-) (string, error) {
-	if uploadLength == "" {
-		return "", nil
-	}
-
-	info, err := h.GetInfo(ctx, backendID)
-	if err != nil {
-		return "", err
-	}
-
-	if info.SizeIsDeferred {
-		return uploadLength, nil
-	}
-
-	declared, parseErr := strconv.ParseInt(uploadLength, 10, 64)
-	if parseErr != nil {
-		return "", fmt.Errorf("%w: invalid Upload-Length %q", errTusdGeneric, uploadLength)
-	}
-
-	if declared != info.Size {
-		return "", &ClientError{
-			Status: http.StatusConflict,
-			Body:   fmt.Sprintf("Upload-Length mismatch: declared %d, resent %d", info.Size, declared),
-		}
-	}
-
-	return "", nil
 }
 
 // ---------------------------------------------------------------------------
