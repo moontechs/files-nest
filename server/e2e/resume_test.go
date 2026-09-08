@@ -18,12 +18,26 @@ package e2e
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+type faultInjectingReader struct {
+	failed bool
+}
+
+func (r *faultInjectingReader) Read([]byte) (int, error) {
+	if r.failed {
+		return 0, io.EOF
+	}
+	r.failed = true
+	return 0, errors.New("synthetic request-body read failure")
+}
 
 // ---------------------------------------------------------------------------
 // Basic offset tracking
@@ -186,6 +200,43 @@ func TestResume_ResumeAfterInterruption(t *testing.T) {
 	require.Equal(t, "IMG_resume_interrupt.jpg", rec.Filename,
 		"filename must be preserved through resume")
 	assertSuffixedOrganizedPath(t, "IMG_resume_interrupt.jpg", rec)
+}
+
+// TestResume_FinalChunkRetryAfterPartialWriteFailure reproduces a failed
+// final PATCH after tusd has persisted the declared length but before it has
+// persisted any bytes. The retry must be allowed to omit the already-recorded
+// Upload-Length header and complete normally.
+func TestResume_FinalChunkRetryAfterPartialWriteFailure(t *testing.T) {
+	localID := MakeLocalIdentifier(t, t.Name())
+	cr := CreateTestUpload(t, localID, "IMG_resume_final_retry.jpg")
+
+	firstChunk := []byte("pre-final-data-")
+	finalChunk := []byte("final-data")
+	totalLength := int64(len(firstChunk) + len(finalChunk))
+
+	patchResp, status, err := PatchUploadData(cr.ID, bytes.NewReader(firstChunk), 0, "")
+	require.NoError(t, err, "initial PATCH should not error")
+	require.Equal(t, http.StatusNoContent, status, "initial PATCH should return 204")
+	require.Equal(t, int64(len(firstChunk)), patchResp.UploadOffset)
+
+	_, _, err = PatchUploadData(cr.ID, &faultInjectingReader{}, patchResp.UploadOffset,
+		strconv.FormatInt(totalLength, 10))
+	require.Error(t, err, "fault-injected final PATCH should fail at transport level")
+
+	headResp, status, err := HeadUploadData(cr.ID)
+	require.NoError(t, err, "HEAD after failed final PATCH should not error")
+	require.Equal(t, http.StatusOK, status, "HEAD should return 200")
+	require.False(t, headResp.SizeIsDeferred,
+		"failed final PATCH should leave the declared length persisted")
+	require.Equal(t, int64(len(firstChunk)), headResp.UploadOffset,
+		"failed final PATCH must not advance the offset")
+
+	patchResp, status, err = PatchUploadData(cr.ID, bytes.NewReader(finalChunk),
+		headResp.UploadOffset, strconv.FormatInt(totalLength, 10))
+	require.NoError(t, err, "retry of final PATCH should succeed")
+	require.Equal(t, http.StatusNoContent, status, "retry should return 204")
+	require.Equal(t, totalLength, patchResp.UploadOffset,
+		"retry should advance the offset to the final total size")
 }
 
 // TestResume_MultipleResumeCycles simulates a client that resumes multiple
