@@ -67,18 +67,45 @@ elif ! command -v golangci-lint >/dev/null 2>&1; then
   status=1
 fi
 
-# Not mise-managed: neither the core `swift` plugin (no Linux/arm64 build for
-# most versions) nor swiftly (needs system packages a worker container can't
-# apt-get as a non-root user) can reliably produce a working toolchain here.
-# Only check for a Swift already on PATH (Xcode CLT on macOS, or an image
-# that bakes one in) rather than attempting an install doomed to half-work.
-if command -v swift >/dev/null 2>&1; then
-  printf '%s\n' "swift installed: $(swift --version 2>&1 | head -1)" >&2
+# Not mise-managed: mise's core `swift` plugin has no Linux/arm64 build for
+# most versions, so swiftly is the fallback on Linux (its runtime deps —
+# libicu, libcurl, libedit, libncurses, etc. — must already be on the image;
+# a non-root worker can't apt-get them here). GPG signature verification
+# fails in this container even with gpg installed, so --no-verify is used;
+# swift.org is fetched over HTTPS regardless.
+if ! command -v swift >/dev/null 2>&1; then
+  if [ "$(uname -s)" = "Linux" ]; then
+    printf '%s\n' 'swift not found — installing latest stable via swiftly (https://swift.org/install)...' >&2
+    swiftly_dir="$(mktemp -d)"
+    if curl -fsSL -o "$swiftly_dir/swiftly.tar.gz" "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz" \
+      && tar zxf "$swiftly_dir/swiftly.tar.gz" -C "$swiftly_dir" \
+      && "$swiftly_dir/swiftly" init --skip-install --quiet-shell-followup -y \
+      && . "${SWIFTLY_HOME_DIR:-$HOME/.local/share/swiftly}/env.sh" \
+      && swiftly install latest --no-verify --assume-yes >&2; then
+      :
+    fi
+    rm -rf "$swiftly_dir"
+  fi
+
+  if ! command -v swift >/dev/null 2>&1; then
+    if [ "$(uname -s)" = "Linux" ]; then
+      printf '%s\n' \
+        'ERROR: swift is still not on PATH after attempting install via swiftly.' \
+        'apple/ changes would go completely unguarded locally on this host.' \
+        'Install the Swift toolchain by hand (https://swift.org/install), then re-run' \
+        'scripts/agent-setup.sh.' >&2
+      status=1
+    else
+      printf '%s\n' \
+        'WARNING: swift was not found on your PATH.' \
+        'apple/ changes will not be gated locally on this host (the Swift' \
+        'toolchain is Xcode-only) — CI remains the only gate for that side.' >&2
+    fi
+  else
+    printf '%s\n' "swift installed: $(swift --version 2>&1 | head -1)" >&2
+  fi
 else
-  printf '%s\n' \
-    'WARNING: swift was not found on your PATH.' \
-    'apple/ changes will not be gated locally on this host — CI remains the' \
-    'only gate for that side.' >&2
+  printf '%s\n' "swift installed: $(swift --version 2>&1 | head -1)" >&2
 fi
 
 exit "$status"
