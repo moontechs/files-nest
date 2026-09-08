@@ -38,27 +38,30 @@ private func body(_ s: String) -> Data { #"{"error":"\#(s)"}"#.data(using: .utf8
 }
 
 @Test func readableDescriptionCoversEveryCase() {
-    let cases: [(String, ServerClientError)] = [
-        ("unauthorized", .unauthorized),
-        ("notFound", .notFound),
-        ("backendLost", .backendLost),
-        ("alreadyCompleted", .alreadyCompleted),
-        ("alreadyDeleted", .alreadyDeleted),
-        ("notUploading", .notUploading),
-        ("offsetConflict", .offsetConflict),
-        ("uploadIncomplete", .uploadIncomplete),
-        ("badRequest", .badRequest(message: "details")),
-        ("requestTooLarge", .requestTooLarge),
-        ("unexpectedStatus", .unexpectedStatus(code: 500, message: "details")),
-        ("decoding", .decoding("raw decoding details")),
-        ("transport", .transport("raw transport details")),
-        ("serviceUnavailable", .serviceUnavailable(retryAfter: 5)),
+    let cases: [(identifier: String, error: ServerClientError, expected: String)] = [
+        ("unauthorized", .unauthorized, "Not authorized — check your server credentials in Settings."),
+        ("notFound", .notFound, "This item is no longer on the server."),
+        ("backendLost", .backendLost, "The server lost track of this upload. It will start over."),
+        ("alreadyCompleted", .alreadyCompleted, "Already uploaded."),
+        ("alreadyDeleted", .alreadyDeleted, "Already deleted on the server."),
+        ("notUploading", .notUploading, "This upload isn't in a state that accepts more data."),
+        ("offsetConflict", .offsetConflict, "Upload progress didn't match the server's records. It will start over."),
+        ("uploadIncomplete", .uploadIncomplete, "This upload isn't finished yet on the server."),
+        ("badRequest", .badRequest(message: "details"), "The server rejected this request: details."),
+        ("requestTooLarge", .requestTooLarge, "This file is too large to upload."),
+        ("unexpectedStatus", .unexpectedStatus(code: 500, message: "details"), "Server error (500): details"),
+        ("decoding", .decoding("raw decoding details"), "Couldn't understand the server's response."),
+        ("transport", .transport("raw transport details"), "No connection to the server."),
+        ("serviceUnavailable", .serviceUnavailable(retryAfter: 5), "The server is busy. This will be retried."),
     ]
 
-    for (identifier, error) in cases {
+    for item in cases {
+        let identifier = item.identifier
+        let error = item.error
         let description = error.readableDescription
         #expect(!description.isEmpty)
         #expect(!description.contains(identifier))
+        #expect(description == item.expected)
     }
 }
 
@@ -73,6 +76,7 @@ private func body(_ s: String) -> Data { #"{"error":"\#(s)"}"#.data(using: .utf8
 
     #expect(badRequest == "The server rejected this request.")
     #expect(unexpected == "Server error (500).")
+    #expect(ServerClientError.unexpectedStatus(code: 500, message: nil).readableDescription == unexpected)
     #expect(!badRequest.contains(": ."))
     #expect(!unexpected.contains(": "))
 }

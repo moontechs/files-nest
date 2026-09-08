@@ -267,6 +267,7 @@ extension SyncCoordinatorTests {
 
         #expect(report.uploaded.isEmpty)
         #expect(report.failed.map(\.key) == [ResourceKey(localIdentifier: "A", kind: .photo)])
+        #expect(report.failed.map(\.reason) == ["The server lost track of this upload. It will start over."])
         // No stranding tombstone: recovery never deletes, so the record is not `deleted`.
         #expect(server.all().allSatisfy { $0.status != "deleted" })
     }
@@ -328,6 +329,7 @@ extension SyncCoordinatorTests {
         #expect(report.deleted == [ResourceKey(localIdentifier: "GONE2", kind: .photo)])
         #expect(report.failed.map { $0.key.localIdentifier } == ["GONE1"])
         #expect(report.failed.map(\.filename) == ["GONE1#photo"])
+        #expect(report.failed.map(\.reason) == ["Server error (500)."])
     }
 
     // Cancellation stops promptly and propagates (not swallowed into `failed`).
