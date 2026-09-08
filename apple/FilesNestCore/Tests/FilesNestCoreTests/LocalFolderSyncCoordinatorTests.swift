@@ -4,6 +4,19 @@ import Testing
 
 @Suite(.serialized)
 struct LocalFolderSyncCoordinatorTests {
+    @Test func localFolderSyncErrorsHaveReadableDescriptions() {
+        let cases: [(error: LocalFolderSyncError, identifier: String)] = [
+            (.unavailableDestination, "unavailableDestination"),
+            (.destinationChanged, "destinationChanged"),
+            (.unsafeDestination, "unsafeDestination"),
+        ]
+
+        for item in cases {
+            #expect(!item.error.readableDescription.isEmpty)
+            #expect(!item.error.readableDescription.contains(item.identifier))
+        }
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("filesnest-coordinator-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

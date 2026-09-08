@@ -6,6 +6,19 @@ public enum LocalFolderSyncError: Error, Equatable {
     case unsafeDestination
 }
 
+extension LocalFolderSyncError {
+    var readableDescription: String {
+        switch self {
+        case .unavailableDestination:
+            return "The backup folder isn't available right now."
+        case .destinationChanged:
+            return "The backup folder changed during sync."
+        case .unsafeDestination:
+            return "The backup folder location isn't safe to write to."
+        }
+    }
+}
+
 /// Executes a local-folder reconciliation serially against one root acquired by
 /// the composition root's security-scoped access session.
 public struct LocalFolderSyncCoordinator: Sendable {
