@@ -43,6 +43,17 @@ xcodebuild -project macos/FilesNest/FilesNest.xcodeproj -scheme FilesNest -desti
 There's no CI for the macOS app — everything above runs locally only. See
 "Local code signing" below before running this for the first time.
 
+`FilesNestUITests` sends real synthetic keyboard/mouse events to the actual
+screen. If it's driven from a terminal app that can steal window focus
+mid-run (observed with agterm, `com.umputun.agterm`), several
+`settings.*`-field tests fail with "Neither element nor any descendant has
+keyboard focus" — XCUITest logs the terminal window as an "interrupting
+element", fails to dismiss it, and clicks land on the terminal instead of
+the target field. This is an environment focus conflict, not an app or test
+bug — don't chase it in `SettingsView`/`SettingsModel`. Run `make test-ui`
+from a terminal that won't grab focus during the run, or have the user run
+it and report back.
+
 ### Linux
 
 `FilesNestCore` also builds and tests on Linux (`swift test` under the
