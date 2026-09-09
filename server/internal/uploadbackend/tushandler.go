@@ -39,6 +39,17 @@ var (
 	errTusdHTTP            = errors.New("tusd: HTTP error")
 )
 
+// ClientError represents a client-caused failure that should reach the
+// caller as its real status and body instead of being masked as a 500.
+type ClientError struct {
+	Status int
+	Body   string
+}
+
+func (e *ClientError) Error() string {
+	return fmt.Sprintf("tusd client error %d: %s", e.Status, e.Body)
+}
+
 // tusdRecorder wraps httptest.ResponseRecorder to satisfy the deadline-setting
 // interface http.ResponseController probes for. tusd calls SetReadDeadline/
 // SetWriteDeadline on every body-read tick; ResponseRecorder doesn't implement
@@ -196,12 +207,43 @@ func (h *TUSHandler) GetOffset(ctx context.Context, backendID string) (int64, er
 // ---------------------------------------------------------------------------
 
 // ForwardPatch streams data from body to the tusd upload at the given offset.
-// If uploadLength is non-empty, it declares the final upload length (used for
-// deferred-length uploads to finalize the size). Returns the new offset after
-// the chunk is written, or an error.
+// If uploadLength is non-empty, it declares the final upload length used to
+// finalize a deferred-length upload. A matching re-declaration is dropped
+// before forwarding; a different value returns a 409 ClientError. Returns the
+// new offset after the chunk is written, or an error.
 func (h *TUSHandler) ForwardPatch(
 	ctx context.Context, backendID string, body io.Reader, offset int64, uploadLength string,
 ) (int64, error) {
+	declared, parseErr := strconv.ParseInt(uploadLength, 10, 64)
+	if uploadLength != "" && (parseErr != nil || declared < 0) {
+		return 0, &ClientError{
+			Status: http.StatusBadRequest,
+			Body:   "ERR_INVALID_UPLOAD_LENGTH: missing or invalid Upload-Length header",
+		}
+	}
+
+	var info *UploadInfo
+
+	if uploadLength != "" {
+		var err error
+
+		info, err = h.GetInfo(ctx, backendID)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	if uploadLength != "" && !info.SizeIsDeferred {
+		if declared != info.Size {
+			return 0, &ClientError{
+				Status: http.StatusConflict,
+				Body:   fmt.Sprintf("Upload-Length mismatch: declared %d, resent %d", info.Size, declared),
+			}
+		}
+
+		uploadLength = ""
+	}
+
 	rec := newTusdRecorder()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPatch, "/"+backendID, body)
 	req.Header.Set("Tus-Resumable", "1.0.0")
@@ -458,6 +500,10 @@ func extractTusdError(rec *httptest.ResponseRecorder) error {
 		}
 
 		return errUnsupportedVersion
+	}
+
+	if rec.Code >= http.StatusBadRequest && rec.Code < http.StatusInternalServerError {
+		return &ClientError{Status: rec.Code, Body: body}
 	}
 
 	// Generic error with body text if available.

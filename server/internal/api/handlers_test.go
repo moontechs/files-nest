@@ -26,6 +26,10 @@ var (
 	errConcurrentStatus = errors.New("concurrent patch unexpected status")
 )
 
+type firstReadFailure struct{}
+
+func (firstReadFailure) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+
 // ---------------------------------------------------------------------------
 // Test setup helpers
 // ---------------------------------------------------------------------------
@@ -1215,6 +1219,51 @@ func TestHandlePatchUploadData_Success(t *testing.T) {
 	tusVer := rec.Header().Get("Tus-Resumable")
 	if tusVer != "1.0.0" {
 		t.Errorf("expected Tus-Resumable 1.0.0, got %s", tusVer)
+	}
+}
+
+func TestHandlePatchUploadData_FinalLengthRetryAndMismatch(t *testing.T) {
+	h, _, _ := setupHandler(t)
+	created := createTestUpload(t, h, "PATCH-RETRY/L0/000", "IMG_0001.jpg", creationDate)
+
+	const finalSize = 11
+	failure := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, strconv.Itoa(finalSize), firstReadFailure{})
+	if failure.Code != http.StatusBadRequest {
+		t.Fatalf("failed PATCH expected 400, got %d: %s", failure.Code, failure.Body.String())
+	}
+
+	mismatch := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, "12", strings.NewReader("hello world"))
+	if mismatch.Code != http.StatusConflict {
+		t.Fatalf("mismatched retry expected 409, got %d: %s", mismatch.Code, mismatch.Body.String())
+	}
+	var mismatchBody struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(mismatch.Body.Bytes(), &mismatchBody); err != nil {
+		t.Fatalf("decode mismatch response: %v", err)
+	}
+	if mismatchBody.Error != "Upload-Length mismatch: declared 11, resent 12" {
+		t.Fatalf("mismatched retry error = %q", mismatchBody.Error)
+	}
+
+	invalidLength := tusPatchRequest(h.HandlePatchUploadData, created.ID, 0, "invalid", strings.NewReader("hello world"))
+	if invalidLength.Code != http.StatusBadRequest {
+		t.Fatalf("invalid retry expected 400, got %d: %s", invalidLength.Code, invalidLength.Body.String())
+	}
+	var invalidBody struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(invalidLength.Body.Bytes(), &invalidBody); err != nil {
+		t.Fatalf("decode invalid-length response: %v", err)
+	}
+	if invalidBody.Error != "ERR_INVALID_UPLOAD_LENGTH: missing or invalid Upload-Length header" {
+		t.Fatalf("invalid retry error = %q", invalidBody.Error)
+	}
+
+	retry := tusPatchRequest(
+		h.HandlePatchUploadData, created.ID, 0, strconv.Itoa(finalSize), strings.NewReader("hello world"))
+	if retry.Code != http.StatusNoContent {
+		t.Fatalf("matching retry expected 204, got %d: %s", retry.Code, retry.Body.String())
 	}
 }
 

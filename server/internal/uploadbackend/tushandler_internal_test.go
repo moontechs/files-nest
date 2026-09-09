@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"golang.org/x/exp/slog"
@@ -21,24 +23,159 @@ import (
 	"github.com/tus/tusd/v2/pkg/memorylocker"
 )
 
+func TestForwardPatchFinalLengthRetry(t *testing.T) {
+	h, err := New(t.TempDir())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx := context.Background()
+	id, err := h.CreateUpload(ctx, "")
+	if err != nil {
+		t.Fatalf("CreateUpload: %v", err)
+	}
+
+	const finalSize = 11
+	_, err = h.ForwardPatch(ctx, id, iotest.ErrReader(io.ErrUnexpectedEOF), 0, strconv.Itoa(finalSize))
+	if err == nil {
+		t.Fatal("ForwardPatch with failing reader succeeded")
+	}
+
+	info, err := h.GetInfo(ctx, id)
+	if err != nil {
+		t.Fatalf("GetInfo after failed patch: %v", err)
+	}
+	if info.SizeIsDeferred || info.Size != finalSize || info.Offset != 0 {
+		t.Fatalf("info after failed patch = %+v, want declared size %d and offset 0", info, finalSize)
+	}
+
+	_, err = h.ForwardPatch(ctx, id, bytes.NewReader([]byte("hello world")), 0, strconv.Itoa(finalSize))
+	if err != nil {
+		t.Fatalf("retry ForwardPatch: %v", err)
+	}
+	info, err = h.GetInfo(ctx, id)
+	if err != nil {
+		t.Fatalf("GetInfo after retry: %v", err)
+	}
+	if info.Offset != finalSize {
+		t.Errorf("offset after retry = %d, want %d", info.Offset, finalSize)
+	}
+}
+
+func TestForwardPatchFinalLengthMismatch(t *testing.T) {
+	h, err := New(t.TempDir())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx := context.Background()
+	id, err := h.CreateUpload(ctx, "")
+	if err != nil {
+		t.Fatalf("CreateUpload: %v", err)
+	}
+	_, _ = h.ForwardPatch(ctx, id, iotest.ErrReader(io.ErrUnexpectedEOF), 0, "11")
+
+	_, err = h.ForwardPatch(ctx, id, bytes.NewReader([]byte("hello")), 0, "12")
+	var clientErr *ClientError
+	if !errors.As(err, &clientErr) || clientErr.Status != http.StatusConflict {
+		t.Fatalf("error = %v, want ClientError 409", err)
+	}
+	info, err := h.GetInfo(ctx, id)
+	if err != nil {
+		t.Fatalf("GetInfo: %v", err)
+	}
+	if info.Offset != 0 {
+		t.Errorf("offset after mismatch = %d, want 0", info.Offset)
+	}
+}
+
+func TestForwardPatchFirstFinalLengthDeclaration(t *testing.T) {
+	h, err := New(t.TempDir())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	id, err := h.CreateUpload(context.Background(), "")
+	if err != nil {
+		t.Fatalf("CreateUpload: %v", err)
+	}
+	if _, err := h.ForwardPatch(context.Background(), id, bytes.NewReader([]byte("hello")), 0, "5"); err != nil {
+		t.Fatalf("first final declaration: %v", err)
+	}
+}
+
+//nolint:funlen // The table documents each tusd status-to-error mapping in one place.
 func TestExtractTusdError(t *testing.T) {
 	tests := []struct {
-		name     string
-		status   int
-		sentinel error
-		body     string
+		name        string
+		status      int
+		sentinel    error
+		body        string
+		client      bool
+		bodyInError bool
 	}{
 		{
-			name:     "not implemented",
-			status:   http.StatusNotImplemented,
-			sentinel: errTusdNotImplemented,
-			body:     "feature is unavailable",
+			name:        "not found sentinel",
+			status:      http.StatusNotFound,
+			sentinel:    ErrNotFound,
+			body:        "missing upload",
+			client:      false,
+			bodyInError: false,
 		},
 		{
-			name:     "precondition failed",
-			status:   http.StatusPreconditionFailed,
-			sentinel: errTusdVersionMismatch,
-			body:     "unsupported tus version",
+			name:        "conflict sentinel",
+			status:      http.StatusConflict,
+			sentinel:    errTusdConflict,
+			body:        "offset conflict",
+			client:      false,
+			bodyInError: true,
+		},
+		{
+			name:        "locked sentinel",
+			status:      http.StatusLocked,
+			sentinel:    ErrLocked,
+			body:        "upload locked",
+			client:      false,
+			bodyInError: false,
+		},
+		{
+			name:        "not implemented",
+			status:      http.StatusNotImplemented,
+			sentinel:    errTusdNotImplemented,
+			body:        "feature is unavailable",
+			client:      false,
+			bodyInError: true,
+		},
+		{
+			name:        "precondition failed",
+			status:      http.StatusPreconditionFailed,
+			sentinel:    errTusdVersionMismatch,
+			body:        "unsupported tus version",
+			client:      false,
+			bodyInError: true,
+		},
+		{
+			name:        "bad request with body",
+			status:      http.StatusBadRequest,
+			sentinel:    nil,
+			body:        "ERR_INVALID_UPLOAD_LENGTH",
+			client:      true,
+			bodyInError: false,
+		},
+		{
+			name:        "bad request without body",
+			status:      http.StatusBadRequest,
+			sentinel:    nil,
+			body:        "",
+			client:      true,
+			bodyInError: false,
+		},
+		{
+			name:        "payload too large",
+			status:      http.StatusRequestEntityTooLarge,
+			sentinel:    nil,
+			body:        "upload too large",
+			client:      true,
+			bodyInError: false,
 		},
 	}
 
@@ -49,14 +186,30 @@ func TestExtractTusdError(t *testing.T) {
 			_, _ = rec.Body.WriteString(tt.body)
 
 			err := extractTusdError(rec)
+			if tt.client {
+				var clientErr *ClientError
+				if !errors.As(err, &clientErr) || clientErr.Status != tt.status || clientErr.Body != strings.TrimSpace(tt.body) {
+					t.Fatalf("error = %#v, want ClientError{%d, %q}", err, tt.status, tt.body)
+				}
+				return
+			}
 			if !errors.Is(err, tt.sentinel) {
 				t.Fatalf("extractTusdError() error = %v, want wrapping %v", err, tt.sentinel)
 			}
-			if !strings.Contains(err.Error(), tt.body) {
+			if tt.bodyInError && !strings.Contains(err.Error(), tt.body) {
 				t.Errorf("error = %q, want body text %q", err, tt.body)
 			}
 		})
 	}
+
+	t.Run("server error remains generic", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		rec.WriteHeader(http.StatusInternalServerError)
+		_, _ = rec.Body.WriteString("internal failure")
+		if err := extractTusdError(rec); !errors.Is(err, errTusdGeneric) {
+			t.Fatalf("error = %v, want errTusdGeneric", err)
+		}
+	})
 }
 
 // newTUSHandlerWithLogger builds a TUSHandler with a custom *slog.Logger

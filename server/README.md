@@ -406,12 +406,13 @@ Tus-Resumable: 1.0.0
 | 204  | Chunk accepted, new offset in response header |
 | 400  | Missing or invalid headers |
 | 404  | Upload not found |
-| 409  | Offset mismatch or backend lost |
+| 409  | Offset mismatch, backend lost, or a mismatched resent `Upload-Length` |
 | 503  | Over the concurrent-upload limit (`Retry-After: 1`); retry later |
 
 The `Upload-Length` header is required to finalize a deferred-length upload.
 The final chunk should include `Upload-Length` set to the total file size and
-`Upload-Complete: 1`.
+`Upload-Complete: 1`. Retrying that final chunk with the same declared length
+is accepted; a different length returns `409 Conflict`.
 
 ---
 
@@ -642,6 +643,10 @@ lazily — the total file size is not known when an upload is created.
 3. **Final chunk only**: Set `Upload-Length: <total_size>` and
    `Upload-Complete: 1` on the `PATCH` request
 4. `PATCH /uploads/:id/status {"status": "complete"}` moves the file
+
+If a final PATCH must be retried after its length was recorded, resend the
+same `Upload-Length`; the server accepts it idempotently. A different length
+is rejected with `409 Conflict`.
 
 ### Required Headers
 
