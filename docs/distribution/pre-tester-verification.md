@@ -102,7 +102,8 @@ Tick every box. Record anything surprising inline.
 
 - [ ] Force a failure (e.g. stop the server mid-sync, or an unwritable path) → the
       sync doesn't crash; failed items are recorded and the **Failed** tile + the
-      **Failed items** slide-in list show them with filenames.
+      **Failed items** slide-in list show them with filenames and plain-language,
+      actionable reasons (not Swift enum or debug text).
 - [ ] Recover (server back up) + Sync Now → failures retry and clear.
 - [ ] Wrong credentials / unreachable server surfaces an error state, not a hang.
 

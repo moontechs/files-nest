@@ -4,6 +4,20 @@ import Testing
 
 @Suite(.serialized)
 struct LocalFolderSyncCoordinatorTests {
+    @Test func localFolderSyncErrorsHaveReadableDescriptions() {
+        let cases: [(error: LocalFolderSyncError, identifier: String, expected: String)] = [
+            (.unavailableDestination, "unavailableDestination", "The backup folder isn't available right now."),
+            (.destinationChanged, "destinationChanged", "The backup folder changed during sync."),
+            (.unsafeDestination, "unsafeDestination", "The backup folder location isn't safe to write to."),
+        ]
+
+        for item in cases {
+            #expect(!item.error.readableDescription.isEmpty)
+            #expect(!item.error.readableDescription.contains(item.identifier))
+            #expect(item.error.readableDescription == item.expected)
+        }
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("filesnest-coordinator-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -101,6 +115,7 @@ struct LocalFolderSyncCoordinatorTests {
                                            source: SelectiveFailingSource()).sync(range: .all)
 
         #expect(report.failed.map(\.key) == [bad.key])
+        #expect(report.failed.map(\.reason) == [readableFailureReason(for: FakeSourceError.injected)])
         #expect(report.uploaded == [good.key])
     }
 

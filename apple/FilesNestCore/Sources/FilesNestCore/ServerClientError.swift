@@ -53,6 +53,42 @@ public enum ServerClientError: Error, Sendable, Equatable {
 }
 
 extension ServerClientError {
+    var readableDescription: String {
+        switch self {
+        case .unauthorized:
+            return "Not authorized — check your server credentials in Settings."
+        case .notFound:
+            return "This item is no longer on the server."
+        case .backendLost:
+            return "The server lost track of this upload. It will start over."
+        case .alreadyCompleted:
+            return "Already uploaded."
+        case .alreadyDeleted:
+            return "Already deleted on the server."
+        case .notUploading:
+            return "This upload isn't in a state that accepts more data."
+        case .offsetConflict:
+            return "Upload progress didn't match the server's records. It will start over."
+        case .uploadIncomplete:
+            return "This upload isn't finished yet on the server."
+        case .badRequest(let message):
+            return message.isEmpty
+                ? "The server rejected this request."
+                : "The server rejected this request: \(message)."
+        case .requestTooLarge:
+            return "This file is too large to upload."
+        case .unexpectedStatus(let code, let message):
+            let detail = message.flatMap { $0.isEmpty ? nil : $0 }
+            return "Server error (\(code))" + (detail.map { ": \($0)" } ?? ".")
+        case .decoding:
+            return "Couldn't understand the server's response."
+        case .transport:
+            return "No connection to the server."
+        case .serviceUnavailable:
+            return "The server is busy. This will be retried."
+        }
+    }
+
     var isRetryable: Bool {
         switch self {
         case .transport, .serviceUnavailable:

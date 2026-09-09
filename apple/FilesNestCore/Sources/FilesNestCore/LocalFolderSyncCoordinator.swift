@@ -6,6 +6,19 @@ public enum LocalFolderSyncError: Error, Equatable {
     case unsafeDestination
 }
 
+extension LocalFolderSyncError {
+    var readableDescription: String {
+        switch self {
+        case .unavailableDestination:
+            return "The backup folder isn't available right now."
+        case .destinationChanged:
+            return "The backup folder changed during sync."
+        case .unsafeDestination:
+            return "The backup folder location isn't safe to write to."
+        }
+    }
+}
+
 /// Executes a local-folder reconciliation serially against one root acquired by
 /// the composition root's security-scoped access session.
 public struct LocalFolderSyncCoordinator: Sendable {
@@ -49,7 +62,7 @@ public struct LocalFolderSyncCoordinator: Sendable {
             try Task.checkCancellation()
             try validateDestination()
             do { try FileManager.default.removeItem(at: item.path); deleted.append(item.key) }
-            catch { failed.append(FailedItem(key: item.key, filename: item.path.lastPathComponent, reason: String(describing: error), kind: .delete)) }
+            catch { failed.append(FailedItem(key: item.key, filename: item.path.lastPathComponent, reason: readableFailureReason(for: error), kind: .delete)) }
         }
         return SyncReport(uploaded: uploadResult.uploaded, deleted: deleted, failed: failed, skipped: resources.count - uploads.count)
     }
@@ -102,7 +115,7 @@ public struct LocalFolderSyncCoordinator: Sendable {
             }
             catch is CancellationError { throw CancellationError() }
             catch let error as LocalFolderSyncError where error == .unavailableDestination { throw error }
-            catch { failed.append(FailedItem(key: resource.key, filename: resource.filename, reason: String(describing: error))) }
+            catch { failed.append(FailedItem(key: resource.key, filename: resource.filename, reason: readableFailureReason(for: error))) }
         }
         onProgress(SyncProgress(completed: resources.count, total: resources.count, currentItemName: nil, bytesRemaining: nil))
         return (uploaded, failed)
