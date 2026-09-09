@@ -32,6 +32,9 @@ services:
       - BACKUP_PASS=${BACKUP_PASS}
       - STORAGE_PATH=/data
       - PORT=8080
+      # debug enables tusd's own Info-level logging (ChunkWriteStart etc.) —
+      # logspam_test.go's positive control asserts on it.
+      - LOG_LEVEL=debug
     volumes:
       - server-data:/data
     expose:
