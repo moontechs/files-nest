@@ -1,6 +1,6 @@
 cask "filesnest" do
-  version "0.4.0"
-  sha256 "ea363eb06ab8706b8278fc9bc5102dfe3f5b245eb79b14aec98c2c9b3ab289d3"
+  version "0.4.2"
+  sha256 "3dbd7e4e1763aebdace87a1d8230965a5ffd45160073495eda0b79d86d06666a"
 
   url "https://github.com/moontechs/files-nest/releases/download/#{version}/FilesNest-#{version}.dmg"
   name "FilesNest"
