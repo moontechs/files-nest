@@ -141,8 +141,13 @@ func fireSlowPatches(t testing.TB, count, totalBytes int) []concurrentPatchResul
 
 	uploads := make([]*CreateUploadResponse, count)
 	for i := 0; i < count; i++ {
+		// t.Name() disambiguates the suffix across sibling tests: POST
+		// /uploads is idempotent on local_identifier, so a bare index would
+		// collide between e.g. ExactlyAtCapSucceeds and OverCapRejected
+		// (both use indices 0-3) and silently reuse an already-completed
+		// upload from the other test instead of creating a fresh one.
 		cr := CreateTestUpload(t,
-			MakeLocalIdentifier(t, fmt.Sprintf("conc-%02d", i)),
+			MakeLocalIdentifier(t, fmt.Sprintf("%s-conc-%02d", t.Name(), i)),
 			fmt.Sprintf("IMG_conc_%02d.jpg", i))
 		uploads[i] = cr
 	}
