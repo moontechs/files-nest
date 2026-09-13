@@ -304,10 +304,10 @@ docker-compose.prebuilt.yml to ${VERSION}"`.
 
 ### Task 9: Update documentation
 
-- [ ] update `server/CLAUDE.md`'s layout section to list `internal/statuspage` alongside `internal/filestore`/`internal/orphans`
-- [ ] confirm `CONTEXT.md`'s "Status page" entry and `docs/adr/0010-unauthenticated-status-page.md` (both already written pre-plan) still accurately describe the shipped behavior — amend only if implementation diverged
-- [ ] double check root `README.md` / `server/README.md`'s `docker-compose.prebuilt.yml` references match the final file (Task 6) — fix only if they've drifted
-- [ ] move this plan to `docs/plans/completed/`
+- [x] update `server/CLAUDE.md`'s layout section to list `internal/statuspage` alongside `internal/filestore`/`internal/orphans` — added `internal/statuspage` to the layout list
+- [x] confirm `CONTEXT.md`'s "Status page" entry and `docs/adr/0010-unauthenticated-status-page.md` (both already written pre-plan) still accurately describe the shipped behavior — amend only if implementation diverged — verified accurate (unauthenticated `GET /`, version/address, auth-disabled warning, no upload data, links to client/docs); no divergence, no amendment needed
+- [x] double check root `README.md` / `server/README.md`'s `docker-compose.prebuilt.yml` references match the final file (Task 6) — fix only if they've drifted — found and fixed drift: the earlier plan commit had inserted the prebuilt section in the middle of the `#### Caddyfile` subsection, leaving `server/README.md`'s "To customize, edit `server/Caddyfile`" block dangling under the no-Caddy section; moved the prebuilt section after the Caddyfile block so it now matches the real file (single GHCR container, no Caddy, port 8080, `/data`). Root `README.md` reference was already accurate
+- [x] move this plan to `docs/plans/completed/` — moved via `git mv`
 
 ## Post-Completion
 
