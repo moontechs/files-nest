@@ -25,3 +25,7 @@ _Avoid_: Stale file, leftover file
 **Completion intent**:
 A durable record written before an in-progress upload's file is moved into `organized/`, used by startup recovery to detect and finish/roll back a move interrupted by a crash. Reconciles DB-side state against files — the opposite direction from orphan detection, which reconciles files against DB-side state.
 _Avoid_: Move record, pending move
+
+**Status page**:
+The server's `GET /` response: a human-readable page confirming the server is running, showing its version and reachable address, warning when HTTP Basic Auth is disabled, and linking to the macOS client and docs. Unauthenticated by design, mirroring the server's existing "warn, don't block" stance on missing credentials. Carries no upload data (no file listing, no per-file browsing) — it's a reachability/setup aid, not a client.
+_Avoid_: Dashboard (implies live metrics/data tables), landing page (implies marketing content), homepage (too vague — doesn't convey its unauthenticated, ops-facing purpose)

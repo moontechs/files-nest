@@ -599,6 +599,21 @@ The Caddyfile configures:
 - Health check passthrough (unauthenticated)
 - Rate limiting (commented out; uncomment to enable)
 
+### Docker Compose (Prebuilt Image, No Caddy)
+
+For NAS/home-server platforms that already provide their own reverse proxy
+and TLS termination (Umbrel, ZimaOS, TrueNAS, Unraid), use
+`docker-compose.prebuilt.yml` instead of `docker-compose.yml`. It runs a
+single container — the FilesNest server pulled from
+`ghcr.io/moontechs/files-nest`, no `build:` step and no bundled Caddy —
+listening on `8080` with `/data` as the only volume. Point the platform's
+own reverse proxy at that port.
+
+```bash
+BACKUP_USER=admin BACKUP_PASS=changeme \
+  docker compose -f docker-compose.prebuilt.yml up -d
+```
+
 To customize, edit `server/Caddyfile`:
 
 ```caddyfile
