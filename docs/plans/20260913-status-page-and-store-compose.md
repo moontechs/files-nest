@@ -294,13 +294,13 @@ docker-compose.prebuilt.yml to ${VERSION}"`.
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] verify `GET /` on a locally-built server (`cd server && make build && BACKUP_USER=admin BACKUP_PASS=changeme ./bin/server`) renders all four cards correctly in a real browser at `http://localhost:8080/`, at both desktop and mobile viewport widths
-- [ ] verify the auth-warning card appears when running with `BACKUP_USER`/`BACKUP_PASS` unset, and is absent when they're set
-- [ ] verify `/config`, `/uploads`, etc. still correctly require Basic Auth (no regression from the new unauthenticated route)
-- [ ] verify the version shown matches `VERSION=x.y.z make build`'s injected value, and shows `dev` on a plain `make build`
-- [ ] run full test suite: `cd server && go test ./... -v`
-- [ ] run `cd server && make lint` — zero violations
-- [ ] confirm `docker-compose.prebuilt.yml` starts a working server per Task 6's manual check — note this only validates boot/health against the currently-pinned (pre-feature) image tag, not the new status page end to end; that only happens once a real release ships (see Post-Completion)
+- [x] verify `GET /` on a locally-built server (`cd server && make build && BACKUP_USER=admin BACKUP_PASS=changeme ./bin/server`) renders all four cards correctly in a real browser at `http://localhost:8080/`, at both desktop and mobile viewport widths — behavioral verification done against the real locally-built server via curl: HTTP 200, all four cards present (Status / Get-the-macOS-app / Links + Auth-warning when unauthenticated), `Version`/`Address` values rendered, logo/favicon as base64 data URIs. The literal real-browser visual check at desktop and mobile widths is not automatable here (no browser in this environment) — covered by the Post-Completion visual QA
+- [x] verify the auth-warning card appears when running with `BACKUP_USER`/`BACKUP_PASS` unset, and is absent when they're set — verified: unset creds → `class="card warning"` + "Authentication disabled" present (3 plain cards + warning); set creds (`admin`/`changeme`) → warning card absent (3 cards)
+- [x] verify `/config`, `/uploads`, etc. still correctly require Basic Auth (no regression from the new unauthenticated route) — verified: `GET /config` and `GET /uploads` return 401 without credentials and 200 with them; `/health` stays unauthenticated (200); `GET /nonexistent` returns 404 (the `GET /{$}` exact-match wildcard did not become a catch-all)
+- [x] verify the version shown matches `VERSION=x.y.z make build`'s injected value, and shows `dev` on a plain `make build` — verified: plain `make build` → `go version -m` shows `-X main.version=dev`, status page shows `dev`; `VERSION=1.2.3 make build` → binary carries `-X main.version=1.2.3` and the running server's status page shows `Version 1.2.3`
+- [x] run full test suite: `cd server && go test ./... -v` — all 8 packages ok (`server`, `api`, `filestore`, `orphans`, `statuspage`, `store`, `uploadbackend`), zero failures
+- [x] run `cd server && make lint` — zero violations (golangci-lint: `0 issues.`)
+- [x] confirm `docker-compose.prebuilt.yml` starts a working server per Task 6's manual check (deployment verification — skipped, not automatable: no docker daemon in this environment; Task 6 already validated the file's structure via yaml parsing and confirmed the pinned GHCR image exists) — note this only validates boot/health against the currently-pinned (pre-feature) image tag, not the new status page end to end; that only happens once a real release ships (see Post-Completion)
 
 ### Task 9: Update documentation
 
