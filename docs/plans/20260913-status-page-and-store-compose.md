@@ -215,13 +215,13 @@ docker-compose.prebuilt.yml to ${VERSION}"`.
 - Create: `server/internal/statuspage/logo.png` (copy of `apple/macos/FilesNest/FilesNest/Assets.xcassets/AppIcon.appiconset/AppIcon-128.png`)
 - Create: `server/internal/statuspage/statuspage_test.go`
 
-- [ ] copy the two PNG assets into the new package directory as-is (no resize)
-- [ ] write `status.html`: four-card responsive grid (2x2 desktop / 1-column mobile via media query), headline "FilesNest — Server is running", Status card (version, address), conditional Auth-warning card (`{{if .AuthDisabled}}`, warning color, text mirroring `main.go`'s WARN message), "Get the macOS app" card (install instructions/link reused from root `README.md`'s "Install the macOS app" section), Links card (GitHub repo + docs); inline `<style>` only, Mantine-evoking palette/spacing/typography, no JS
-- [ ] embed `status.html` + both PNGs via a single `embed.FS` in `statuspage.go`; deliver favicon/logo as inline base64 `data:` URIs in the template (decided — keeps `Render` a single `http.ResponseWriter` write, adds zero new unauthenticated routes/attack surface beyond `GET /` itself)
-- [ ] implement `type Data struct { Version, Address string; AuthDisabled bool }` and `func Render(w http.ResponseWriter, data Data) error` parsing/executing the embedded template
-- [ ] write tests for `Render`: 200-equivalent (no error), body contains `Version` and `Address` substrings, Auth-warning markup present when `AuthDisabled: true` and absent when `false`
-- [ ] write tests for malformed/edge inputs if any exist (e.g. empty `Address`) — otherwise note none apply and skip
-- [ ] run tests - must pass before task 2
+- [x] copy the two PNG assets into the new package directory as-is (no resize)
+- [x] write `status.html`: four-card responsive grid (2x2 desktop / 1-column mobile via media query), headline "FilesNest — Server is running", Status card (version, address), conditional Auth-warning card (`{{if .AuthDisabled}}`, warning color, text mirroring `main.go`'s WARN message), "Get the macOS app" card (install instructions/link reused from root `README.md`'s "Install the macOS app" section), Links card (GitHub repo + docs); inline `<style>` only, Mantine-evoking palette/spacing/typography, no JS
+- [x] embed `status.html` + both PNGs via a single `embed.FS` in `statuspage.go`; deliver favicon/logo as inline base64 `data:` URIs in the template (decided — keeps `Render` a single `http.ResponseWriter` write, adds zero new unauthenticated routes/attack surface beyond `GET /` itself)
+- [x] implement `type Data struct { Version, Address string; AuthDisabled bool }` and `func Render(w http.ResponseWriter, data Data) error` parsing/executing the embedded template
+- [x] write tests for `Render`: 200-equivalent (no error), body contains `Version` and `Address` substrings, Auth-warning markup present when `AuthDisabled: true` and absent when `false`
+- [x] write tests for malformed/edge inputs if any exist (e.g. empty `Address`) — otherwise note none apply and skip
+- [x] run tests - must pass before task 2
 
 ### Task 2: Wire `GET /` into the router, unauthenticated
 
