@@ -24,6 +24,10 @@
 # Docker Compose project name to isolate e2e resources from production.
 COMPOSE_PROJECT_NAME ?= files-nest-e2e
 
+# Server release version injected into the binary via -ldflags -X main.version.
+# Defaults to "dev" for local builds; release builds override via `make VERSION=x.y.z build`.
+VERSION ?= dev
+
 # Host port for the e2e Caddy reverse proxy (binds to 127.0.0.1 only).
 E2E_HTTP_PORT ?= 18080
 
@@ -91,10 +95,12 @@ help:
 	@echo "  BACKUP_PASS           (***)"
 	@echo "  E2E_WAIT              ($(E2E_WAIT) seconds)"
 	@echo "  E2E_TIMEOUT           ($(E2E_TIMEOUT) seconds)"
+	@echo "  VERSION               ($(VERSION))"
 
 ## Build the server binary (statically linked, CGO disabled).
+## Injects $(VERSION) into main.version via -X ldflags (defaults to "dev").
 build:
-	CGO_ENABLED=0 go build -ldflags="-s -w -extldflags=-static" -o $(BIN_PATH) .
+	CGO_ENABLED=0 go build -ldflags="-s -w -extldflags=-static -X main.version=$(VERSION)" -o $(BIN_PATH) .
 
 ## Run all unit/integration tests (excludes e2e via build tag).
 test:

@@ -255,11 +255,11 @@ docker-compose.prebuilt.yml to ${VERSION}"`.
 - Modify: `server/Makefile`
 - Modify: `server/Dockerfile`
 
-- [ ] add `VERSION ?= dev` and append `-X main.version=$(VERSION)` to the `build` target's `-ldflags` in `server/Makefile`
-- [ ] add `ARG VERSION=dev` to the builder stage of `server/Dockerfile`, append `-X main.version=${VERSION}` to its existing `go build -ldflags=...` invocation
-- [ ] manually verify `cd server && make build && ./bin/server --help 2>/dev/null; VERSION=1.2.3 make build` produces a binary whose `main.version` reflects the passed value (a quick throwaway `go run` or checking via the status page's `Version` output is sufficient — no dedicated automated test needed for a Makefile/Dockerfile flag, per YAGNI)
-- [ ] confirm `make lint` and `make test` still pass with no regressions
-- [ ] run tests - must pass before task 5
+- [x] add `VERSION ?= dev` and append `-X main.version=$(VERSION)` to the `build` target's `-ldflags` in `server/Makefile`
+- [x] add `ARG VERSION=dev` to the builder stage of `server/Dockerfile`, append `-X main.version=${VERSION}` to its existing `go build -ldflags=...` invocation
+- [x] manually verify `cd server && make build && ./bin/server --help 2>/dev/null; VERSION=1.2.3 make build` produces a binary whose `main.version` reflects the passed value (a quick throwaway `go run` or checking via the status page's `Version` output is sufficient — no dedicated automated test needed for a Makefile/Dockerfile flag, per YAGNI) — verified via `go version -m` showing `-X main.version=dev` / `-X main.version=1.2.3` and runtime status page showing `Version: 1.2.3`
+- [x] confirm `make lint` and `make test` still pass with no regressions — lint 0 issues, all 8 test packages ok
+- [x] run tests - must pass before task 5
 
 ### Task 5: Version plumbing in release-server scripts
 

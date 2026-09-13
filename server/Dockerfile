@@ -20,6 +20,10 @@
 # ---------------------------------------------------------------------------
 FROM golang:1.26-alpine AS builder
 
+# Release version injected into main.version via -X ldflags (defaults to "dev").
+# Override with `docker build --build-arg VERSION=x.y.z .`.
+ARG VERSION=dev
+
 RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /src
@@ -30,7 +34,7 @@ RUN go mod download
 
 # Copy source and build a statically-linked binary.
 COPY . .
-RUN CGO_ENABLED=0 go build -ldflags="-s -w -extldflags=-static" -o /bin/server .
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -extldflags=-static -X main.version=${VERSION}" -o /bin/server .
 
 # ---------------------------------------------------------------------------
 # Stage 2: Minimal runtime image
