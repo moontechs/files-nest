@@ -244,10 +244,10 @@ docker-compose.prebuilt.yml to ${VERSION}"`.
 **Files:**
 - Modify: `server/internal/statuspage/status.html`
 
-- [ ] run the `impeccable` skill against the drafted `status.html`/inline CSS for a UI/UX review pass (visual hierarchy, spacing, responsive behavior, accessibility basics — contrast, semantic HTML)
-- [ ] apply the resulting recommendations directly to `status.html`
-- [ ] re-run `internal/statuspage`'s tests to confirm the markup changes didn't break substring assertions (adjust assertions if the review changed wording, not behavior)
-- [ ] run tests - must pass before task 4
+- [x] run the `impeccable` skill against the drafted `status.html`/inline CSS for a UI/UX review pass (visual hierarchy, spacing, responsive behavior, accessibility basics — contrast, semantic HTML) (skipped - skill not installed in this environment; performed an equivalent manual UI/UX review pass covering the same dimensions)
+- [x] apply the resulting recommendations directly to `status.html` (darkened `--success`/`--warning` to meet WCAG AA 4.5:1 contrast for the badge and warning heading; added a `:has()`-based full-width span for the last card when only three cards render so it no longer dangles half-empty; added `:focus-visible` outlines on links; added `text-size-adjust` guard for iOS)
+- [x] re-run `internal/statuspage`'s tests to confirm the markup changes didn't break substring assertions (all assertions still pass unchanged — no wording changes, only CSS)
+- [x] run tests - must pass before task 4
 
 ### Task 4: Version plumbing in build tooling
 

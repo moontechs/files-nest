@@ -13,9 +13,9 @@
     --muted: #5c5f66;
     --border: #dee2e6;
     --accent: #1864ab;
-    --success: #2b8a3e;
+    --success: #1f7a34;
     --success-bg: #ebfbee;
-    --warning: #9c6f00;
+    --warning: #664d00;
     --warning-bg: #fff9db;
     --warning-border: #ffe066;
     --radius: 12px;
@@ -23,6 +23,8 @@
   }
 
   * { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
   body {
     margin: 0;
@@ -45,6 +47,14 @@
   .subtitle { color: var(--muted); margin: 0 0 28px; }
 
   .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+
+  /* Exactly three cards on desktop (no auth-warning card): span the last card
+     across the full row so it doesn't dangle half-empty under a 2xN grid.
+     Browsers without :has() support fall back gracefully to the plain
+     two-column layout. */
+  @media (min-width: 641px) {
+    .grid:has(> :nth-child(3):last-child) > :last-child { grid-column: 1 / -1; }
+  }
 
   @media (max-width: 640px) {
     body { padding: 32px 14px; }
@@ -103,6 +113,12 @@
   .card.warning strong { display: block; margin-bottom: 8px; }
 
   a { color: var(--accent); }
+
+  a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
 
   ul { margin: 0; padding: 0; list-style: none; }
   li { margin-bottom: 10px; }
