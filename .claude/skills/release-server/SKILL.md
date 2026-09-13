@@ -64,6 +64,33 @@ architecture picks the right layer automatically. Requires a buildx builder
 with multi-platform support (Docker Desktop's default builder has this) and
 being logged in to `ghcr.io` (`docker login ghcr.io`).
 
+After a successful push the script also bumps the pinned image tag in
+`server/docker-compose.prebuilt.yml` to `<version>` (a `sed` substitution
+guarded by checks that the image line exists and the new tag actually landed,
+so a silent no-op can't hide a drift bug) and commits it locally as
+`chore: bump docker-compose.prebuilt.yml to <version>`. **Expect to see this
+new commit** in `git log` after Phase 2 — it's intentional. Committing
+locally is fine; pushing stays part of the Phase 3 confirm-with-user flow,
+so the operator reviews the bump commit before anything goes remote. The
+script assumes it runs on `main` at the exact commit about to be tagged, so
+the bump commit always lands immediately before its release tag, never on top
+of unrelated later work.
+
+**If Phase 3's confirmation rejects the version after Phase 2 already ran:**
+the GHCR push cannot be rolled back automatically. Drop the local
+compose-bump commit and unpin the file again:
+
+```bash
+git reset --soft HEAD~1   # drop the compose-bump commit (change stays staged)
+git restore --staged server/docker-compose.prebuilt.yml
+git restore server/docker-compose.prebuilt.yml  # back to the previously pinned tag
+```
+
+Treat the already-pushed `ghcr.io/moontechs/files-nest:<version>` image as an
+orphaned tag: ignore it, or delete it manually via the GHCR UI (there is no
+automated rollback for the image push — and note `gh` has no delete command
+for packages). It's harmless; the compose file no longer references it.
+
 ## Phase 3 — tag and release (confirm with the user first)
 
 Check whether a release already exists for this tag — the `new`/release-notes
