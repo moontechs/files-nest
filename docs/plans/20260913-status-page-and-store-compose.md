@@ -231,13 +231,13 @@ docker-compose.prebuilt.yml to ${VERSION}"`.
 - Modify (if needed based on Task 1's asset-delivery choice): `server/internal/api/router.go` (favicon/logo sub-routes)
 - Create/Modify: matching `_test.go` for the new handler
 
-- [ ] add `var version = "dev"` to `server/main.go`
-- [ ] thread `version` and the existing `authCfg` into `NewRouter` (or wherever routes are registered) so the new handler can build `statuspage.Data`
-- [ ] register `GET /{$}` (exact-match wildcard — NOT `GET /`, which would subtree-match every unmatched GET path) in `router.go`, outside `AuthMiddleware`, calling `statuspage.Render` with `Address: r.Host`, `Version: version`, `AuthDisabled: authCfg.Username == "" && authCfg.Password == ""`
-- [ ] write tests: `httptest.NewServer`/`httptest.NewRecorder` hitting `GET /` end-to-end through the real router — 200, body contains version/address, auth-warning present/absent depending on an auth-disabled vs auth-configured router instance
-- [ ] write a test hitting an undefined path (e.g. `GET /nonexistent`) and assert it does NOT return the status page (confirms `GET /{$}` didn't regress into a catch-all)
-- [ ] write tests confirming `GET /` still returns content with `AuthMiddleware` untouched for the other routes (regression check — quick assertion that e.g. `GET /config` still 401s without credentials)
-- [ ] run tests - must pass before task 3
+- [x] add `var version = "dev"` to `server/main.go`
+- [x] thread `version` and the existing `authCfg` into `NewRouter` (or wherever routes are registered) so the new handler can build `statuspage.Data`
+- [x] register `GET /{$}` (exact-match wildcard — NOT `GET /`, which would subtree-match every unmatched GET path) in `router.go`, outside `AuthMiddleware`, calling `statuspage.Render` with `Address: r.Host`, `Version: version`, `AuthDisabled: authCfg.Username == "" && authCfg.Password == ""`
+- [x] write tests: `httptest.NewServer`/`httptest.NewRecorder` hitting `GET /` end-to-end through the real router — 200, body contains version/address, auth-warning present/absent depending on an auth-disabled vs auth-configured router instance
+- [x] write a test hitting an undefined path (e.g. `GET /nonexistent`) and assert it does NOT return the status page (confirms `GET /{$}` didn't regress into a catch-all)
+- [x] write tests confirming `GET /` still returns content with `AuthMiddleware` untouched for the other routes (regression check — quick assertion that e.g. `GET /config` still 401s without credentials)
+- [x] run tests - must pass before task 3
 
 ### Task 3: UI/UX pass on the status page
 

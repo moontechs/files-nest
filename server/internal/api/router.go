@@ -6,25 +6,51 @@ import (
 	"runtime/debug"
 	"strconv"
 	"time"
+
+	"github.com/moontechs/files-nest/server/internal/statuspage"
 )
 
 // NewRouter creates an http.Handler that routes all API endpoints to the
-// appropriate handlers with BasicAuth middleware applied to every route.
+// appropriate handlers with BasicAuth middleware applied to every route
+// except GET / (the status page) and GET /health.
 //
 // Routes are registered using Go 1.22+ ServeMux patterns which support
 // method-based matching ({METHOD /path}) and path parameters ({id}).
 // The handlers extract the "id" parameter via r.PathValue("id").
 //
-// All routes except /health require authentication. The health endpoint
-// is intentionally kept outside auth so monitoring tools can check
-// liveness without credentials.
+// All routes except the status page and /health require authentication. The
+// health endpoint is intentionally kept outside auth so monitoring tools can
+// check liveness without credentials, and the status page is intentionally
+// unauthenticated so a browser can confirm the server is alive and which
+// version it runs without SSH.
 //
 // limiter bounds the number of concurrent PATCH /uploads/{id}/data requests
 // (the only streamed, long-running route). It is applied as middleware *inside*
 // the auth wrapper so unauthenticated requests never consume a concurrency
 // slot. Other, cheaper metadata routes are not gated.
-func NewRouter(handler *Handler, authCfg AuthConfig, limiter *ConcurrencyLimiter) http.Handler {
+//
+// version is the build-time server release version ("dev" when unset) shown on
+// the unauthenticated status page; it is injected via -ldflags -X
+// main.version=... in release builds.
+func NewRouter(handler *Handler, authCfg AuthConfig, limiter *ConcurrencyLimiter, version string) http.Handler {
 	mux := http.NewServeMux()
+
+	// Unauthenticated status page. The exact-match wildcard pattern {$} is
+	// deliberate: "GET /" would subtree-match every unmatched GET path and
+	// return the status page with a 200 instead of a 404 for typos,
+	// /favicon.ico, or future removed routes. Version/address are rendered
+	// through html/template's auto-escaping, which keeps the client-controlled
+	// Host header safe to display.
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		err := statuspage.Render(w, statuspage.Data{
+			Version:      version,
+			Address:      r.Host,
+			AuthDisabled: authCfg.Username == "" && authCfg.Password == "",
+		})
+		if err != nil {
+			log.Printf("ERROR status page render: %v", err)
+		}
+	})
 
 	// Unauthenticated health check endpoint.
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
