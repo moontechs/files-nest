@@ -1,0 +1,44 @@
+# =============================================================================
+# FilesNest Server — Prebuilt Image Compose (for NAS/app-store platforms)
+# =============================================================================
+# Single container: the FilesNest server pulled from GHCR, no build step, no
+# bundled Caddy. Intended for platforms that already provide their own reverse
+# proxy and TLS termination (Umbrel, ZimaOS, TrueNAS, Unraid). The server
+# listens on host port 8080; point the platform's reverse proxy at that port.
+#
+# The pinned image tag below is bumped automatically by the release-server
+# skill after each published server release (see
+# .claude/skills/release-server/scripts/build-and-push-image.sh).
+#
+# Usage:
+#   BACKUP_USER=admin \
+#     BACKUP_PASS=changeme \
+#     docker compose -f docker-compose.prebuilt.yml up -d
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # FilesNest Go Server
+  # ---------------------------------------------------------------------------
+  server:
+    image: ghcr.io/moontechs/files-nest:0.4.1
+    restart: unless-stopped
+    environment:
+      - BACKUP_USER=${BACKUP_USER}
+      - BACKUP_PASS=${BACKUP_PASS}
+      - STORAGE_PATH=/data
+      - PORT=8080
+    volumes:
+      - server-data:/data
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  server-data:
+    driver: local

@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FilesNest — Server status</title>
+<link rel="icon" type="image/png" href="{{dataURI "favicon.png"}}">
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --surface: #ffffff;
+    --text: #1a1b1e;
+    --muted: #5c5f66;
+    --border: #dee2e6;
+    --accent: #1864ab;
+    --accent-contrast: #ffffff;
+    --code-bg: #f1f3f5;
+    --success: #1f7a34;
+    --success-bg: #ebfbee;
+    --warning: #664d00;
+    --warning-bg: #fff9db;
+    --warning-border: #ffe066;
+    --hero-bg: #eef4fc;
+    --radius: 16px;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 20px rgba(20, 30, 45, 0.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16171a;
+      --surface: #1e1f23;
+      --text: #eceef0;
+      --muted: #9a9ea6;
+      --border: #313338;
+      --accent: #6ba6f0;
+      --accent-contrast: #0b1b2e;
+      --code-bg: #2a2c31;
+      --success: #6fd58b;
+      --success-bg: #16301f;
+      --warning: #ffd867;
+      --warning-bg: #3a2f00;
+      --warning-border: #5c4b00;
+      --hero-bg: #1c2735;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 20px rgba(0, 0, 0, 0.35);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    padding: 48px 20px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 880px; margin: 0 auto; }
+
+  header { display: flex; align-items: center; gap: 16px; margin-bottom: 6px; }
+
+  header img { width: 56px; height: 56px; border-radius: 12px; flex: none; }
+
+  h1 { font-size: 1.55rem; line-height: 1.25; margin: 0; letter-spacing: -0.01em; }
+
+  .subtitle { color: var(--muted); margin: 0 0 28px; }
+
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+
+  /* Status and Links are always adjacent in the source order, so they always
+     land in the same row as a matched pair; hero and the optional
+     auth-warning card each take their own full-width row. */
+  .card.hero, .card.warning { grid-column: 1 / -1; }
+
+  @media (max-width: 640px) {
+    body { padding: 32px 14px; }
+    .grid { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  .card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    box-shadow: var(--shadow);
+  }
+
+  .card h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    margin: 0 0 14px;
+  }
+
+  .card h2::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex: none;
+  }
+
+  .card.warning h2::before { background: var(--warning); }
+
+  .card p { margin: 0 0 10px; }
+  .card p:last-child { margin-bottom: 0; }
+
+  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; }
+  dt { color: var(--muted); white-space: nowrap; }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.88em;
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: 1px 6px;
+    word-break: break-all;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-weight: 650;
+    font-size: 0.85rem;
+    border-radius: 999px;
+    padding: 4px 12px;
+  }
+
+  .badge-ok { color: var(--success); background: var(--success-bg); }
+  .badge-ok .dot { color: var(--success); }
+
+  .card.warning { background: var(--warning-bg); }
+  .card.warning h2 { color: var(--warning); }
+
+  .card.warning strong { display: block; margin-bottom: 8px; }
+
+  a { color: var(--accent); }
+
+  a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ul { margin: 0; padding: 0; list-style: none; }
+  li { margin-bottom: 10px; }
+  li:last-child { margin-bottom: 0; }
+
+  .copy-row { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .copy-row span { word-break: break-all; }
+
+  .copy-btn {
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 2px 9px;
+    cursor: pointer;
+  }
+
+  .copy-btn-light { color: var(--accent); background: #edf3fb; border-color: #d0e0f5; }
+  .copy-btn-light:hover { background: #e1ebf9; }
+
+  .copy-btn-dark { color: #e9ecef; background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.18); }
+  .copy-btn-dark:hover { background: rgba(255, 255, 255, 0.16); }
+
+  .copy-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .code-block {
+    background: #1a1b1e;
+    border-radius: 8px;
+    margin: 0 0 10px;
+    overflow: hidden;
+  }
+
+  .code-block-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 8px 6px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .code-block-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #909296;
+  }
+
+  .code-block pre {
+    margin: 0;
+    padding: 14px;
+    overflow-x: auto;
+  }
+
+  .code-block code {
+    display: block;
+    background: none;
+    padding: 0;
+    color: #e9ecef;
+    font-size: 0.86em;
+    line-height: 1.7;
+    white-space: pre;
+  }
+
+  .card.hero {
+    background: var(--hero-bg);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 200px;
+    gap: 24px;
+    align-items: center;
+  }
+
+  .card.hero h2::before { display: none; }
+
+  @media (max-width: 640px) {
+    .card.hero { grid-template-columns: minmax(0, 1fr); }
+    .hero-shot { justify-self: center; }
+  }
+
+  .hero-shot img {
+    display: block;
+    width: 100%;
+    max-width: 200px;
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 650;
+    font-size: 0.92rem;
+    color: var(--accent-contrast);
+    background: var(--accent);
+    border-radius: 8px;
+    padding: 9px 16px;
+    text-decoration: none;
+  }
+
+  .btn:hover { opacity: 0.9; }
+
+  .btn-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 14px 0 10px; }
+
+  .btn-row .requires { color: var(--muted); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <img src="{{dataURI "logo.png"}}" alt="FilesNest app icon" width="56" height="56">
+    <h1>FilesNest — Server is running</h1>
+  </header>
+  <p class="subtitle">A self-hosted backup server for your Photos library. Configure users and storage with environment variables.</p>
+
+  <div class="grid">
+    <section class="card hero" aria-labelledby="client-heading">
+      <div>
+        <h2 id="client-heading">Get the macOS app</h2>
+        <p>The client streams your Photos library to this server in the background, and shows live progress from the menu bar.</p>
+        <div class="btn-row">
+          <a class="btn" href="https://github.com/moontechs/files-nest/releases">Download for macOS</a>
+          <span class="requires">Requires macOS 14+</span>
+        </div>
+        <p>Or install with Homebrew:</p>
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-label">Shell</span>
+            <button type="button" class="copy-btn copy-btn-dark" data-copy-target="brew-commands" aria-label="Copy Homebrew install commands">Copy</button>
+          </div>
+          <pre><code id="brew-commands">brew tap moontechs/files-nest https://github.com/moontechs/files-nest
+brew trust moontechs/files-nest
+brew install --cask filesnest</code></pre>
+        </div>
+      </div>
+      <div class="hero-shot">
+        <img src="{{dataURI "screenshot.png"}}" alt="FilesNest menu bar showing a sync in progress: 104 of 49,749 backed up" width="200" height="223">
+      </div>
+    </section>
+
+    {{if .AuthDisabled}}
+    <section class="card warning" aria-labelledby="auth-heading">
+      <h2 id="auth-heading">Authentication disabled</h2>
+      <p><strong>HTTP Basic Auth is not configured.</strong> Anyone who can reach this server can read and write uploads.</p>
+      <p>Set <code>BACKUP_USER</code> and <code>BACKUP_PASS</code>, then restart the server, to require credentials. Do not run like this in production.</p>
+    </section>
+    {{end}}
+
+    <section class="card" aria-labelledby="status-heading">
+      <h2 id="status-heading">Status</h2>
+      <p><span class="badge badge-ok"><span class="dot" aria-hidden="true">●</span> Running</span></p>
+      <dl>
+        <dt>Version</dt>
+        <dd>{{if .Version}}{{.Version}}{{else}}dev{{end}}</dd>
+        <dt>Address</dt>
+        <dd>
+          {{if .Address}}
+          <span class="copy-row">
+            <span id="address-value">{{.Address}}</span>
+            <button type="button" class="copy-btn copy-btn-light" data-copy-target="address-value" aria-label="Copy address">Copy</button>
+          </span>
+          {{else}}unknown{{end}}
+        </dd>
+      </dl>
+    </section>
+
+    <section class="card" aria-labelledby="links-heading">
+      <h2 id="links-heading">Links</h2>
+      <ul>
+        <li><a href="https://github.com/moontechs/files-nest">GitHub repository</a></li>
+        <li><a href="https://github.com/moontechs/files-nest#self-hosting-the-server">Server documentation</a></li>
+      </ul>
+    </section>
+  </div>
+</main>
+<script>
+  document.querySelectorAll("[data-copy-target]").forEach(function (btn) {
+    var target = document.getElementById(btn.dataset.copyTarget);
+    if (!target) return;
+
+    btn.addEventListener("click", function () {
+      navigator.clipboard.writeText(target.textContent.trim()).then(function () {
+        var original = btn.textContent;
+        btn.textContent = "Copied!";
+        setTimeout(function () { btn.textContent = original; }, 1500);
+      });
+    });
+  });
+</script>
+</body>
+</html>

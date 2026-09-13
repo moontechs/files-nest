@@ -8,6 +8,7 @@ metadata. See `../docs/architecture.md` for the full picture and
 
 - `main.go` — entrypoint/wiring.
 - `internal/api` — HTTP handlers.
+- `internal/statuspage` — unauthenticated `GET /` status page template/assets.
 - `internal/uploadbackend` — embedded tusd adapter.
 - `internal/store` — BadgerDB-backed metadata store.
 - `internal/filestore` — on-disk organized-file tree.

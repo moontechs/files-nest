@@ -43,6 +43,13 @@ const (
 // BACKUP_PASS is set.
 var errPartialBackupCredentials = errors.New("BACKUP_USER and BACKUP_PASS must be set together")
 
+// version is the server release version, defaulting to "dev" for local builds.
+// Release builds override it at link time via -ldflags -X main.version=...
+// (see server/Makefile, server/Dockerfile, and
+// .claude/skills/release-server/scripts). It is displayed on the
+// unauthenticated status page (GET /).
+var version = "dev"
+
 func main() {
 	err := run()
 	if err != nil {
@@ -129,7 +136,7 @@ func run() error {
 			errPartialBackupCredentials, getEnv("BACKUP_USER", ""), getEnv("BACKUP_PASS", ""))
 	}
 
-	mux := api.NewRouter(handler, authCfg, limiter)
+	mux := api.NewRouter(handler, authCfg, limiter, version)
 
 	// Timeouts: this is an upload server that streams potentially large
 	// photo/video files via PATCH /uploads/:id/data. A fixed ReadTimeout or

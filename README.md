@@ -64,6 +64,12 @@ A single static Go binary. Easiest path: Docker Compose.
 
 This runs the server plus Caddy with automatic HTTPS (Let's Encrypt). Point the macOS app's Settings at `https://backup.example.com` with the same credentials.
 
+Running on a NAS/home-server platform that already terminates TLS for you
+(Umbrel, ZimaOS, TrueNAS, Unraid)? Use
+[`docker-compose.prebuilt.yml`](server/docker-compose.prebuilt.yml) instead —
+just the FilesNest server pulled from GHCR, no Caddy, no host port 80/443,
+listening on `8080` for the platform's own reverse proxy.
+
 No public domain, bare-metal install, and full config reference: [`server/README.md`](server/README.md).
 
 ## How it works
