@@ -12,10 +12,11 @@ import (
 	"net/http"
 )
 
-// assets bundles the page template and the two pre-sized icon PNGs into the
-// binary. favicon.png is the 32px app icon; logo.png is the 128px one.
+// assets bundles the page template and its images into the binary.
+// favicon.png is the 32px app icon; logo.png is the 128px one; screenshot.png
+// is a cropped macOS menu-bar screenshot showing the client mid-sync.
 //
-//go:embed status.html favicon.png logo.png
+//go:embed status.html favicon.png logo.png screenshot.png
 var assets embed.FS
 
 // tmpl is parsed once at package init. ParseFS panics on a malformed template,
@@ -32,7 +33,7 @@ var tmpl = template.Must(template.New("status.html").Funcs(template.FuncMap{
 // per-upload or credential data.
 type Data struct {
 	Version      string // e.g. "0.3.1" or "dev" — no "v" prefix
-	Address      string // r.Host, e.g. "backup.example.com" or "192.168.1.50:8080"
+	Address      string // scheme + r.Host, e.g. "https://backup.example.com" or "http://192.168.1.50:8080"
 	AuthDisabled bool
 }
 

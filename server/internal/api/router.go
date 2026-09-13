@@ -44,7 +44,7 @@ func NewRouter(handler *Handler, authCfg AuthConfig, limiter *ConcurrencyLimiter
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		err := statuspage.Render(w, statuspage.Data{
 			Version:      version,
-			Address:      r.Host,
+			Address:      requestScheme(r) + "://" + r.Host,
 			AuthDisabled: authCfg.Username == "" && authCfg.Password == "",
 		})
 		if err != nil {
@@ -138,6 +138,23 @@ func requestLogMiddleware(next http.Handler) http.Handler {
 
 		log.Printf(level+"%s %s %d %s", strconv.Quote(r.Method), strconv.Quote(r.URL.Path), lrw.statusCode, duration)
 	})
+}
+
+// requestScheme reports the scheme (http or https) the client used to reach
+// this request, for display on the status page. It trusts
+// X-Forwarded-Proto because the status page is a display-only convenience
+// (the value is never used for security decisions) and homeserver platforms
+// typically terminate TLS at a reverse proxy in front of this server.
+func requestScheme(r *http.Request) string {
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		return proto
+	}
+
+	if r.TLS != nil {
+		return "https"
+	}
+
+	return "http"
 }
 
 // loggingResponseWriter wraps http.ResponseWriter to capture the status code

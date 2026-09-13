@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -235,12 +236,51 @@ func TestRouter_StatusPage(t *testing.T) {
 	for _, want := range []string{
 		"FilesNest — Server is running",
 		testRouterVersion,
-		"backup.example.com:8080",
+		"http://backup.example.com:8080",
 		"Authentication disabled",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET / body does not contain %q", want)
 		}
+	}
+}
+
+// TestRouter_StatusPageAddressScheme verifies GET / renders the address with
+// https when the request arrived over TLS or via a reverse proxy that set
+// X-Forwarded-Proto, and defaults to http otherwise.
+func TestRouter_StatusPageAddressScheme(t *testing.T) {
+	tests := []struct {
+		name       string
+		forwarded  string
+		tls        bool
+		wantPrefix string
+	}{
+		{name: "plain http", forwarded: "", tls: false, wantPrefix: "http://"},
+		{name: "TLS connection", forwarded: "", tls: true, wantPrefix: "https://"},
+		{name: "X-Forwarded-Proto https", forwarded: "https", tls: false, wantPrefix: "https://"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router := newRouterForTest(t)
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+			req.Host = "backup.example.com:8080"
+			if tt.forwarded != "" {
+				req.Header.Set("X-Forwarded-Proto", tt.forwarded)
+			}
+			if tt.tls {
+				//nolint:exhaustruct // test-only stand-in; only presence of *tls.ConnectionState matters
+				req.TLS = &tls.ConnectionState{}
+			}
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			want := tt.wantPrefix + "backup.example.com:8080"
+			if !strings.Contains(rec.Body.String(), want) {
+				t.Errorf("GET / body does not contain %q", want)
+			}
+		})
 	}
 }
 
