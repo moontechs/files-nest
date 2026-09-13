@@ -267,10 +267,10 @@ docker-compose.prebuilt.yml to ${VERSION}"`.
 - Modify: `.claude/skills/release-server/scripts/build-binaries.sh`
 - Modify: `.claude/skills/release-server/scripts/build-and-push-image.sh`
 
-- [ ] add `-X main.version=${VERSION}` to `build-binaries.sh`'s `go build -ldflags=...` call
-- [ ] add `--build-arg VERSION=${VERSION}` to `build-and-push-image.sh`'s `docker buildx build` invocation
-- [ ] manually verify both scripts still run cleanly against a throwaway version string in a dry run (or code-review the diff carefully if a full multi-arch push isn't practical to test locally) — no automated test exists or is warranted for these release shell scripts, consistent with the rest of `.claude/skills/release-server` having no test suite
-- [ ] run `cd server && make lint && make test` once more to confirm nothing in `server/` regressed
+- [x] add `-X main.version=${VERSION}` to `build-binaries.sh`'s `go build -ldflags=...` call
+- [x] add `--build-arg VERSION=${VERSION}` to `build-and-push-image.sh`'s `docker buildx build` invocation
+- [x] manually verify both scripts still run cleanly against a throwaway version string in a dry run (build-binaries.sh ran for real with `9.9.9-test` — binary confirmed to contain the injected string; build-and-push-image.sh verified by `bash -n` + careful diff review since a full multi-arch push isn't practical locally — no docker daemon in this environment) — no automated test exists or is warranted for these release shell scripts, consistent with the rest of `.claude/skills/release-server` having no test suite
+- [x] run `cd server && make lint && make test` once more to confirm nothing in `server/` regressed
 
 ### Task 6: New `docker-compose.prebuilt.yml`
 

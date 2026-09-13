@@ -25,8 +25,10 @@ build() {
   mkdir -p "$outdir"
   (
     cd "$SERVER_DIR"
+    # Inject the tagged version into main.version so the status page shows
+    # the real release version instead of "dev".
     CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
-      go build -trimpath -ldflags="-s -w" -o "$outdir/server" .
+      go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "$outdir/server" .
   )
   cp "$SERVER_DIR/README.md" "$outdir/" 2>/dev/null || true
 

@@ -26,6 +26,7 @@ docker buildx build \
   --platform linux/amd64,linux/arm64 \
   --tag "${IMAGE}:${VERSION}" \
   --tag "${IMAGE}:latest" \
+  --build-arg VERSION="${VERSION}" \
   --push \
   "$SERVER_DIR"
 
