@@ -21,7 +21,7 @@ services:
   # FilesNest Go Server
   # ---------------------------------------------------------------------------
   server:
-    image: ghcr.io/moontechs/files-nest:0.4.1
+    image: ghcr.io/moontechs/files-nest:0.4.3
     restart: unless-stopped
     environment:
       - BACKUP_USER=${BACKUP_USER}
